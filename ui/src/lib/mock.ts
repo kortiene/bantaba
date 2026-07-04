@@ -1,0 +1,745 @@
+// In-memory fixture client for VITE_MOCK=1: the whole app runs with no
+// daemon. Implements the same `Client` surface as WsClient and answers every
+// PROTOCOL.md method from fixtures that echo the design mockups.
+//
+// `?mock=fresh` starts with no identity and no rooms so the onboarding flow
+// can be exercised in mock mode too.
+
+import type {
+  Client,
+  ConnectionState,
+  DaemonStatus,
+  FileEntry,
+  Identity,
+  Member,
+  MethodMap,
+  MethodName,
+  PeerStatus,
+  PipeEntry,
+  PushMap,
+  PushName,
+  Role,
+  RoomSummary,
+  TimelineEvent,
+  TimelineKind,
+} from './protocol';
+import { RequestError } from './protocol';
+import { suggestedNames } from './names';
+
+// -- deterministic ids -------------------------------------------------------
+
+function hex(seed: string, len: number): string {
+  // Absorb the whole seed, then squeeze — distinct seeds give distinct ids.
+  let h1 = 2166136261 >>> 0;
+  let h2 = 0x9e3779b9 >>> 0;
+  for (let i = 0; i < seed.length; i++) {
+    const c = seed.charCodeAt(i);
+    h1 = Math.imul(h1 ^ c, 16777619) >>> 0;
+    h2 = (Math.imul(h2 ^ c, 2246822519) + 0x9e3779b9) >>> 0;
+  }
+  let out = '';
+  let i = 0;
+  while (out.length < len) {
+    h1 = Math.imul(h1 ^ (h2 >>> 13) ^ i, 16777619) >>> 0;
+    h2 = (Math.imul(h2 ^ (h1 >>> 11), 2246822519) + i) >>> 0;
+    out += ((h1 ^ h2) >>> 0).toString(16).padStart(8, '0');
+    i += 1;
+  }
+  return out.slice(0, len);
+}
+
+const BASE32 = 'abcdefghijklmnopqrstuvwxyz234567';
+
+function base32ish(seed: string, len: number): string {
+  const h = hex(seed, len * 2);
+  let out = '';
+  for (let i = 0; i < len; i++) {
+    out += BASE32[parseInt(h.slice(i * 2, i * 2 + 2), 16) % 32];
+  }
+  return out;
+}
+
+/** ms epoch for today at h:m local time */
+function at(h: number, m: number, s = 0): number {
+  const d = new Date();
+  d.setHours(h, m, s, 0);
+  return d.getTime();
+}
+
+// -- people ------------------------------------------------------------------
+
+interface Person {
+  id: string;
+  dev: string;
+  ep: string;
+  role: Role;
+  name: string;
+}
+
+function person(seed: string, role: Role, name: string): Person {
+  return {
+    id: hex(`${seed}-identity`, 64),
+    dev: hex(`${seed}-device`, 64),
+    ep: hex(`${seed}-endpoint`, 64),
+    role,
+    name,
+  };
+}
+
+const ALEX = person('alex', 'owner', 'Alex K.');
+const MAYA = person('maya', 'member', 'Maya R.');
+const SAM = person('sam', 'member', 'Sam D.');
+const BACKEND = person('backend-agent', 'agent', 'Backend Agent');
+const FRONTEND = person('frontend-agent', 'agent', 'Frontend Agent');
+const QA = person('qa-agent', 'agent', 'QA Agent');
+
+const EVERYONE = [ALEX, MAYA, SAM, BACKEND, FRONTEND, QA];
+
+// -- room fixture ------------------------------------------------------------
+
+interface MockRoom {
+  room_id: string;
+  name: string;
+  myRole: Role;
+  members: Member[];
+  timeline: TimelineEvent[];
+  files: FileEntry[];
+  pipes: PipeEntry[];
+  peers: PeerStatus[];
+  open: boolean;
+  timers: number[];
+  simulated: boolean;
+}
+
+let eventSeq = 0;
+
+function ev(
+  room_id: string,
+  ts: number,
+  sender: Person,
+  kind: TimelineKind,
+  extra: Partial<TimelineEvent> = {},
+): TimelineEvent {
+  eventSeq += 1;
+  return {
+    event_id: hex(`${room_id}:${kind}:${eventSeq}`, 64),
+    room_id,
+    ts,
+    sender: { identity_id: sender.id, device_id: sender.dev, role: sender.role },
+    kind,
+    ...extra,
+  };
+}
+
+const fid = (seed: string) => `file_${hex(seed, 32)}`;
+const pid = (seed: string) => hex(seed, 32);
+
+const MAIN_ID = `blake3:${hex('room-build-iroh-rooms-mvp', 64)}`;
+
+const F_RELEASE = fid('release-notes.txt');
+const F_PROTOCOL = fid('room-protocol.md');
+const F_WIREFRAME = fid('wireframe.png');
+const F_PRD = fid('PRD_v0.2.pdf');
+const F_REPORT = fid('test-report.json');
+
+const PIPE_PREVIEW = pid('pipe-frontend-preview');
+const PIPE_LOGS = pid('pipe-logs-stream');
+
+function member(p: Person, status = 'active'): Member {
+  return { identity_id: p.id, role: p.role, status };
+}
+
+function buildMainRoom(): MockRoom {
+  const r = MAIN_ID;
+  const timeline: TimelineEvent[] = [
+    ev(r, at(8, 45), ALEX, 'room_created'),
+    ev(r, at(8, 50), MAYA, 'member_joined', { member: { identity_id: MAYA.id, role: 'member' } }),
+    ev(r, at(8, 52), SAM, 'member_joined', { member: { identity_id: SAM.id, role: 'member' } }),
+    ev(r, at(8, 54), BACKEND, 'member_joined', { member: { identity_id: BACKEND.id, role: 'agent' } }),
+    ev(r, at(8, 55), FRONTEND, 'member_joined', { member: { identity_id: FRONTEND.id, role: 'agent' } }),
+    ev(r, at(8, 56), QA, 'member_joined', { member: { identity_id: QA.id, role: 'agent' } }),
+    ev(r, at(8, 58), BACKEND, 'file_shared', {
+      file: { file_id: F_RELEASE, name: 'release-notes.txt', size: 8 * 1024, mime: 'text/plain' },
+    }),
+    ev(r, at(9, 12), ALEX, 'file_shared', {
+      file: { file_id: F_PROTOCOL, name: 'room-protocol.md', size: 12 * 1024, mime: 'text/markdown' },
+    }),
+    ev(r, at(9, 48), SAM, 'file_shared', {
+      file: { file_id: F_WIREFRAME, name: 'wireframe.png', size: 320 * 1024, mime: 'image/png' },
+    }),
+    ev(r, at(10, 2), ALEX, 'message', {
+      body: 'Kicked off the rooms protocol spec and initial backend scaffolding. Next up: agent orchestration + pipe manager.',
+    }),
+    ev(r, at(10, 15), BACKEND, 'agent_status', {
+      label: 'running_tests',
+      status_message:
+        'Implemented room invite flow, peer discovery, and file manifest sync. Running integration tests…',
+      progress: 60,
+    }),
+    ev(r, at(10, 20), BACKEND, 'pipe_opened', {
+      pipe: { pipe_id: PIPE_LOGS, target: '127.0.0.1:4000', authorized_peer: ALEX.id },
+    }),
+    ev(r, at(10, 28), MAYA, 'message', {
+      body: "Here's the updated PRD with rooms, pipes, and agent runtime.",
+    }),
+    ev(r, at(10, 28, 20), MAYA, 'file_shared', {
+      file: { file_id: F_PRD, name: 'PRD_v0.2.pdf', size: 1887437, mime: 'application/pdf' },
+    }),
+    ev(r, at(10, 34), FRONTEND, 'agent_status', {
+      label: 'preview_ready',
+      status_message: 'UI scaffold is up with live data. Exposed preview on a pipe.',
+    }),
+    ev(r, at(10, 34, 30), FRONTEND, 'pipe_opened', {
+      pipe: { pipe_id: PIPE_PREVIEW, target: '127.0.0.1:3000', authorized_peer: ALEX.id },
+    }),
+    ev(r, at(10, 45), QA, 'agent_status', {
+      label: 'awaiting_review',
+      status_message: 'Completed test suite v1. Summary attached.',
+      artifacts: [F_REPORT],
+    }),
+    ev(r, at(10, 45, 30), QA, 'file_shared', {
+      file: { file_id: F_REPORT, name: 'test-report.json', size: 85 * 1024, mime: 'application/json' },
+    }),
+  ];
+
+  const files: FileEntry[] = [
+    { file_id: F_RELEASE, name: 'release-notes.txt', size: 8 * 1024, mime: 'text/plain', sender_id: BACKEND.id, ts: at(8, 58), available: false, providers: 1 },
+    { file_id: F_PROTOCOL, name: 'room-protocol.md', size: 12 * 1024, mime: 'text/markdown', sender_id: ALEX.id, ts: at(9, 12), available: true, providers: 3 },
+    { file_id: F_WIREFRAME, name: 'wireframe.png', size: 320 * 1024, mime: 'image/png', sender_id: SAM.id, ts: at(9, 48), available: true, providers: 2 },
+    { file_id: F_PRD, name: 'PRD_v0.2.pdf', size: 1887437, mime: 'application/pdf', sender_id: MAYA.id, ts: at(10, 28), available: true, providers: 4 },
+    { file_id: F_REPORT, name: 'test-report.json', size: 85 * 1024, mime: 'application/json', sender_id: QA.id, ts: at(10, 45), available: true, providers: 2 },
+  ];
+
+  const pipes: PipeEntry[] = [
+    { pipe_id: PIPE_PREVIEW, target: '127.0.0.1:3000', opened_by: FRONTEND.id, authorized_peer: ALEX.id, state: 'open', connected: true },
+    { pipe_id: PIPE_LOGS, target: '127.0.0.1:4000', opened_by: BACKEND.id, authorized_peer: ALEX.id, state: 'open', connected: false },
+  ];
+
+  const peers: PeerStatus[] = [
+    { endpoint_id: MAYA.ep, state: 'connected', path: 'direct' },
+    { endpoint_id: SAM.ep, state: 'connected', path: 'relay' },
+    { endpoint_id: BACKEND.ep, state: 'connected', path: 'direct' },
+    { endpoint_id: FRONTEND.ep, state: 'connected', path: 'direct' },
+    { endpoint_id: QA.ep, state: 'offline', path: null },
+  ];
+
+  return {
+    room_id: r,
+    name: 'Build Iroh Rooms MVP',
+    myRole: 'owner',
+    members: EVERYONE.map((p) => member(p, p === QA ? 'offline' : 'active')),
+    timeline,
+    files,
+    pipes,
+    peers,
+    open: false,
+    timers: [],
+    simulated: false,
+  };
+}
+
+function buildSideRoom(seed: string, name: string, people: Person[], myRole: Role, blurb: string): MockRoom {
+  const r = `blake3:${hex(`room-${seed}`, 64)}`;
+  const owner = people[0];
+  const timeline: TimelineEvent[] = [
+    ev(r, at(8, 30), owner, 'room_created'),
+    ...people.slice(1).map((p, i) =>
+      ev(r, at(8, 32 + i), p, 'member_joined', { member: { identity_id: p.id, role: p.role } }),
+    ),
+    ev(r, at(9, 5), owner, 'message', { body: blurb }),
+  ];
+  return {
+    room_id: r,
+    name,
+    myRole,
+    members: people.map((p) => member(p)),
+    timeline,
+    files: [],
+    pipes: [],
+    peers: people
+      .filter((p) => p.id !== ALEX.id)
+      .map((p) => ({ endpoint_id: p.ep, state: 'connected' as const, path: 'direct' as const })),
+    open: false,
+    timers: [],
+    simulated: false,
+  };
+}
+
+// -- the client --------------------------------------------------------------
+
+class MockClient implements Client {
+  private state: ConnectionState = 'disconnected';
+  private stateHandlers = new Set<(s: ConnectionState) => void>();
+  private pushHandlers: { [P in PushName]: Set<(data: PushMap[P]) => void> } = {
+    'room.event': new Set(),
+    'peers.changed': new Set(),
+  };
+  private identity: Identity | null;
+  private rooms = new Map<string, MockRoom>();
+  private portSeq = 41732;
+  private startTimer: number | null = null;
+
+  constructor(fresh: boolean) {
+    for (const p of EVERYONE) suggestedNames[p.id] = p.name;
+    if (fresh) {
+      this.identity = null;
+    } else {
+      this.identity = { identity_id: ALEX.id, device_id: ALEX.dev };
+      const main = buildMainRoom();
+      this.rooms.set(main.room_id, main);
+      const workspace = buildSideRoom(
+        'agent-workspace',
+        'Agent Workspace',
+        [ALEX, BACKEND, FRONTEND, QA],
+        'owner',
+        'Scratch room for agent runs. Post statuses here.',
+      );
+      const review = buildSideRoom(
+        'product-review',
+        'Product Review',
+        [MAYA, ALEX, SAM, BACKEND, QA],
+        'member',
+        'Weekly product review — drop artifacts before Friday.',
+      );
+      const design = buildSideRoom(
+        'design-system',
+        'Design System',
+        [SAM, ALEX, MAYA, FRONTEND],
+        'member',
+        'Tokens v2 exploration lives here.',
+      );
+      for (const room of [workspace, review, design]) this.rooms.set(room.room_id, room);
+    }
+  }
+
+  describe(): string {
+    return 'mock fixtures (VITE_MOCK=1) — no daemon';
+  }
+
+  start(): void {
+    this.setState('connecting');
+    this.startTimer = window.setTimeout(() => this.setState('connected'), 200);
+  }
+
+  stop(): void {
+    if (this.startTimer !== null) window.clearTimeout(this.startTimer);
+    for (const room of this.rooms.values()) {
+      for (const t of room.timers) window.clearTimeout(t);
+      room.timers = [];
+    }
+    this.setState('disconnected');
+  }
+
+  getState(): ConnectionState {
+    return this.state;
+  }
+
+  onState(handler: (s: ConnectionState) => void): () => void {
+    this.stateHandlers.add(handler);
+    return () => this.stateHandlers.delete(handler);
+  }
+
+  on<P extends PushName>(push: P, handler: (data: PushMap[P]) => void): () => void {
+    const set = this.pushHandlers[push] as Set<(data: PushMap[P]) => void>;
+    set.add(handler);
+    return () => set.delete(handler);
+  }
+
+  call<M extends MethodName>(method: M, params: MethodMap[M]['params']): Promise<MethodMap[M]['result']> {
+    return new Promise((resolve, reject) => {
+      window.setTimeout(() => {
+        try {
+          resolve(this.dispatch(method, params) as MethodMap[M]['result']);
+        } catch (e) {
+          reject(e);
+        }
+      }, 60 + Math.random() * 120);
+    });
+  }
+
+  // -- internals -------------------------------------------------------------
+
+  private setState(state: ConnectionState): void {
+    if (this.state === state) return;
+    this.state = state;
+    for (const handler of this.stateHandlers) handler(state);
+  }
+
+  private emit<P extends PushName>(push: P, data: PushMap[P]): void {
+    for (const handler of this.pushHandlers[push]) handler(data);
+  }
+
+  private err(code: string, message: string, hint: string | null = null): never {
+    throw new RequestError({ code, message, hint });
+  }
+
+  private needIdentity(): Identity {
+    if (!this.identity) this.err('identity_missing', 'no identity on this daemon', 'run identity.create first');
+    return this.identity;
+  }
+
+  private needRoom(room_id: unknown): MockRoom {
+    if (typeof room_id !== 'string' || !room_id) {
+      this.err('invalid_params', 'room_id is required', null);
+    }
+    const room = this.rooms.get(room_id);
+    if (!room) this.err('room_unknown', `no room ${room_id.slice(0, 18)}… on this daemon`, 'room.list shows known rooms');
+    return room;
+  }
+
+  private needOpenRoom(room_id: unknown): MockRoom {
+    const room = this.needRoom(room_id);
+    if (!room.open) this.err('room_not_open', `room "${room.name}" is not open`, 'call room.open first');
+    return room;
+  }
+
+  private me(room: MockRoom): Person {
+    const identity = this.needIdentity();
+    const existing = EVERYONE.find((p) => p.id === identity.identity_id);
+    const role = room.members.find((m) => m.identity_id === identity.identity_id)?.role ?? room.myRole;
+    return existing
+      ? { ...existing, role }
+      : { id: identity.identity_id, dev: identity.device_id, ep: hex('self-endpoint', 64), role, name: 'You' };
+  }
+
+  /** Append + push (exactly once per event; pushes flow only for open rooms). */
+  private ingest(room: MockRoom, event: TimelineEvent): void {
+    room.timeline.push(event);
+    if (room.open) {
+      window.setTimeout(() => this.emit('room.event', { room_id: room.room_id, event }), 30);
+    }
+  }
+
+  private pushPeers(room: MockRoom): void {
+    if (room.open) this.emit('peers.changed', { room_id: room.room_id, peers: [...room.peers] });
+  }
+
+  private summary(room: MockRoom): RoomSummary {
+    return {
+      room_id: room.room_id,
+      name: room.name,
+      role: room.myRole,
+      member_count: room.members.length,
+      open: room.open,
+    };
+  }
+
+  private endpointAddr(): string {
+    return `${hex('self-endpoint', 64)}@127.0.0.1:52731`;
+  }
+
+  /** Live-update demo: only for the MVP room, only once per open. */
+  private simulate(room: MockRoom): void {
+    if (room.room_id !== MAIN_ID || room.simulated) return;
+    room.simulated = true;
+    const later = (ms: number, fn: () => void) => {
+      room.timers.push(window.setTimeout(() => { if (room.open) fn(); }, ms));
+    };
+    later(6_000, () => {
+      this.ingest(room, ev(room.room_id, Date.now(), BACKEND, 'agent_status', {
+        label: 'running_tests',
+        status_message: 'Integration tests passing (17/24). Sync convergence suite up next.',
+        progress: 72,
+      }));
+    });
+    later(13_000, () => {
+      room.peers = room.peers.map((p) => (p.endpoint_id === QA.ep ? { ...p, state: 'connecting' as const, path: null } : p));
+      this.pushPeers(room);
+    });
+    later(19_000, () => {
+      room.peers = room.peers.map((p) => (p.endpoint_id === QA.ep ? { ...p, state: 'connected' as const, path: 'relay' as const } : p));
+      this.pushPeers(room);
+      room.members = room.members.map((m) => (m.identity_id === QA.id ? { ...m, status: 'active' } : m));
+    });
+    later(26_000, () => {
+      this.ingest(room, ev(room.room_id, Date.now(), BACKEND, 'agent_status', {
+        label: 'tests_passed',
+        status_message: 'All 24 integration tests passing. Ready for review.',
+        progress: 100,
+      }));
+    });
+  }
+
+  private dispatch(method: MethodName, params: unknown): unknown {
+    switch (method) {
+      case 'daemon.status': {
+        const status: DaemonStatus = {
+          version: '0.1.0-mock',
+          mode: 'loopback',
+          identity: this.identity,
+          endpoint: this.identity
+            ? { endpoint_id: hex('self-endpoint', 64), addr: this.endpointAddr(), relay_url: null }
+            : null,
+          rooms_open: [...this.rooms.values()].filter((r) => r.open).map((r) => r.room_id),
+        };
+        return status;
+      }
+
+      case 'identity.create': {
+        if (this.identity) {
+          this.err('identity_exists', 'an identity already exists on this daemon', 'use daemon.status to read it');
+        }
+        this.identity = { identity_id: ALEX.id, device_id: ALEX.dev };
+        return this.identity;
+      }
+
+      case 'room.create': {
+        const p = params as MethodMap['room.create']['params'];
+        this.needIdentity();
+        if (!p.name || !p.name.trim()) this.err('invalid_params', 'room name must not be empty', null);
+        const room_id = `blake3:${hex(`room-${p.name}-${Date.now()}`, 64)}`;
+        const me = { ...ALEX, id: this.needIdentity().identity_id, dev: this.needIdentity().device_id };
+        const room: MockRoom = {
+          room_id,
+          name: p.name.trim(),
+          myRole: 'owner',
+          members: [{ identity_id: me.id, role: 'owner', status: 'active' }],
+          timeline: [ev(room_id, Date.now(), { ...me, role: 'owner' }, 'room_created')],
+          files: [],
+          pipes: [],
+          peers: [],
+          open: false,
+          timers: [],
+          simulated: false,
+        };
+        this.rooms.set(room_id, room);
+        return { room_id };
+      }
+
+      case 'room.list': {
+        this.needIdentity();
+        return { rooms: [...this.rooms.values()].map((r) => this.summary(r)) };
+      }
+
+      case 'room.open': {
+        const room = this.needRoom((params as MethodMap['room.open']['params']).room_id);
+        room.open = true;
+        this.simulate(room);
+        return {
+          endpoint: { endpoint_id: hex('self-endpoint', 64), addr: this.endpointAddr() },
+          members: [...room.members],
+          timeline: [...room.timeline].sort((a, b) => a.ts - b.ts),
+        };
+      }
+
+      case 'room.close': {
+        const room = this.needRoom((params as MethodMap['room.close']['params']).room_id);
+        room.open = false;
+        room.simulated = false;
+        for (const t of room.timers) window.clearTimeout(t);
+        room.timers = [];
+        return {};
+      }
+
+      case 'room.timeline': {
+        const p = params as MethodMap['room.timeline']['params'];
+        const room = this.needRoom(p.room_id);
+        const events = [...room.timeline].sort((a, b) => a.ts - b.ts);
+        return { events: p.limit ? events.slice(-p.limit) : events };
+      }
+
+      case 'room.members': {
+        const room = this.needRoom((params as MethodMap['room.members']['params']).room_id);
+        return { members: [...room.members] };
+      }
+
+      case 'invite.create': {
+        const p = params as MethodMap['invite.create']['params'];
+        const room = this.needOpenRoom(p.room_id);
+        if (!p.identity_id || !/^[0-9a-f]{16,}$/i.test(p.identity_id.trim())) {
+          this.err('invalid_params', 'identity_id must be the invitee\'s hex identity id', 'ask the invitee to run daemon.status and send you their identity_id');
+        }
+        const me = this.me(room);
+        this.ingest(room, ev(room.room_id, Date.now(), me, 'member_invited', {
+          member: { identity_id: p.identity_id.trim(), role: p.role },
+        }));
+        const ticket = `roomtkt1${base32ish(`${room.room_id}:${p.identity_id}:${Date.now()}`, 96)}`;
+        return { ticket };
+      }
+
+      case 'room.join': {
+        const p = params as MethodMap['room.join']['params'];
+        this.needIdentity();
+        const ticket = (p.ticket ?? '').trim();
+        if (!ticket.startsWith('roomtkt1') || ticket.length < 24) {
+          this.err('bad_ticket', 'ticket is not a valid roomtkt1 token', 'ask the inviter for a fresh ticket');
+        }
+        const room_id = `blake3:${hex(`joined-${ticket}`, 64)}`;
+        if (!this.rooms.has(room_id)) {
+          const name = p.name?.trim() || 'Joined Room';
+          const identity = this.needIdentity();
+          const room: MockRoom = {
+            room_id,
+            name,
+            myRole: 'member',
+            members: [member(MAYA), { identity_id: identity.identity_id, role: 'member', status: 'active' }],
+            timeline: [
+              ev(room_id, Date.now() - 60_000, MAYA, 'room_created'),
+              ev(room_id, Date.now(), { ...ALEX, id: identity.identity_id, dev: identity.device_id, role: 'member' }, 'member_joined', {
+                member: { identity_id: identity.identity_id, role: 'member' },
+              }),
+            ],
+            files: [],
+            pipes: [],
+            peers: [{ endpoint_id: MAYA.ep, state: 'connected', path: p.peers?.length ? 'direct' : 'relay' }],
+            open: false,
+            timers: [],
+            simulated: false,
+          };
+          this.rooms.set(room_id, room);
+        }
+        return { room_id };
+      }
+
+      case 'message.send': {
+        const p = params as MethodMap['message.send']['params'];
+        const room = this.needOpenRoom(p.room_id);
+        if (!p.body || !p.body.trim()) this.err('invalid_params', 'message body must not be empty', null);
+        const event = ev(room.room_id, Date.now(), this.me(room), 'message', { body: p.body });
+        this.ingest(room, event);
+        return { event_id: event.event_id };
+      }
+
+      case 'status.post': {
+        const p = params as MethodMap['status.post']['params'];
+        const room = this.needOpenRoom(p.room_id);
+        if (!p.label) this.err('invalid_params', 'label is required', null);
+        const event = ev(room.room_id, Date.now(), this.me(room), 'agent_status', {
+          label: p.label,
+          ...(p.message !== undefined ? { status_message: p.message } : {}),
+          ...(p.progress !== undefined ? { progress: p.progress } : {}),
+          ...(p.artifacts !== undefined ? { artifacts: p.artifacts } : {}),
+        });
+        this.ingest(room, event);
+        return { event_id: event.event_id };
+      }
+
+      case 'file.share': {
+        const p = params as MethodMap['file.share']['params'];
+        const room = this.needOpenRoom(p.room_id);
+        if (!p.path || !p.path.trim()) this.err('invalid_params', 'path is required', null);
+        const path = p.path.trim();
+        const name = p.name?.trim() || path.split('/').pop() || path;
+        const mimeByExt: Record<string, string> = {
+          pdf: 'application/pdf', md: 'text/markdown', txt: 'text/plain',
+          json: 'application/json', png: 'image/png', jpg: 'image/jpeg',
+        };
+        const ext = name.includes('.') ? name.slice(name.lastIndexOf('.') + 1).toLowerCase() : '';
+        const mime = p.mime ?? mimeByExt[ext] ?? 'application/octet-stream';
+        const size = 24_000 + (path.length * 137) % 900_000;
+        const file_id = fid(`${path}-${Date.now()}`);
+        const now = Date.now();
+        room.files.push({
+          file_id, name, size, mime,
+          sender_id: this.needIdentity().identity_id,
+          ts: now, available: true, providers: 1,
+        });
+        const event = ev(room.room_id, now, this.me(room), 'file_shared', {
+          file: { file_id, name, size, mime },
+        });
+        this.ingest(room, event);
+        return { file_id, event_id: event.event_id };
+      }
+
+      case 'file.list': {
+        const room = this.needRoom((params as MethodMap['file.list']['params']).room_id);
+        return { files: [...room.files] };
+      }
+
+      case 'file.fetch': {
+        const p = params as MethodMap['file.fetch']['params'];
+        const room = this.needOpenRoom(p.room_id);
+        const file = room.files.find((f) => f.file_id === p.file_id);
+        if (!file) this.err('file_unavailable', 'unknown file_id for this room', 'file.list shows shareable files');
+        // Simulate the transfer: resolve/reject after a delay.
+        return new Promise((resolve, reject) => {
+          window.setTimeout(() => {
+            if (!file.available) {
+              reject(new RequestError({
+                code: 'file_unavailable',
+                message: 'no connected peer is currently providing these bytes',
+                hint: `providers seen: ${file.providers} (offline) — retry when the sender is online`,
+              }));
+              return;
+            }
+            const dir = p.save_dir ?? '~/Downloads/Bantaba';
+            resolve({ path: `${dir}/${file.name}`, bytes: file.size, verified: true as const });
+          }, 900 + Math.random() * 500);
+        });
+      }
+
+      case 'pipe.expose': {
+        const p = params as MethodMap['pipe.expose']['params'];
+        const room = this.needOpenRoom(p.room_id);
+        if (!p.target || !/^[\w.-]+:\d+$/.test(p.target.trim())) {
+          this.err('invalid_params', 'target must look like 127.0.0.1:3000', null);
+        }
+        if (!p.peer_identity) {
+          this.err('invalid_params', 'peer_identity is required — a pipe has exactly one authorized peer', null);
+        }
+        const pipe_id = pid(`pipe-${p.target}-${Date.now()}`);
+        const me = this.me(room);
+        room.pipes.push({
+          pipe_id,
+          target: p.target.trim(),
+          opened_by: me.id,
+          authorized_peer: p.peer_identity,
+          state: 'open',
+          connected: false,
+        });
+        const event = ev(room.room_id, Date.now(), me, 'pipe_opened', {
+          pipe: { pipe_id, target: p.target.trim(), authorized_peer: p.peer_identity },
+        });
+        this.ingest(room, event);
+        return { pipe_id, event_id: event.event_id };
+      }
+
+      case 'pipe.list': {
+        const room = this.needRoom((params as MethodMap['pipe.list']['params']).room_id);
+        return { pipes: [...room.pipes] };
+      }
+
+      case 'pipe.connect': {
+        const p = params as MethodMap['pipe.connect']['params'];
+        const room = this.needOpenRoom(p.room_id);
+        const pipe = room.pipes.find((x) => x.pipe_id === p.pipe_id);
+        if (!pipe) this.err('pipe_denied', 'unknown pipe for this room', 'pipe.list shows live pipes');
+        if (pipe.state === 'closed') this.err('pipe_denied', 'pipe is closed', 'ask the owner to expose it again');
+        const myId = this.needIdentity().identity_id;
+        if (pipe.authorized_peer !== myId && pipe.opened_by !== myId) {
+          this.err('pipe_denied', 'you are not the authorized peer for this pipe', null);
+        }
+        pipe.connected = true;
+        this.portSeq += 1;
+        return { local_addr: `127.0.0.1:${this.portSeq}` };
+      }
+
+      case 'pipe.close': {
+        const p = params as MethodMap['pipe.close']['params'];
+        const room = this.needOpenRoom(p.room_id);
+        const pipe = room.pipes.find((x) => x.pipe_id === p.pipe_id);
+        if (!pipe) this.err('pipe_denied', 'unknown pipe for this room', 'pipe.list shows live pipes');
+        pipe.state = 'closed';
+        pipe.connected = false;
+        const event = ev(room.room_id, Date.now(), this.me(room), 'pipe_closed', {
+          pipe: { pipe_id: pipe.pipe_id, target: pipe.target, authorized_peer: pipe.authorized_peer },
+        });
+        this.ingest(room, event);
+        return { event_id: event.event_id };
+      }
+
+      case 'peers.status': {
+        const room = this.needRoom((params as MethodMap['peers.status']['params']).room_id);
+        return { peers: [...room.peers] };
+      }
+
+      default:
+        this.err('invalid_params', `unknown method ${String(method)}`, null);
+    }
+  }
+}
+
+export function createMockClient(): Client {
+  const fresh = new URLSearchParams(window.location.search).get('mock') === 'fresh';
+  return new MockClient(fresh);
+}

@@ -1,0 +1,16 @@
+[workspace]
+members = ["crates/bantaba-core", "crates/bantabad"]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+license = "MIT OR Apache-2.0"
+rust-version = "1.80"
+
+[workspace.dependencies]
+# Pinned to the analyzed developer-preview rev; the local ~/TAC/iroh-room
+# working tree is intentionally NOT used (it drifts).
+iroh-rooms = { git = "https://github.com/kortiene/iroh-room", rev = "1d2f014e783893ffeaea055c436370179a31110a", features = ["experimental"] }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"

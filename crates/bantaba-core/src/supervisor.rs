@@ -1,0 +1,2504 @@
+//! `RoomSupervisor` — the daemon's map of `room_id -> open RoomSession`, plus
+//! every room flow `bantabad` exposes over the protocol.
+//!
+//! A [`RoomSession`] owns one experimental SDK [`Node`] (one node per open
+//! room, spawned via `Node::spawn_room` exactly the way the reference CLI's
+//! `room tail` spawns its long-running session), its [`SyncEngine`] over the
+//! shared persistent SQLite [`EventStore`] (`<data-dir>/rooms.db`), and blob
+//! serving (`BlobServeConfig` on a per-room blobs dir) so shared files stay
+//! fetchable while the room is open.
+//!
+//! Offline flows (create/invite/list/timeline/members and the join bootstrap)
+//! mirror the reference CLI's `room.rs` / `invite.rs` / `join.rs` modules:
+//! author with the stable-tier builders, self-validate through
+//! `validate_wire_bytes`, fold-check through `RoomMembership::ingest`, then
+//! persist (directly, or through the live node's `publish` when the room is
+//! open so the engine both persists and fans out).
+
+use std::collections::{BTreeSet, HashMap};
+use std::net::SocketAddr;
+use std::path::{Path, PathBuf};
+use std::str::FromStr;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex as StdMutex, MutexGuard};
+use std::time::Duration;
+
+use iroh::{EndpointAddr, EndpointId, SecretKey, TransportAddr};
+use serde_json::{json, Value};
+use tokio::sync::{broadcast, Mutex as TokioMutex};
+
+use iroh_rooms::events::constants::{
+    MAX_ARTIFACT_REFS, MAX_MESSAGE_BODY_BYTES, MAX_PREV_EVENTS, MAX_SHARED_FILE_BYTES,
+    MAX_STATUS_LABEL_BYTES, MAX_STATUS_MESSAGE_BYTES, SHORT_ID_LEN,
+};
+use iroh_rooms::events::{
+    build_agent_status, build_message_text, capability_hash, validate_wire_bytes, Content,
+    EventId, EventType, RejectReason, SignedEvent, ValidationContext, WireEvent,
+};
+use iroh_rooms::experimental::blob::BlobStore;
+use iroh_rooms::experimental::pipe_runtime::{is_loopback_target, PipeError, PipeForwarder};
+use iroh_rooms::experimental::session::{
+    Admission, AdmissionDecision, AdmissionView, AllowlistAdmission, BlobServeConfig, ConnEvent,
+    NetConfig, NetMode, Node, PeerConnState, RejectCause, SnapshotAdmission, TracingAudit,
+    DEFAULT_TICK,
+};
+use iroh_rooms::experimental::store::{EventStore, StoreError, StoredEvent};
+use iroh_rooms::experimental::sync::{SyncConfig, SyncEngine};
+use iroh_rooms::files::build_file_shared;
+use iroh_rooms::identity::{DeviceBinding, DeviceKey, IdentityKey};
+use iroh_rooms::room::{
+    build_member_invited, build_member_joined, build_room_created, derive_room_id, Ingest,
+    MembershipSnapshot, RoomId, RoomInviteTicket, RoomMembership, Status,
+};
+
+use crate::error::{CoreError, CoreResult, ErrorKind};
+use crate::identity::SecretKeys;
+use crate::materializer::{self, bare_event_hex, file_handle, role_label};
+use crate::{localstate, now_ms};
+
+/// The single event-store database file under the data dir (mirrors the CLI).
+pub const DB_FILE: &str = "rooms.db";
+/// Root for the per-room durable blob stores.
+const BLOBS_DIR: &str = "blobs";
+/// Default downloads directory for `file.fetch` when `save_dir` is omitted.
+const DOWNLOADS_DIR: &str = "downloads";
+/// Room-name cap, mirroring the CLI (spec IR-0102 D7).
+const MAX_ROOM_NAME_BYTES: usize = 128;
+/// CSPRNG nonce length seeding `derive_room_id`.
+const ROOM_NONCE_LEN: usize = 16;
+/// Time budget for the join bootstrap (membership pull + active confirm).
+const JOIN_TIMEOUT: Duration = Duration::from_secs(15);
+/// Poll interval for join/bootstrap waits.
+const POLL_INTERVAL: Duration = Duration::from_millis(100);
+/// Grace after a publish so writer queues flush before an ephemeral node
+/// tears down (mirrors the CLI's flush grace).
+const FLUSH_GRACE: Duration = Duration::from_millis(500);
+/// Per-provider connect+transfer budget for `file.fetch`.
+const FETCH_TIMEOUT: Duration = Duration::from_secs(30);
+/// How long `pipe.connect` waits for the `pipe.opened` to sync.
+const PIPE_SYNC_WAIT: Duration = Duration::from_secs(10);
+/// Backoff between attempts to reclaim an owned `Node` for shutdown while an
+/// in-flight network op still borrows the session (see `reclaim_session`).
+const RECLAIM_POLL: Duration = Duration::from_millis(50);
+
+/// One open room: the SDK node (transport + engine + blob serving), the live
+/// connection-event subscription, connector-side pipe forwarders, and the
+/// pushed-event dedupe set.
+///
+/// A session is shared as `Arc<RoomSession>` so a client's long-running network
+/// call (a `file.fetch`, a `pipe.connect`) runs on a cloned handle **without**
+/// holding any supervisor-wide lock — the whole point of the daemon no longer
+/// freezing every client and the push loop on one slow request. All the SDK
+/// `Node` methods take `&self`, so concurrent reads/fetches/publishes share the
+/// one node freely; the mutable session bits sit behind their own small
+/// std mutexes.
+pub struct RoomSession {
+    node: Node,
+    conn_rx: StdMutex<broadcast::Receiver<ConnEvent>>,
+    forwarders: StdMutex<HashMap<[u8; SHORT_ID_LEN], PipeForwarder>>,
+    seen: StdMutex<BTreeSet<EventId>>,
+    /// Live gate for join-bootstrap provisional admission (an unknown device may
+    /// pull the membership sub-DAG). Flipped on so that a stranger can only
+    /// bootstrap while this owner session actually has a pending invite open,
+    /// not for the whole session lifetime.
+    accept_joins: Arc<AtomicBool>,
+    /// Whether this identity is the room owner (fixed for the room's lifetime).
+    is_owner: bool,
+}
+
+/// The daemon's room supervisor: shared data dir + one session per open room.
+///
+/// `sessions` sits behind a *std* mutex that is only ever held for the brief
+/// span of a map lookup/insert/remove — never across an `.await`. Network work
+/// runs on the cloned `Arc<RoomSession>` after the guard is dropped, so no
+/// client request or the push loop can be head-of-line blocked by another
+/// client's slow call. `structural` serializes the three flows that spawn or
+/// tear a node down (`room.open` / `room.close` / `file.share`) so two of them
+/// never race the same room's exclusive blob-store lock; it is deliberately
+/// *not* taken by the message/fetch/pipe/peers/push paths.
+pub struct RoomSupervisor {
+    data_dir: PathBuf,
+    loopback: bool,
+    sessions: StdMutex<HashMap<RoomId, Arc<RoomSession>>>,
+    structural: TokioMutex<()>,
+}
+
+/// A join-bootstrap admission overlay whose provisional-accept flag can be
+/// flipped at runtime.
+///
+/// The SDK's `JoinBootstrapAdmission` bakes `accept_joins` in at construction,
+/// so the reference wiring left provisional admission on for an owner's whole
+/// session — any device that learned the dial address could pull the room's
+/// membership sub-DAG (identity keys, roles, display names) with no invite. This
+/// overlay reads the flag from an `Arc<AtomicBool>` the supervisor drives from
+/// the live pending-invite state instead, so the privacy window is open only
+/// while an invite actually is.
+struct DynamicJoinBootstrap {
+    inner: SnapshotAdmission,
+    accept_joins: Arc<AtomicBool>,
+}
+
+impl Admission for DynamicJoinBootstrap {
+    fn authorize(&self, device: EndpointId) -> AdmissionDecision {
+        match self.inner.authorize(device) {
+            AdmissionDecision::Reject(RejectCause::UnknownDevice)
+                if self.accept_joins.load(Ordering::Relaxed) =>
+            {
+                AdmissionDecision::AdmitProvisional
+            }
+            other => other,
+        }
+    }
+}
+
+fn internal(context: &str, err: impl std::fmt::Display) -> CoreError {
+    CoreError::internal(format!("{context}: {err}"))
+}
+
+/// Whether a store error is a transient SQLITE_BUSY / "database is locked" — a
+/// colliding writer on the shared WAL `rooms.db`, worth a short retry rather
+/// than a hard `internal` failure.
+fn is_sqlite_busy(err: &StoreError) -> bool {
+    matches!(err, StoreError::Sqlite(_)) && {
+        let s = err.to_string().to_ascii_lowercase();
+        s.contains("locked") || s.contains("busy")
+    }
+}
+
+/// Run a store operation, retrying briefly on SQLITE_BUSY.
+///
+/// The daemon opens several writer connections on one shared `rooms.db` (one
+/// per open room's `SyncEngine`, plus transient `create_room` / `create_invite`
+/// inserts). WAL allows a single writer at a time and the SDK opens each
+/// connection with no `busy_timeout`, so a collision would otherwise error
+/// instantly. We retry with a short backoff so an ordinary collision does not
+/// surface as an `internal` error. (The SDK's own pump-side ingest writes are
+/// beyond our reach; a rare drop there is recovered by the peer's re-sync.)
+fn with_busy_retry<T>(
+    context: &str,
+    mut op: impl FnMut() -> Result<T, StoreError>,
+) -> CoreResult<T> {
+    const MAX_ATTEMPTS: u32 = 100;
+    let mut attempt = 0u32;
+    loop {
+        match op() {
+            Ok(value) => return Ok(value),
+            Err(err) if is_sqlite_busy(&err) && attempt < MAX_ATTEMPTS => {
+                attempt += 1;
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            Err(err) => return Err(internal(context, err)),
+        }
+    }
+}
+
+/// Whether the folded membership has any subject still merely `Invited` (an
+/// open invite that has not yet been redeemed) — the condition under which an
+/// owner session legitimately hosts join bootstraps.
+fn any_pending_invite(snapshot: &MembershipSnapshot) -> bool {
+    snapshot.members().any(|m| m.status == Status::Invited)
+}
+
+impl RoomSupervisor {
+    /// Create the supervisor (and the data dir, owner-only).
+    pub fn new(data_dir: PathBuf, loopback: bool) -> CoreResult<Self> {
+        crate::identity::ensure_dir(&data_dir)?;
+        Ok(Self {
+            data_dir,
+            loopback,
+            sessions: StdMutex::new(HashMap::new()),
+            structural: TokioMutex::new(()),
+        })
+    }
+
+    /// Brief lock over the session map. Held only for a map operation, never
+    /// across an `.await`.
+    fn sessions(&self) -> MutexGuard<'_, HashMap<RoomId, Arc<RoomSession>>> {
+        self.sessions.lock().expect("sessions mutex poisoned")
+    }
+
+    /// The resolved data directory.
+    #[must_use]
+    pub fn data_dir(&self) -> &Path {
+        &self.data_dir
+    }
+
+    /// The daemon network mode string for `daemon.status`.
+    #[must_use]
+    pub fn mode(&self) -> &'static str {
+        if self.loopback {
+            "loopback"
+        } else {
+            "real"
+        }
+    }
+
+    /// Room ids of all open sessions (protocol string form).
+    #[must_use]
+    pub fn open_rooms(&self) -> Vec<String> {
+        self.sessions().keys().map(ToString::to_string).collect()
+    }
+
+    /// Room ids of all open sessions (typed, for the push loop).
+    #[must_use]
+    pub fn open_room_ids(&self) -> Vec<RoomId> {
+        self.sessions().keys().copied().collect()
+    }
+
+    /// The `daemon.status` endpoint object (first open session), or `None`
+    /// when no room is open — the daemon has no live node of its own.
+    #[must_use]
+    pub fn status_endpoint(&self) -> Option<Value> {
+        let session = self.sessions().values().next().cloned()?;
+        let node = &session.node;
+        Some(json!({
+            "endpoint_id": node.id().to_string(),
+            "addr": dialable_addr(node),
+            "relay_url": node.relay_url(),
+        }))
+    }
+
+    // ------------------------------------------------------------------
+    // Shared plumbing
+    // ------------------------------------------------------------------
+
+    fn db_path(&self) -> PathBuf {
+        self.data_dir.join(DB_FILE)
+    }
+
+    fn room_blobs_dir(&self, room_id: &RoomId) -> PathBuf {
+        // Per-room stores: the iroh-blobs FsStore lock is exclusive per
+        // directory, so two open rooms must not share one serving store.
+        let hex_part = room_id
+            .to_string()
+            .strip_prefix("blake3:")
+            .map_or_else(|| room_id.to_string(), str::to_owned);
+        self.data_dir.join(BLOBS_DIR).join(hex_part)
+    }
+
+    fn open_store(&self) -> CoreResult<EventStore> {
+        EventStore::open(&self.db_path())
+            .map_err(|e| internal("could not open the event store", e))
+    }
+
+    /// Confine `file.share` to files inside the daemon's data dir, excluding the
+    /// daemon's own blob store and secret/state files.
+    ///
+    /// Without this the daemon is an arbitrary-local-file read primitive: a
+    /// hostile local (or cross-site-WebSocket) client could `file.share` a path
+    /// like `~/.ssh/id_rsa`, importing the bytes as a room blob that any room
+    /// peer can then `file.fetch`. `canonical` must already be canonicalized.
+    fn assert_shareable_path(&self, canonical: &Path) -> CoreResult<()> {
+        let root = std::fs::canonicalize(&self.data_dir)
+            .map_err(|e| internal("could not resolve the data dir", e))?;
+        if !canonical.starts_with(&root) {
+            return Err(CoreError::invalid(format!(
+                "file.share is confined to the daemon data dir; refusing to read {}",
+                canonical.display()
+            ))
+            .with_hint("place the file under the daemon data dir to share it"));
+        }
+        if canonical.starts_with(root.join(BLOBS_DIR)) {
+            return Err(CoreError::invalid(
+                "refusing to share the daemon's internal blob store",
+            ));
+        }
+        let is_reserved_child = canonical.parent() == Some(root.as_path())
+            && canonical
+                .file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|name| {
+                    name == crate::identity::IDENTITY_FILE
+                        || name == crate::identity::SECRET_FILE
+                        || name.starts_with(DB_FILE)
+                        || name.starts_with(localstate::STATE_FILE)
+                });
+        if is_reserved_child {
+            return Err(CoreError::invalid(
+                "refusing to share a daemon secret/state file",
+            )
+            .with_hint("that path holds daemon-private data"));
+        }
+        Ok(())
+    }
+
+    fn secrets(&self) -> CoreResult<SecretKeys> {
+        SecretKeys::load(&self.data_dir)
+    }
+
+    /// A cloned handle to an open room's session (an `Arc`), or `RoomNotOpen`.
+    /// The map lock is released before the caller does any network work.
+    fn session(&self, room_id: &RoomId) -> CoreResult<Arc<RoomSession>> {
+        self.sessions().get(room_id).cloned().ok_or_else(|| {
+            CoreError::new(ErrorKind::RoomNotOpen, format!("room {room_id} is not open"))
+        })
+    }
+
+    /// A cloned handle to an open room's session, if any.
+    fn session_opt(&self, room_id: &RoomId) -> Option<Arc<RoomSession>> {
+        self.sessions().get(room_id).cloned()
+    }
+
+    /// Whether a room currently has an open session.
+    fn is_open(&self, room_id: &RoomId) -> bool {
+        self.sessions().contains_key(room_id)
+    }
+
+    /// Re-fold a room's persisted log (re-validating every stored event), the
+    /// same projection the reference CLI's `fold_room` builds.
+    fn fold(
+        &self,
+        store: &EventStore,
+        room_id: &RoomId,
+    ) -> CoreResult<(RoomMembership, MembershipSnapshot)> {
+        let ids = store
+            .room_event_ids(room_id)
+            .map_err(|e| internal("could not read room events", e))?;
+        if ids.is_empty() {
+            return Err(CoreError::new(
+                ErrorKind::RoomUnknown,
+                format!("no room {room_id} in {}", self.data_dir.display()),
+            ));
+        }
+        let ctx = ValidationContext::for_room(*room_id);
+        let mut validated = Vec::with_capacity(ids.len());
+        for id in &ids {
+            let stored = store
+                .get(id)
+                .map_err(|e| internal("could not read a stored event", e))?
+                .ok_or_else(|| CoreError::internal(format!("stored event {id} vanished")))?;
+            let event = validate_wire_bytes(&stored.wire.to_bytes(), &ctx).map_err(|reason| {
+                CoreError::internal(format!(
+                    "stored event {id} failed re-validation ({})",
+                    reason.code()
+                ))
+            })?;
+            validated.push(event);
+        }
+        let membership = RoomMembership::from_events(*room_id, validated);
+        let snapshot = membership.snapshot();
+        Ok((membership, snapshot))
+    }
+
+    /// Current DAG heads for `prev_events` from the live engine, truncated
+    /// deterministically to the protocol bound.
+    async fn node_heads(node: &Node) -> CoreResult<Vec<EventId>> {
+        let mut heads = node
+            .heads()
+            .await
+            .map_err(|e| internal("could not read the room heads", e))?;
+        heads.truncate(MAX_PREV_EVENTS);
+        Ok(heads)
+    }
+
+    /// Self-validate a freshly authored wire event and publish it through the
+    /// open session's node (the engine persists it and fans it out).
+    async fn publish_authored(
+        node: &Node,
+        room_id: &RoomId,
+        wire: &WireEvent,
+    ) -> CoreResult<EventId> {
+        let bytes = wire.to_bytes();
+        let validated = validate_wire_bytes(&bytes, &ValidationContext::for_room(*room_id))
+            .map_err(|reason| {
+                CoreError::internal(format!(
+                    "freshly built event failed validation ({})",
+                    reason.code()
+                ))
+            })?;
+        let event_id = validated.event_id;
+        node.publish(bytes)
+            .await
+            .map_err(|e| internal("could not publish the event", e))?;
+        Ok(event_id)
+    }
+
+    fn net_config(&self) -> NetConfig {
+        NetConfig {
+            mode: if self.loopback {
+                NetMode::Loopback
+            } else {
+                NetMode::RealNetwork
+            },
+            ..NetConfig::default()
+        }
+    }
+
+    /// The room's persisted peer dial hints, parsed. Loopback mode has no
+    /// discovery: without these the managed session's `PeerManager` dials
+    /// bare endpoint ids that can never resolve, and two daemons' open
+    /// sessions never sync (the CLI's `room tail --peer` equivalent).
+    fn stored_hints(&self, room_id: &RoomId) -> Vec<EndpointAddr> {
+        let raw = localstate::peer_hints(&self.data_dir, &room_id.to_string());
+        parse_peers(&raw).unwrap_or_default()
+    }
+
+    /// Harvest fresh `"<endpoint_id>@<ip:port,...>"` dial hints from a live
+    /// node's address book (addresses actually learned from its peers'
+    /// connections), so a respawned session can redial them. A session cycle
+    /// rebinds a new ephemeral UDP port, so peers' hints toward *us* go
+    /// stale — redialing *them* from the fresh node heals the link.
+    async fn harvest_peer_hints(node: &Node) -> Vec<String> {
+        let endpoint = node.endpoint();
+        let mut out = Vec::new();
+        for (device, _entry) in node.peer_entries() {
+            let Some(info) = endpoint.remote_info(device).await else {
+                continue;
+            };
+            let socks: Vec<String> = info
+                .addrs()
+                .filter_map(|a| match a.addr() {
+                    TransportAddr::Ip(sock) => Some(sock.to_string()),
+                    _ => None,
+                })
+                .collect();
+            if !socks.is_empty() {
+                out.push(format!("{device}@{}", socks.join(",")));
+            }
+        }
+        out
+    }
+
+    /// A dialable address for `id`: the bare endpoint id enriched with every
+    /// socket address the live session or the persisted hints know for it
+    /// (loopback mode cannot resolve a bare id).
+    async fn enriched_addr(&self, node: &Node, room_id: &RoomId, id: EndpointId) -> EndpointAddr {
+        let mut addr = EndpointAddr::new(id);
+        if let Some(info) = node.endpoint().remote_info(id).await {
+            for a in info.addrs() {
+                if let TransportAddr::Ip(sock) = a.addr() {
+                    addr = addr.with_ip_addr(*sock);
+                }
+            }
+        }
+        for hint in self.stored_hints(room_id) {
+            if hint.id == id {
+                for sock in hint.ip_addrs() {
+                    addr = addr.with_ip_addr(*sock);
+                }
+            }
+        }
+        addr
+    }
+
+    /// Spawn the managed room session node (the CLI `room tail` pattern):
+    /// live `SnapshotAdmission` refreshed by the pump, join bootstrap hosted
+    /// while we are the room owner, blob serving from the room's store, and
+    /// the room's persisted peer hints as the dial set.
+    async fn spawn_node(&self, room_id: &RoomId) -> CoreResult<(Node, Arc<AtomicBool>, bool)> {
+        let secret = self.secrets()?;
+        let self_id = secret.identity.identity_key();
+        let store = self.open_store()?;
+        let (_, snapshot) = self.fold(&store, room_id)?;
+        if !snapshot.is_active(&self_id) {
+            return Err(CoreError::new(
+                ErrorKind::NotAMember,
+                format!("this identity ({self_id}) is not an active member of room {room_id}"),
+            ));
+        }
+        // Provisional join-bootstrap admission (a stranger pulling the membership
+        // sub-DAG) is a privacy window: the SDK ties it to "caller-is-admin AND a
+        // pending invite is open". We are the room's long-running owner, so we
+        // must keep hosting joins for invites minted *after* room.open — but only
+        // while such an invite is actually pending. `accept_joins` starts at that
+        // live condition and is kept in sync by `create_invite` (opens it) and
+        // the push poll (closes it once every invite has been redeemed). The
+        // on-log gate_join stays the convergent membership authority regardless.
+        let is_owner = snapshot.admin() == Some(&self_id);
+        let accept_joins = Arc::new(AtomicBool::new(is_owner && any_pending_invite(&snapshot)));
+        let admission_cell = Arc::new(StdMutex::new(AdmissionView::from_snapshot(&snapshot, &[])));
+        let admission: Arc<dyn Admission> = Arc::new(DynamicJoinBootstrap {
+            inner: SnapshotAdmission::new(admission_cell.clone()),
+            accept_joins: accept_joins.clone(),
+        });
+        let engine = SyncEngine::open(store, *room_id, SyncConfig::default())
+            .map_err(|e| internal("could not open the sync engine", e))?;
+        let secret_key = SecretKey::from_bytes(&secret.device.to_seed());
+        let node = Node::spawn_room(
+            secret_key,
+            admission,
+            Arc::new(TracingAudit),
+            engine,
+            self.net_config(),
+            DEFAULT_TICK,
+            self.stored_hints(room_id),
+            admission_cell,
+            Some(BlobServeConfig {
+                blobs_dir: self.room_blobs_dir(room_id),
+            }),
+        )
+        .await
+        .map_err(|e| internal("could not bring up the room node", e))?;
+        Ok((node, accept_joins, is_owner))
+    }
+
+    /// Build a shared session around a freshly spawned node, seeding the push
+    /// dedupe set with `seen` (the caller passes the full current history at
+    /// open time, or carries the prior set across a `file.share` node cycle).
+    fn make_session(
+        node: Node,
+        accept_joins: Arc<AtomicBool>,
+        is_owner: bool,
+        seen: BTreeSet<EventId>,
+    ) -> Arc<RoomSession> {
+        let conn_rx = node.conn_events();
+        Arc::new(RoomSession {
+            node,
+            conn_rx: StdMutex::new(conn_rx),
+            forwarders: StdMutex::new(HashMap::new()),
+            seen: StdMutex::new(seen),
+            accept_joins,
+            is_owner,
+        })
+    }
+
+    /// Reclaim the owned `Node` from a shared session so it can be shut down
+    /// (`Node::shutdown` consumes `self`, and only shutdown releases the blob
+    /// store's exclusive on-disk lock). Waits for any in-flight network op still
+    /// borrowing the session (a `file.fetch`, a `pipe.connect`) to drop its
+    /// clone — those ops are all bounded by their own timeouts, so this
+    /// terminates. Tears any local pipe forwarders down first.
+    async fn reclaim_session(session: Arc<RoomSession>) -> Node {
+        for (_, forwarder) in session.forwarders.lock().expect("forwarders poisoned").drain() {
+            forwarder.shutdown();
+        }
+        let mut arc = session;
+        loop {
+            match Arc::try_unwrap(arc) {
+                Ok(owned) => return owned.node,
+                Err(shared) => {
+                    arc = shared;
+                    tokio::time::sleep(RECLAIM_POLL).await;
+                }
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Rooms
+    // ------------------------------------------------------------------
+
+    /// `room.create`: author + self-validate + persist the genesis
+    /// `room.created` (the creator becomes the room's single immutable owner).
+    pub fn create_room(&self, name: &str) -> CoreResult<String> {
+        validate_room_name(name)?;
+        let secret = self.secrets()?;
+
+        let mut room_nonce = [0u8; ROOM_NONCE_LEN];
+        getrandom::fill(&mut room_nonce)
+            .map_err(|e| internal("OS CSPRNG unavailable", e))?;
+        let created_at = now_ms();
+        let sender_id = secret.identity.identity_key();
+        let room_id = derive_room_id(&sender_id, &room_nonce, created_at);
+
+        let wire = build_room_created(&secret.identity, &secret.device, name, &room_nonce, created_at);
+        let validated = validate_wire_bytes(
+            &wire.to_bytes(),
+            &ValidationContext::for_room(room_id),
+        )
+        .map_err(|reason| {
+            CoreError::internal(format!(
+                "freshly built genesis failed validation ({})",
+                reason.code()
+            ))
+        })?;
+
+        let mut store = self.open_store()?;
+        with_busy_retry("could not persist the room genesis", || store.insert(&validated))?;
+        localstate::remember_room(&self.data_dir, &room_id.to_string(), Some(name))?;
+        Ok(room_id.to_string())
+    }
+
+    /// `room.list`: every locally known room with name/role/member count/open.
+    pub fn list_rooms(&self) -> CoreResult<Vec<Value>> {
+        if !self.db_path().exists() {
+            return Ok(Vec::new());
+        }
+        let store = self.open_store()?;
+        let room_ids = store
+            .room_ids()
+            .map_err(|e| internal("could not enumerate rooms", e))?;
+        let self_id = crate::identity::load_profile(&self.data_dir)?
+            .map(|p| p.identity_id);
+        let mut rooms = Vec::with_capacity(room_ids.len());
+        for room_id in room_ids {
+            let Ok((_, snapshot)) = self.fold(&store, &room_id) else {
+                continue; // a corrupt room fails its own reads, not the index
+            };
+            let name = genesis_name(&store, &room_id)
+                .or_else(|| localstate::local_name(&self.data_dir, &room_id.to_string()));
+            let role = self_id.as_deref().and_then(|id| {
+                id.parse::<IdentityKey>()
+                    .ok()
+                    .and_then(|key| snapshot.role(&key))
+                    .map(role_label)
+            });
+            rooms.push(json!({
+                "room_id": room_id.to_string(),
+                "name": name,
+                "role": role,
+                "member_count": snapshot.members().count(),
+                "open": self.is_open(&room_id),
+            }));
+        }
+        Ok(rooms)
+    }
+
+    /// `room.open`: spawn the room's node session and return the endpoint the
+    /// inviter shares, the member roster, and the folded timeline. Optional
+    /// `peers` (`"<endpoint_id>@<ip:port>"`) merge into the room's persisted
+    /// dial hints before the spawn (loopback mode has no discovery).
+    pub async fn open_room(&self, room_id_str: &str, peers: &[String]) -> CoreResult<Value> {
+        let room_id = parse_room_id(room_id_str)?;
+        if !peers.is_empty() {
+            parse_peers(peers)?; // validate before persisting
+            localstate::add_peer_hints(&self.data_dir, &room_id.to_string(), peers)?;
+        }
+        // Serialize node spawn/teardown so two structural flows never race the
+        // room's exclusive blob-store lock.
+        let _structural = self.structural.lock().await;
+        if !self.is_open(&room_id) {
+            let (node, accept_joins, is_owner) = self.spawn_node(&room_id).await?;
+            // Seed the push dedupe set with the full history the caller receives
+            // here, BEFORE the session is visible to the push loop, so it never
+            // re-emits history and never races an un-seeded window.
+            let rows = node
+                .room_tail(u32::MAX)
+                .await
+                .map_err(|e| internal("could not read the timeline", e))?;
+            let seen: BTreeSet<EventId> = rows.iter().map(|se| se.event_id).collect();
+            let session = Self::make_session(node, accept_joins, is_owner, seen);
+            self.sessions().insert(room_id, session);
+        }
+
+        // Keep `_structural` held through the reads below so a concurrent
+        // close/share cannot pull the session we just resolved. These reads are
+        // all fast and bounded; the message/fetch/pipe/push paths never take
+        // this lock, so nothing daemon-wide is blocked.
+        let members = self.members(room_id_str)?;
+        let session = self.session(&room_id)?;
+        let rows = session
+            .node
+            .room_tail(u32::MAX)
+            .await
+            .map_err(|e| internal("could not read the timeline", e))?;
+        let snapshot = session
+            .node
+            .snapshot()
+            .await
+            .map_err(|e| internal("could not read the membership snapshot", e))?;
+        let timeline: Vec<Value> = rows
+            .iter()
+            .filter_map(|se| materializer::materialize(se, &snapshot))
+            .collect();
+        let node = &session.node;
+        Ok(json!({
+            "endpoint": {
+                "endpoint_id": node.id().to_string(),
+                "addr": dialable_addr(node),
+            },
+            "members": members,
+            "timeline": timeline,
+        }))
+    }
+
+    /// `room.close`: shut the session down (pipes first, then the node).
+    pub async fn close_room(&self, room_id_str: &str) -> CoreResult<()> {
+        let room_id = parse_room_id(room_id_str)?;
+        let _structural = self.structural.lock().await;
+        let Some(session) = self.sessions().remove(&room_id) else {
+            return Err(CoreError::new(
+                ErrorKind::RoomNotOpen,
+                format!("room {room_id} is not open"),
+            ));
+        };
+        // Keep the freshest peer addresses so a later re-open can redial them.
+        // This write is best-effort: a corrupt/unwritable state.json must never
+        // leave the live node leaked (its pump + blob-store lock) by aborting
+        // before shutdown.
+        let harvested = Self::harvest_peer_hints(&session.node).await;
+        if let Err(err) = localstate::add_peer_hints(&self.data_dir, &room_id.to_string(), &harvested)
+        {
+            eprintln!("warning: could not persist peer hints for {room_id}: {err}");
+        }
+        let node = Self::reclaim_session(session).await;
+        node.shutdown()
+            .await
+            .map_err(|e| internal("could not shut the room node down", e))?;
+        Ok(())
+    }
+
+    /// `room.timeline`: chronological `TimelineEvent`s from the local log
+    /// (an offline read — works whether or not the room is open; a second
+    /// read handle on the WAL-mode store sees the engine's committed writes).
+    pub fn timeline(&self, room_id_str: &str, limit: Option<u32>) -> CoreResult<Vec<Value>> {
+        let room_id = parse_room_id(room_id_str)?;
+        let store = self.open_store()?;
+        let (_, snapshot) = self.fold(&store, &room_id)?;
+        let rows = store
+            .room_tail(&room_id, limit.unwrap_or(200))
+            .map_err(|e| internal("could not read the timeline", e))?;
+        Ok(rows
+            .iter()
+            .filter_map(|se| materializer::materialize(se, &snapshot))
+            .collect())
+    }
+
+    /// `room.members`: the folded roster with the display-status refinement
+    /// (`active|invited|removed|left`, mirroring the CLI's D5 projection).
+    pub fn members(&self, room_id_str: &str) -> CoreResult<Vec<Value>> {
+        let room_id = parse_room_id(room_id_str)?;
+        let store = self.open_store()?;
+        let (_, snapshot) = self.fold(&store, &room_id)?;
+        let (removed_ids, left_ids) = departure_sets(&store, &room_id)?;
+        Ok(snapshot
+            .members()
+            .map(|m| {
+                json!({
+                    "identity_id": m.identity.to_string(),
+                    "role": role_label(m.role),
+                    "status": status_label(m.status, &m.identity, &removed_ids, &left_ids),
+                })
+            })
+            .collect())
+    }
+
+    // ------------------------------------------------------------------
+    // Invites & joins
+    // ------------------------------------------------------------------
+
+    /// `invite.create`: mint a key-bound invite ticket (owner only). When the
+    /// room is open the `member.invited` publishes through the live node (so
+    /// it also fans out); otherwise it persists directly, like the CLI.
+    pub async fn create_invite(
+        &self,
+        room_id_str: &str,
+        invitee_hex: &str,
+        role: &str,
+        expiry: Option<&str>,
+    ) -> CoreResult<String> {
+        let room_id = parse_room_id(room_id_str)?;
+        if role != "member" && role != "agent" {
+            return Err(CoreError::invalid(format!(
+                "role must be \"member\" or \"agent\", got {role:?}"
+            )));
+        }
+        let invitee_key: IdentityKey = invitee_hex.trim().parse().map_err(|e| {
+            CoreError::invalid(format!("invalid identity_id (expected 64-char hex): {e}"))
+        })?;
+        let secret = self.secrets()?;
+        let admin_identity = secret.identity.identity_key();
+        if invitee_key == admin_identity {
+            return Err(CoreError::invalid("cannot invite your own identity"));
+        }
+
+        let created_at = now_ms();
+        let mut invite_id = [0u8; SHORT_ID_LEN];
+        getrandom::fill(&mut invite_id).map_err(|e| internal("OS CSPRNG unavailable", e))?;
+        let mut secret_bytes = zeroize::Zeroizing::new([0u8; SHORT_ID_LEN]);
+        getrandom::fill(secret_bytes.as_mut_slice())
+            .map_err(|e| internal("OS CSPRNG unavailable", e))?;
+        let cap_hash = capability_hash(&room_id, &invite_id, &secret_bytes);
+        let expires_at = expiry
+            .map(|spec| parse_expiry(spec, created_at))
+            .transpose()?;
+
+        let is_open = self.is_open(&room_id);
+        // The whole store-backed authoring path lives in one sync scope so no
+        // !Sync store borrow crosses the publish await below.
+        let wire = {
+            let mut store = self.open_store()?;
+            let (mut membership, snapshot) = self.fold(&store, &room_id)?;
+            if snapshot.admin() != Some(&admin_identity) {
+                return Err(CoreError::new(
+                    ErrorKind::NotAMember,
+                    format!("only the room owner can issue invites for {room_id}"),
+                ));
+            }
+            let mut heads = store
+                .heads(&room_id)
+                .map_err(|e| internal("could not read the room heads", e))?;
+            heads.truncate(MAX_PREV_EVENTS);
+
+            let wire = build_member_invited(
+                &secret.identity,
+                &secret.device,
+                &room_id,
+                &invite_id,
+                &cap_hash,
+                role,
+                &invitee_key,
+                expires_at,
+                None,
+                &heads,
+                created_at,
+            );
+            let validated = validate_wire_bytes(
+                &wire.to_bytes(),
+                &ValidationContext::for_room(room_id),
+            )
+            .map_err(|reason| {
+                CoreError::internal(format!(
+                    "freshly built member.invited failed validation ({})",
+                    reason.code()
+                ))
+            })?;
+            match membership.ingest(validated.clone()) {
+                Ingest::Accepted { .. } => {}
+                Ingest::Rejected { reason, .. } => {
+                    return Err(CoreError::internal(format!(
+                        "freshly built member.invited was rejected by the fold ({})",
+                        reason.code()
+                    )))
+                }
+                Ingest::Buffered { .. } => {
+                    return Err(CoreError::internal(
+                        "freshly built member.invited is causally incomplete",
+                    ))
+                }
+            }
+            if !is_open {
+                with_busy_retry("could not persist the invite", || store.insert(&validated))?;
+            }
+            wire
+        };
+        if let Some(session) = self.session_opt(&room_id) {
+            // The engine owns the persistence path while the room is open.
+            session
+                .node
+                .publish(wire.to_bytes())
+                .await
+                .map_err(|e| internal("could not publish the invite", e))?;
+            // We are the confirmed owner (checked above) and there is now a
+            // pending invite: open the join-bootstrap window so the invitee can
+            // pull the membership sub-DAG. The push poll closes it again once the
+            // invite has been redeemed (no more `Invited` members).
+            session.accept_joins.store(true, Ordering::Relaxed);
+        }
+
+        let ticket = RoomInviteTicket {
+            room_id,
+            invite_id,
+            capability_secret: *secret_bytes,
+            invitee_key,
+            role: role.to_owned(),
+            expires_at,
+            inviter_identity: admin_identity,
+            discovery: vec![secret.device.device_key()],
+        };
+        Ok(ticket.to_string())
+    }
+
+    /// `room.join`: redeem a ticket — bootstrap the membership sub-DAG from
+    /// the admin over an ephemeral node, author + fold-check + publish the
+    /// `member.joined`, and record the room locally (mirrors the CLI join).
+    pub async fn join_room(
+        &self,
+        ticket_str: &str,
+        display_name: Option<&str>,
+        peers: &[String],
+    ) -> CoreResult<String> {
+        let ticket: RoomInviteTicket = ticket_str.trim().parse().map_err(|e: iroh_rooms::room::TicketError| {
+            CoreError::new(ErrorKind::BadTicket, format!("bad ticket ({}): {e}", e.code()))
+        })?;
+        let secret = self.secrets()?;
+        let self_id = secret.identity.identity_key();
+        if self_id != ticket.invitee_key {
+            return Err(CoreError::new(
+                ErrorKind::BadTicket,
+                format!(
+                    "this ticket is bound to a different identity ({}); yours is {self_id}",
+                    ticket.invitee_key
+                ),
+            )
+            .with_hint("ask the admin to re-issue the invite for your identity id"));
+        }
+        if let Some(expires_at) = ticket.expires_at {
+            if expires_at < now_ms() {
+                return Err(CoreError::new(
+                    ErrorKind::TicketExpired,
+                    "this invite ticket has expired",
+                ));
+            }
+        }
+        let room_id = ticket.room_id;
+        if self.is_open(&room_id) {
+            return Err(CoreError::invalid(format!(
+                "room {room_id} is already open on this daemon"
+            )));
+        }
+
+        // Dial set: the ticket's discovery devices, with any caller-supplied
+        // "<endpoint_id>@<ip:port>" hints matched by id.
+        let peer_addrs = parse_peers(peers)?;
+        let mut dial_set: Vec<EndpointAddr> = Vec::new();
+        let mut seen_ids = BTreeSet::new();
+        for dev in &ticket.discovery {
+            let id = endpoint_id_of(*dev)?;
+            if !seen_ids.insert(id) {
+                continue;
+            }
+            dial_set.push(
+                peer_addrs
+                    .iter()
+                    .find(|a| a.id == id)
+                    .cloned()
+                    .unwrap_or_else(|| EndpointAddr::new(id)),
+            );
+        }
+        if dial_set.is_empty() {
+            return Err(CoreError::new(
+                ErrorKind::PeerUnreachable,
+                "the invite ticket carries no admin discovery hint",
+            )
+            .with_hint("pass peers: [\"<endpoint_id>@<ip:port>\"] in room.join"));
+        }
+
+        // Joiner node: talk only to the inviter (allowlist), like the CLI.
+        let mut admission = AllowlistAdmission::new();
+        for dev in &ticket.discovery {
+            admission = admission.bind_device(endpoint_id_of(*dev)?, ticket.inviter_identity);
+        }
+        let admission = admission.set_active(ticket.inviter_identity);
+
+        let store = self.open_store()?;
+        let engine = SyncEngine::open(store, room_id, SyncConfig::default())
+            .map_err(|e| internal("could not open the sync engine", e))?;
+        let secret_key = SecretKey::from_bytes(&secret.device.to_seed());
+        let node = Node::spawn(
+            secret_key,
+            Arc::new(admission),
+            Arc::new(TracingAudit),
+            engine,
+            self.net_config(),
+            DEFAULT_TICK,
+        )
+        .await
+        .map_err(|e| internal("could not bring up the join node", e))?;
+        for addr in dial_set {
+            node.connect_to(addr);
+        }
+
+        let outcome = self
+            .bootstrap_and_join(&node, &secret, &ticket, display_name)
+            .await;
+        let shutdown = node.shutdown().await;
+        let joined = outcome?;
+        shutdown.map_err(|e| internal("could not shut the join node down", e))?;
+
+        // Local room index: the join-time name override wins; else the pulled
+        // genesis name resolves on read. The supplied peer addresses persist
+        // as the room's dial hints so `room.open` can reach the inviter.
+        localstate::remember_room(&self.data_dir, &room_id.to_string(), display_name)?;
+        localstate::add_peer_hints(&self.data_dir, &room_id.to_string(), peers)?;
+        Ok(joined.to_string())
+    }
+
+    /// The post-bring-up half of the join (split so the node always shuts
+    /// down): wait invited, build + fold-check + publish, confirm active.
+    async fn bootstrap_and_join(
+        &self,
+        node: &Node,
+        secret: &SecretKeys,
+        ticket: &RoomInviteTicket,
+        display_name: Option<&str>,
+    ) -> CoreResult<RoomId> {
+        let room_id = ticket.room_id;
+        let self_id = secret.identity.identity_key();
+
+        // Wait for the membership sub-DAG (genesis + our naming invite) to
+        // pull + persist, so we resolve as Invited. A fresh read handle per
+        // poll sees the engine's committed pulls (WAL); the handle is scoped
+        // so no !Sync store borrow ever lives across an await.
+        let deadline = tokio::time::Instant::now() + JOIN_TIMEOUT;
+        loop {
+            let invited = {
+                self.open_store()
+                    .and_then(|store| self.fold(&store, &room_id))
+                    .is_ok_and(|(_, snapshot)| snapshot.status(&self_id).is_some())
+            };
+            if invited {
+                break;
+            }
+            if tokio::time::Instant::now() >= deadline {
+                return Err(CoreError::new(
+                    ErrorKind::PeerUnreachable,
+                    format!(
+                        "could not reach the room admin to bootstrap the join within {JOIN_TIMEOUT:?}"
+                    ),
+                )
+                .with_hint("ask the inviter to open the room, then retry room.join"));
+            }
+            tokio::time::sleep(POLL_INTERVAL).await;
+        }
+
+        let mut heads = {
+            let store = self.open_store()?;
+            store
+                .heads(&room_id)
+                .map_err(|e| internal("could not read the room heads", e))?
+        };
+        heads.truncate(MAX_PREV_EVENTS);
+        let created_at = now_ms();
+        let binding = DeviceBinding::create(&room_id, &secret.identity, secret.device.device_key());
+        let wire = build_member_joined(
+            &secret.identity,
+            &secret.device,
+            &room_id,
+            &ticket.invite_id,
+            &ticket.capability_secret,
+            &ticket.role,
+            binding,
+            display_name,
+            &heads,
+            created_at,
+        );
+        let validated = validate_wire_bytes(
+            &wire.to_bytes(),
+            &ValidationContext::for_room(room_id),
+        )
+        .map_err(|reason| {
+            CoreError::internal(format!(
+                "freshly built member.joined failed validation ({})",
+                reason.code()
+            ))
+        })?;
+
+        // Local fold-check: the deterministic verdict every peer reaches —
+        // a bad secret / expiry / role fails here instead of a doomed push.
+        {
+            let store = self.open_store()?;
+            let (mut membership, _) = self.fold(&store, &room_id)?;
+            match membership.ingest(validated) {
+                Ingest::Accepted { .. } => {}
+                Ingest::Rejected { reason, .. } => return Err(join_reject_error(&reason)),
+                Ingest::Buffered { .. } => {
+                    return Err(CoreError::new(
+                        ErrorKind::PeerUnreachable,
+                        "the membership history is incomplete; retry once the admin has synced",
+                    ))
+                }
+            }
+        }
+
+        node.publish(wire.to_bytes())
+            .await
+            .map_err(|e| internal("could not publish the join", e))?;
+
+        // Confirm the local Active transition, then a brief flush grace so
+        // the admin ingests the join before the ephemeral node tears down.
+        let active = tokio::time::timeout(JOIN_TIMEOUT, async {
+            loop {
+                if let Ok(snapshot) = node.snapshot().await {
+                    if snapshot.is_active(&self_id) {
+                        return;
+                    }
+                }
+                tokio::time::sleep(POLL_INTERVAL).await;
+            }
+        })
+        .await;
+        if active.is_err() {
+            return Err(CoreError::internal(
+                "published the join but did not observe the local active transition",
+            ));
+        }
+        tokio::time::sleep(FLUSH_GRACE).await;
+        Ok(room_id)
+    }
+
+    // ------------------------------------------------------------------
+    // Messages & agent status
+    // ------------------------------------------------------------------
+
+    /// `message.send` (requires the room to be open — the daemon's live node
+    /// persists and fans the frame out).
+    pub async fn send_message(&self, room_id_str: &str, body: &str) -> CoreResult<String> {
+        if body.is_empty() {
+            return Err(CoreError::invalid("message body must not be empty"));
+        }
+        if body.len() > MAX_MESSAGE_BODY_BYTES {
+            return Err(CoreError::invalid(format!(
+                "message body must be at most {MAX_MESSAGE_BODY_BYTES} bytes"
+            )));
+        }
+        let room_id = parse_room_id(room_id_str)?;
+        let session = self.session(&room_id)?;
+        let secret = self.secrets()?;
+        let sender_id = secret.identity.identity_key();
+        let snapshot = session
+            .node
+            .snapshot()
+            .await
+            .map_err(|e| internal("could not read the membership snapshot", e))?;
+        if !snapshot.is_active(&sender_id) {
+            return Err(CoreError::new(
+                ErrorKind::NotAMember,
+                format!("this identity ({sender_id}) is not an active member of room {room_id}"),
+            ));
+        }
+        let heads = Self::node_heads(&session.node).await?;
+        let wire = build_message_text(
+            &secret.identity,
+            &secret.device,
+            &room_id,
+            body,
+            None,
+            None,
+            &[],
+            &heads,
+            now_ms(),
+        );
+        let event_id = Self::publish_authored(&session.node, &room_id, &wire).await?;
+        Ok(bare_event_hex(&event_id))
+    }
+
+    /// `status.post`: author + publish a signed `agent.status` (any active
+    /// member may post — the protocol rule).
+    pub async fn post_status(
+        &self,
+        room_id_str: &str,
+        label: &str,
+        message: Option<&str>,
+        progress: Option<u64>,
+        artifacts: &[String],
+    ) -> CoreResult<String> {
+        if label.is_empty() || label.len() > MAX_STATUS_LABEL_BYTES {
+            return Err(CoreError::invalid(format!(
+                "label must be 1..={MAX_STATUS_LABEL_BYTES} bytes"
+            )));
+        }
+        if let Some(msg) = message {
+            if msg.len() > MAX_STATUS_MESSAGE_BYTES {
+                return Err(CoreError::invalid(format!(
+                    "message must be at most {MAX_STATUS_MESSAGE_BYTES} bytes"
+                )));
+            }
+        }
+        if let Some(pct) = progress {
+            if pct > 100 {
+                return Err(CoreError::invalid("progress must be 0..=100"));
+            }
+        }
+        if artifacts.len() > MAX_ARTIFACT_REFS {
+            return Err(CoreError::invalid(format!(
+                "at most {MAX_ARTIFACT_REFS} artifacts"
+            )));
+        }
+        let artifact_ids = artifacts
+            .iter()
+            .map(|s| parse_file_id(s))
+            .collect::<CoreResult<Vec<_>>>()?;
+
+        let room_id = parse_room_id(room_id_str)?;
+        let session = self.session(&room_id)?;
+        let secret = self.secrets()?;
+        let sender_id = secret.identity.identity_key();
+        let snapshot = session
+            .node
+            .snapshot()
+            .await
+            .map_err(|e| internal("could not read the membership snapshot", e))?;
+        if !snapshot.is_active(&sender_id) {
+            return Err(CoreError::new(
+                ErrorKind::NotAMember,
+                format!("this identity ({sender_id}) is not an active member of room {room_id}"),
+            ));
+        }
+        let heads = Self::node_heads(&session.node).await?;
+        let wire = build_agent_status(
+            &secret.identity,
+            &secret.device,
+            &room_id,
+            label,
+            message,
+            &artifact_ids,
+            progress,
+            &heads,
+            now_ms(),
+        );
+        let event_id = Self::publish_authored(&session.node, &room_id, &wire).await?;
+        Ok(bare_event_hex(&event_id))
+    }
+
+    // ------------------------------------------------------------------
+    // Files
+    // ------------------------------------------------------------------
+
+    /// `file.share`: import the file into the room's durable blob store and
+    /// author + publish the signed `file.shared` reference.
+    ///
+    /// The open session's node holds the blob store's exclusive lock (it is
+    /// serving), so the import briefly cycles the session: shut the node
+    /// down, import, respawn, publish. Peers see a short reconnect; the push
+    /// dedupe state carries over so no event is pushed twice.
+    pub async fn share_file(
+        &self,
+        room_id_str: &str,
+        path_str: &str,
+        name: Option<&str>,
+        mime: Option<&str>,
+    ) -> CoreResult<Value> {
+        let room_id = parse_room_id(room_id_str)?;
+        let secret = self.secrets()?;
+        let sender_id = secret.identity.identity_key();
+
+        // Classify + confine the path before touching anything (a bad or
+        // out-of-bounds share writes nothing).
+        let path = Path::new(path_str);
+        let meta = std::fs::metadata(path).map_err(|e| {
+            CoreError::invalid(format!("cannot read {}: {e}", path.display()))
+        })?;
+        if meta.is_dir() {
+            return Err(CoreError::invalid(format!(
+                "{} is a directory, not a file",
+                path.display()
+            )));
+        }
+        if meta.len() > MAX_SHARED_FILE_BYTES {
+            return Err(CoreError::invalid(format!(
+                "{} is {} bytes; the share limit is {MAX_SHARED_FILE_BYTES} bytes",
+                path.display(),
+                meta.len()
+            )));
+        }
+        let import_path = std::fs::canonicalize(path)
+            .map_err(|e| CoreError::invalid(format!("cannot resolve {}: {e}", path.display())))?;
+        self.assert_shareable_path(&import_path)?;
+
+        // Serialize the node cycle against other structural flows.
+        let _structural = self.structural.lock().await;
+        let session = self.session(&room_id)?;
+        {
+            let store = self.open_store()?;
+            let (_, snapshot) = self.fold(&store, &room_id)?;
+            if !snapshot.is_active(&sender_id) {
+                return Err(CoreError::new(
+                    ErrorKind::NotAMember,
+                    format!("this identity ({sender_id}) is not an active member of room {room_id}"),
+                ));
+            }
+        }
+
+        // Cycle the session around the import (the serving node holds the
+        // blob store's exclusive lock). Harvest the peers' live addresses
+        // first: the respawned node binds a new ephemeral UDP port, so the
+        // peers' hints toward us go stale — the fresh node must redial THEM.
+        self.sessions().remove(&room_id);
+        let seen = session.seen.lock().expect("seen poisoned").clone();
+        let harvested = Self::harvest_peer_hints(&session.node).await;
+        // Best-effort: a failed hint write must never abort before shutdown and
+        // leak the live node (its pump + the blob store's exclusive lock).
+        if let Err(err) = localstate::add_peer_hints(&self.data_dir, &room_id.to_string(), &harvested)
+        {
+            eprintln!("warning: could not persist peer hints for {room_id}: {err}");
+        }
+        let node = Self::reclaim_session(session).await;
+        node.shutdown()
+            .await
+            .map_err(|e| internal("could not pause the room session for the import", e))?;
+
+        let import = async {
+            let blob_store = BlobStore::open(&self.room_blobs_dir(&room_id))
+                .await
+                .map_err(|e| internal("could not open the blob store", e))?;
+            let import = blob_store.import_path(&import_path).await;
+            let close = blob_store.close().await;
+            let import =
+                import.map_err(|e| internal("could not import the file into the blob store", e))?;
+            close.map_err(|e| internal("could not finalize the blob store", e))?;
+            Ok::<_, CoreError>(import)
+        }
+        .await;
+
+        // Respawn the session whether or not the import succeeded, so the room
+        // does not silently fall closed on an import error. If the respawn
+        // itself fails the room genuinely IS closed now — report that honestly
+        // instead of leaving a phantom-open room.
+        let (node, accept_joins, is_owner) = match self.spawn_node(&room_id).await {
+            Ok(spawned) => spawned,
+            Err(err) => {
+                return Err(err.with_hint(
+                    "the room is now closed after the import; call room.open to reopen it",
+                ))
+            }
+        };
+        let respawned = Self::make_session(node, accept_joins, is_owner, seen);
+        self.sessions().insert(room_id, respawned);
+        let import = import?;
+
+        let mut file_id = [0u8; SHORT_ID_LEN];
+        getrandom::fill(&mut file_id).map_err(|e| internal("OS CSPRNG unavailable", e))?;
+        let display_name = match name {
+            Some(n) if !n.is_empty() => n.to_owned(),
+            _ => path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .map(str::to_owned)
+                .ok_or_else(|| CoreError::invalid("could not derive a file name; pass name"))?,
+        };
+        let mime_type = mime
+            .filter(|m| !m.is_empty())
+            .map_or_else(|| guess_mime(path), str::to_owned);
+
+        let session = self.session(&room_id)?;
+        let heads = Self::node_heads(&session.node).await?;
+        let wire = build_file_shared(
+            &secret.identity,
+            &secret.device,
+            &room_id,
+            file_id,
+            &display_name,
+            &mime_type,
+            import.size_bytes,
+            iroh_rooms::files::HashRef::from_bytes(import.hash),
+            Some("raw"),
+            &[secret.device.device_key()],
+            &heads,
+            now_ms(),
+        );
+        let event_id = Self::publish_authored(&session.node, &room_id, &wire).await?;
+        Ok(json!({
+            "file_id": file_handle(&file_id),
+            "event_id": bare_event_hex(&event_id),
+        }))
+    }
+
+    /// `file.list`: the room's `file.shared` references with honest
+    /// availability.
+    ///
+    /// `available` means "this daemon can `file.fetch` it right now" — i.e. some
+    /// OTHER provider device is a currently-connected peer. It deliberately does
+    /// NOT include "held locally": `file.fetch` filters this device out of the
+    /// provider set and the SDK offers no local-blob read path, so claiming
+    /// availability for a self-only file would contradict what fetch can honor
+    /// (PROTOCOL.md honesty rule 1). The file is of course still available to
+    /// other members while this session serves it — their own `file.list`
+    /// reports this device as their online provider.
+    pub async fn list_files(&self, room_id_str: &str) -> CoreResult<Vec<Value>> {
+        let room_id = parse_room_id(room_id_str)?;
+        let store = self.open_store()?;
+        let (_, _snapshot) = self.fold(&store, &room_id)?;
+        let events = store
+            .by_type(&room_id, EventType::FileShared)
+            .map_err(|e| internal("could not read file.shared events", e))?;
+        let session = self.session_opt(&room_id);
+
+        let mut files = Vec::with_capacity(events.len());
+        for se in &events {
+            let Ok(ev) = SignedEvent::decode(&se.wire.signed) else {
+                continue;
+            };
+            let Content::FileShared(f) = ev.content else {
+                continue;
+            };
+            let providers: Vec<DeviceKey> = match &f.providers {
+                Some(list) if !list.is_empty() => list.clone(),
+                _ => vec![ev.device_id],
+            };
+            let provider_online = session.as_deref().is_some_and(|s| {
+                providers.iter().any(|p| {
+                    endpoint_id_of(*p).is_ok_and(|id| {
+                        s.node.peer_state(id) == Some(PeerConnState::Connected)
+                    })
+                })
+            });
+            files.push(json!({
+                "file_id": file_handle(&f.file_id),
+                "name": f.name,
+                "size": f.size_bytes,
+                "mime": f.mime_type,
+                "sender_id": ev.sender_id.to_string(),
+                "ts": ev.created_at,
+                "available": provider_online,
+                "providers": providers.len(),
+            }));
+        }
+        Ok(files)
+    }
+
+    /// `file.fetch`: verified retrieval from an asserted provider over the
+    /// open session's endpoint, with the honest failure taxonomy — never a
+    /// silent partial.
+    pub async fn fetch_file(
+        &self,
+        room_id_str: &str,
+        file_id_str: &str,
+        save_dir: Option<&str>,
+    ) -> CoreResult<Value> {
+        let room_id = parse_room_id(room_id_str)?;
+        let file_id = parse_file_id(file_id_str)?;
+        let session = self.session(&room_id)?;
+        let secret = self.secrets()?;
+        let self_id = secret.identity.identity_key();
+        let self_device = endpoint_id_of(secret.device.device_key())?;
+
+        // Sync scope: the !Sync store never crosses the fetch awaits below.
+        let (shared, author_device) = {
+            let store = self.open_store()?;
+            let (_, snapshot) = self.fold(&store, &room_id)?;
+            if !snapshot.is_active(&self_id) {
+                return Err(CoreError::new(
+                    ErrorKind::FileUnauthorized,
+                    format!("this identity ({self_id}) is not an active member of room {room_id}"),
+                ));
+            }
+            let events = store
+                .by_type(&room_id, EventType::FileShared)
+                .map_err(|e| internal("could not read file.shared events", e))?;
+            let Some(found) = find_file_shared(&events, file_id) else {
+                return Err(CoreError::new(
+                    ErrorKind::FileUnavailable,
+                    format!("no such file {file_id_str} in room {room_id}"),
+                ));
+            };
+            found
+        };
+        if let Some(format) = shared.blob_format.as_deref() {
+            if format != "raw" {
+                return Err(CoreError::invalid(format!(
+                    "file {file_id_str} uses blob_format={format}; only raw is fetchable"
+                )));
+            }
+        }
+
+        let provider_devices: Vec<DeviceKey> = match &shared.providers {
+            Some(list) if !list.is_empty() => list.clone(),
+            _ => vec![author_device],
+        };
+        let provider_ids: Vec<EndpointId> = provider_devices
+            .iter()
+            .filter_map(|dev| endpoint_id_of(*dev).ok())
+            .filter(|id| *id != self_device)
+            .collect();
+        let mut providers: Vec<EndpointAddr> = Vec::with_capacity(provider_ids.len());
+        for id in provider_ids {
+            providers.push(self.enriched_addr(&session.node, &room_id, id).await);
+        }
+        if providers.is_empty() {
+            return Err(CoreError::new(
+                ErrorKind::FileUnavailable,
+                format!(
+                    "file {file_id_str} has no other provider to fetch from; there is no central \
+                     inbox and no guaranteed offline delivery"
+                ),
+            ));
+        }
+
+        let declared = *shared.blob_hash.as_bytes();
+        let mut fetched: Option<Vec<u8>> = None;
+        let (mut denied_at_connect, mut attempted) = (0usize, 0usize);
+        for provider in &providers {
+            let (outcome, data) = session
+                .node
+                .fetch_file(provider.clone(), declared, declared, FETCH_TIMEOUT)
+                .await;
+            // The outcome enum is matched by name via its Debug string-free
+            // variants (the facade re-exports FetchOutcome).
+            use iroh_rooms::experimental::blob::FetchOutcome as O;
+            match outcome {
+                O::Fetched => {
+                    fetched = data.map(|b| b.to_vec());
+                    break;
+                }
+                O::HashMismatch => {
+                    return Err(CoreError::new(
+                        ErrorKind::HashMismatch,
+                        format!(
+                            "integrity check FAILED: fetched bytes do not hash to the declared \
+                             {}; refusing to save",
+                            shared.blob_hash
+                        ),
+                    ));
+                }
+                O::DeniedAtConnect => {
+                    denied_at_connect += 1;
+                    attempted += 1;
+                }
+                O::DeniedPerHash | O::Unavailable => {
+                    attempted += 1;
+                }
+            }
+        }
+        let Some(data) = fetched else {
+            if attempted > 0 && denied_at_connect == attempted {
+                return Err(CoreError::new(
+                    ErrorKind::FileUnauthorized,
+                    format!(
+                        "file {file_id_str} could not be fetched: every provider refused the \
+                         connection (this identity may not be an active member from their view)"
+                    ),
+                ));
+            }
+            return Err(CoreError::new(
+                ErrorKind::FileUnavailable,
+                format!(
+                    "file {file_id_str} is currently unavailable: no peer holding it is online"
+                ),
+            ));
+        };
+
+        // Save atomically under save_dir (default <data-dir>/downloads),
+        // never overwriting an existing file.
+        let dir = save_dir.map_or_else(|| self.data_dir.join(DOWNLOADS_DIR), PathBuf::from);
+        std::fs::create_dir_all(&dir)
+            .map_err(|e| internal("could not create the save directory", e))?;
+        let mut target = dir.join(sanitize_name(&shared.name, file_id));
+        if target.exists() {
+            target = dir.join(format!(
+                "{}_{}",
+                hex::encode(file_id),
+                sanitize_name(&shared.name, file_id)
+            ));
+        }
+        save_atomic(&target, &data)?;
+
+        Ok(json!({
+            "path": target.display().to_string(),
+            "bytes": data.len(),
+            "verified": true,
+        }))
+    }
+
+    // ------------------------------------------------------------------
+    // Pipes
+    // ------------------------------------------------------------------
+
+    /// `pipe.expose`: announce + serve a loopback TCP target to exactly one
+    /// authorized peer (the runtime rule) through the open session's node.
+    pub async fn pipe_expose(
+        &self,
+        room_id_str: &str,
+        target_str: &str,
+        peer_identity: &str,
+    ) -> CoreResult<Value> {
+        let room_id = parse_room_id(room_id_str)?;
+        let target = SocketAddr::from_str(target_str.trim()).map_err(|e| {
+            CoreError::invalid(format!("invalid target {target_str:?} (expected ip:port): {e}"))
+        })?;
+        if !is_loopback_target(&target) {
+            return Err(CoreError::new(
+                ErrorKind::PipeDenied,
+                format!("refusing to expose non-loopback target {target}"),
+            )
+            .with_hint("pipes may only forward to 127.0.0.0/8 or ::1"));
+        }
+        let peer: IdentityKey = peer_identity.trim().parse().map_err(|e| {
+            CoreError::invalid(format!("invalid peer_identity (expected 64-char hex): {e}"))
+        })?;
+        let session = self.session(&room_id)?;
+        let secret = self.secrets()?;
+        let self_id = secret.identity.identity_key();
+        let snapshot = session
+            .node
+            .snapshot()
+            .await
+            .map_err(|e| internal("could not read the membership snapshot", e))?;
+        if !snapshot.is_active(&self_id) {
+            return Err(CoreError::new(
+                ErrorKind::NotAMember,
+                format!("this identity ({self_id}) is not an active member of room {room_id}"),
+            ));
+        }
+        let pipe_id = session
+            .node
+            .pipe_expose(
+                &secret.identity,
+                &secret.device,
+                &room_id,
+                target,
+                "pipe",
+                target_str.trim(),
+                &[peer],
+                None,
+                now_ms(),
+            )
+            .await
+            .map_err(|e| CoreError::new(ErrorKind::PipeDenied, format!("could not expose the pipe: {e:#}")))?;
+
+        let event_id = self
+            .find_pipe_event(&room_id, EventType::PipeOpened, pipe_id)
+            .await?;
+        Ok(json!({
+            "pipe_id": hex::encode(pipe_id),
+            "event_id": event_id,
+        }))
+    }
+
+    /// `pipe.list`: the room's pipes from the local log, with open/closed
+    /// state and whether this daemon currently forwards or serves them.
+    pub fn pipe_list(&self, room_id_str: &str) -> CoreResult<Vec<Value>> {
+        let room_id = parse_room_id(room_id_str)?;
+        let store = self.open_store()?;
+        let (_, _snapshot) = self.fold(&store, &room_id)?;
+        let profile = crate::identity::load_profile(&self.data_dir)?;
+        let session = self.session_opt(&room_id);
+
+        let closed = closed_pipe_ids(&store, &room_id)?;
+        let opened = store
+            .by_type(&room_id, EventType::PipeOpened)
+            .map_err(|e| internal("could not read pipe.opened events", e))?;
+        // How many of this room's pipes are currently open. The SDK exposes only
+        // a NODE-WIDE live-session count (`live_pipe_sessions`), not a per-pipe
+        // one, so the owner side can only truthfully attribute a live session to
+        // a specific pipe when exactly one pipe is open — otherwise reporting
+        // `connected` from the aggregate would fabricate a per-pipe state
+        // (PROTOCOL.md honesty rule 1).
+        let open_pipe_count = opened
+            .iter()
+            .filter_map(|se| SignedEvent::decode(&se.wire.signed).ok())
+            .filter_map(|ev| match ev.content {
+                Content::PipeOpened(p) => Some(p.pipe_id),
+                _ => None,
+            })
+            .filter(|pid| !closed.contains(pid))
+            .collect::<BTreeSet<_>>()
+            .len();
+        let mut pipes = Vec::new();
+        for se in opened {
+            let Ok(ev) = SignedEvent::decode(&se.wire.signed) else {
+                continue;
+            };
+            let Content::PipeOpened(p) = ev.content else {
+                continue;
+            };
+            let is_closed = closed.contains(&p.pipe_id);
+            let is_owner = profile
+                .as_ref()
+                .is_some_and(|prof| prof.identity_id == p.owner_id.to_string());
+            let connected = session.as_deref().is_some_and(|s| {
+                s.forwarders
+                    .lock()
+                    .expect("forwarders poisoned")
+                    .contains_key(&p.pipe_id)
+                    || (is_owner
+                        && !is_closed
+                        && open_pipe_count == 1
+                        && s.node.live_pipe_sessions() > 0)
+            });
+            // Every authorized peer, not just the first — a validated remote
+            // `pipe.opened` may carry several, and hiding the rest would
+            // misrepresent who can reach the exposed loopback target. Our own
+            // `pipe.expose` always authorizes exactly one, so the common single
+            // value is unchanged.
+            let authorized_peer = authorized_peer_value(&p.allowed_members);
+            pipes.push(json!({
+                "pipe_id": hex::encode(p.pipe_id),
+                "target": p.target_hint,
+                "opened_by": p.owner_id.to_string(),
+                "authorized_peer": authorized_peer,
+                "state": if is_closed { "closed" } else { "open" },
+                "connected": connected,
+            }));
+        }
+        Ok(pipes)
+    }
+
+    /// `pipe.connect`: bind a local loopback forwarder toward the pipe owner
+    /// and keep it alive inside the session. Returns the local address.
+    pub async fn pipe_connect(&self, room_id_str: &str, pipe_id_hex: &str) -> CoreResult<String> {
+        let room_id = parse_room_id(room_id_str)?;
+        let pipe_id = parse_pipe_id(pipe_id_hex)?;
+        let secret = self.secrets()?;
+        let self_id = secret.identity.identity_key();
+        let session = self.session(&room_id)?;
+
+        // Wait (bounded) for the pipe.opened to sync, so we learn the owner.
+        let opened = tokio::time::timeout(PIPE_SYNC_WAIT, async {
+            loop {
+                if let Some(o) = session.node.pipe_opened(pipe_id).await {
+                    return o;
+                }
+                tokio::time::sleep(POLL_INTERVAL).await;
+            }
+        })
+        .await
+        .map_err(|_| {
+            CoreError::invalid(format!(
+                "no pipe {pipe_id_hex} known in room {room_id} (announcement not synced?)"
+            ))
+        })?;
+        if opened.owner_id == self_id {
+            return Err(CoreError::invalid(
+                "this daemon owns the pipe; connect from the authorized peer instead",
+            ));
+        }
+        let owner_id = EndpointId::from_bytes(opened.owner_endpoint.as_bytes())
+            .map_err(|e| CoreError::internal(format!("pipe owner endpoint is invalid: {e}")))?;
+        let owner_addr = self.enriched_addr(&session.node, &room_id, owner_id).await;
+
+        let forwarder = match session.node.pipe_connect(owner_addr, pipe_id, 0).await {
+            Ok(f) => f,
+            Err(err) => {
+                return Err(match err.downcast_ref::<PipeError>() {
+                    Some(PipeError::OwnerUnreachable(_)) => CoreError::new(
+                        ErrorKind::PeerUnreachable,
+                        format!("the pipe owner is unreachable: {err:#}"),
+                    ),
+                    _ => CoreError::new(
+                        ErrorKind::PipeDenied,
+                        format!("could not connect to the pipe: {err:#}"),
+                    ),
+                })
+            }
+        };
+        let local_addr = forwarder.local_addr().to_string();
+        if let Some(old) = session
+            .forwarders
+            .lock()
+            .expect("forwarders poisoned")
+            .insert(pipe_id, forwarder)
+        {
+            old.shutdown();
+        }
+        Ok(local_addr)
+    }
+
+    /// `pipe.close`: publish a signed `pipe.closed` (owner or room owner) and
+    /// tear down any local forwarder.
+    pub async fn pipe_close(&self, room_id_str: &str, pipe_id_hex: &str) -> CoreResult<Value> {
+        let room_id = parse_room_id(room_id_str)?;
+        let pipe_id = parse_pipe_id(pipe_id_hex)?;
+        let secret = self.secrets()?;
+        let self_id = secret.identity.identity_key();
+
+        // Sync scope: no !Sync store borrow crosses the pipe_close await.
+        {
+            let store = self.open_store()?;
+            let (_, snapshot) = self.fold(&store, &room_id)?;
+            let opened = open_pipe(&store, &room_id, pipe_id)?;
+            let is_admin = snapshot.admin() == Some(&self_id);
+            let is_owner = opened.as_ref().is_some_and(|o| o.owner_id == self_id);
+            if opened.is_none() {
+                return Err(CoreError::invalid(format!(
+                    "no pipe {pipe_id_hex} known in room {room_id}"
+                )));
+            }
+            if !is_admin && !is_owner {
+                return Err(CoreError::new(
+                    ErrorKind::PipeDenied,
+                    "only the pipe owner or the room owner can close a pipe",
+                ));
+            }
+        }
+
+        let session = self.session(&room_id)?;
+        session
+            .node
+            .pipe_close(
+                &secret.identity,
+                &secret.device,
+                &room_id,
+                pipe_id,
+                Some("closed"),
+                now_ms(),
+            )
+            .await
+            .map_err(|e| internal("could not publish pipe.closed", e))?;
+
+        if let Some(forwarder) = session
+            .forwarders
+            .lock()
+            .expect("forwarders poisoned")
+            .remove(&pipe_id)
+        {
+            forwarder.shutdown();
+        }
+        let event_id = self
+            .find_pipe_event(&room_id, EventType::PipeClosed, pipe_id)
+            .await?;
+        Ok(json!({ "event_id": event_id }))
+    }
+
+    /// Find the freshest persisted pipe event of `ty` for `pipe_id` (the
+    /// engine persists synchronously on publish; a short retry covers WAL
+    /// visibility across connections).
+    async fn find_pipe_event(
+        &self,
+        room_id: &RoomId,
+        ty: EventType,
+        pipe_id: [u8; SHORT_ID_LEN],
+    ) -> CoreResult<String> {
+        for _ in 0..20 {
+            // Sync scope per poll so the !Sync store never crosses the sleep.
+            let found = {
+                let store = self.open_store()?;
+                let rows = store
+                    .by_type(room_id, ty)
+                    .map_err(|e| internal("could not read pipe events", e))?;
+                let mut found = None;
+                for se in rows {
+                    let Ok(ev) = SignedEvent::decode(&se.wire.signed) else {
+                        continue;
+                    };
+                    let matches = match &ev.content {
+                        Content::PipeOpened(p) => p.pipe_id == pipe_id,
+                        Content::PipeClosed(p) => p.pipe_id == pipe_id,
+                        _ => false,
+                    };
+                    if matches {
+                        found = Some(bare_event_hex(&se.event_id));
+                    }
+                }
+                found
+            };
+            if let Some(id) = found {
+                return Ok(id);
+            }
+            tokio::time::sleep(POLL_INTERVAL).await;
+        }
+        Err(CoreError::internal(
+            "the pipe event did not appear in the local store",
+        ))
+    }
+
+    // ------------------------------------------------------------------
+    // Peers & pushes
+    // ------------------------------------------------------------------
+
+    /// `peers.status`: truthful live peer states + path diagnostics from the
+    /// open session's node (never inferred from latency).
+    pub async fn peers_status(&self, room_id_str: &str) -> CoreResult<Vec<Value>> {
+        let room_id = parse_room_id(room_id_str)?;
+        let session = self.session(&room_id)?;
+        Ok(Self::peers_of(&session.node).await)
+    }
+
+    /// The `PeerStatus` list for one live node.
+    async fn peers_of(node: &Node) -> Vec<Value> {
+        let paths: HashMap<EndpointId, &'static str> = node
+            .peer_paths()
+            .await
+            .into_iter()
+            .map(|(device, path, _relay)| (device, path.label()))
+            .collect();
+        node.peer_entries()
+            .into_iter()
+            .map(|(device, entry)| {
+                let state = match entry.state {
+                    PeerConnState::Connected => "connected",
+                    PeerConnState::Connecting => "connecting",
+                    // The protocol enum has no "unauthorized" state; both mean
+                    // "no live authorized link right now".
+                    PeerConnState::Offline | PeerConnState::Unauthorized => "offline",
+                };
+                let path = if entry.state == PeerConnState::Connected {
+                    match paths.get(&device).copied() {
+                        // "mixed" = direct + relay both active; a direct path
+                        // exists, so it reads as direct.
+                        Some("direct" | "mixed") => json!("direct"),
+                        Some("relay") => json!("relay"),
+                        _ => Value::Null,
+                    }
+                } else {
+                    Value::Null
+                };
+                json!({
+                    "endpoint_id": device.to_string(),
+                    "state": state,
+                    "path": path,
+                })
+            })
+            .collect()
+    }
+
+    /// Push-loop poll: the room's not-yet-pushed validated events (own or
+    /// remote), each returned exactly once, as materialized `TimelineEvent`s.
+    ///
+    /// Scans the FULL causally-complete tail (`room_tail(u32::MAX)`), not a
+    /// fixed 512-row window: `lamport` is causal, not receive-monotonic, so a
+    /// late/concurrent event authored against an old frontier arrives with a low
+    /// lamport and would sit permanently below a moving top-N cutoff. Scanning
+    /// the whole tail and deduping against `seen` guarantees every ingested
+    /// event is pushed exactly once regardless of its lamport (PROTOCOL.md
+    /// `room.event`). Materialization only runs for genuinely new ids.
+    pub async fn poll_new_events(&self, room_id: &RoomId) -> CoreResult<Vec<Value>> {
+        let session = self.session(room_id)?;
+        let rows = session
+            .node
+            .room_tail(u32::MAX)
+            .await
+            .map_err(|e| internal("could not read the timeline", e))?;
+        let snapshot = session
+            .node
+            .snapshot()
+            .await
+            .map_err(|e| internal("could not read the membership snapshot", e))?;
+        // Keep the join-bootstrap window tied to live state: an owner hosts joins
+        // only while an invite is actually pending (closed again once every
+        // invitee has redeemed and no `Invited` member remains).
+        session.accept_joins.store(
+            session.is_owner && any_pending_invite(&snapshot),
+            Ordering::Relaxed,
+        );
+        let mut seen = session.seen.lock().expect("seen poisoned");
+        let mut out = Vec::new();
+        for se in &rows {
+            if seen.insert(se.event_id) {
+                if let Some(v) = materializer::materialize(se, &snapshot) {
+                    out.push(v);
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    /// Drain the session's `conn_events` broadcast; `true` if any peer
+    /// connection transition happened since the last drain.
+    pub fn drain_conn_changes(&self, room_id: &RoomId) -> bool {
+        let Some(session) = self.session_opt(room_id) else {
+            return false;
+        };
+        let mut conn_rx = session.conn_rx.lock().expect("conn_rx poisoned");
+        let mut changed = false;
+        loop {
+            match conn_rx.try_recv() {
+                Ok(_) => changed = true,
+                Err(broadcast::error::TryRecvError::Lagged(_)) => changed = true,
+                Err(_) => break,
+            }
+        }
+        changed
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Free helpers
+// ---------------------------------------------------------------------------
+
+/// Render a pipe's authorized-peer set for the view-model: `null` when empty,
+/// the single identity when there is one, or every identity comma-joined when a
+/// (validated remote) `pipe.opened` declares more than one — never silently
+/// dropping the extras.
+fn authorized_peer_value(allowed: &[IdentityKey]) -> Value {
+    if allowed.is_empty() {
+        Value::Null
+    } else {
+        Value::String(
+            allowed
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(","),
+        )
+    }
+}
+
+fn parse_room_id(s: &str) -> CoreResult<RoomId> {
+    s.trim()
+        .parse()
+        .map_err(|e| CoreError::invalid(format!("invalid room_id (expected blake3:<hex>): {e}")))
+}
+
+/// Parse a `file_<32-hex>` handle (or bare 32-hex) into the 16-byte id.
+fn parse_file_id(s: &str) -> CoreResult<[u8; SHORT_ID_LEN]> {
+    let trimmed = s.trim();
+    let hex_part = trimmed.strip_prefix("file_").unwrap_or(trimmed);
+    let bytes = hex::decode(hex_part)
+        .map_err(|_| CoreError::invalid(format!("invalid file_id {s:?}")))?;
+    <[u8; SHORT_ID_LEN]>::try_from(bytes.as_slice())
+        .map_err(|_| CoreError::invalid(format!("invalid file_id {s:?} (expected file_<32-hex>)")))
+}
+
+/// Parse a 32-hex pipe id into 16 bytes.
+fn parse_pipe_id(s: &str) -> CoreResult<[u8; SHORT_ID_LEN]> {
+    let bytes = hex::decode(s.trim())
+        .map_err(|_| CoreError::invalid(format!("invalid pipe_id {s:?}")))?;
+    <[u8; SHORT_ID_LEN]>::try_from(bytes.as_slice())
+        .map_err(|_| CoreError::invalid(format!("invalid pipe_id {s:?} (expected 32 hex chars)")))
+}
+
+/// Convert a core `DeviceKey` (`device_id`) into an iroh `EndpointId` — the
+/// same raw 32 bytes (the CLI's `endpoint_id_of`).
+fn endpoint_id_of(dev: DeviceKey) -> CoreResult<EndpointId> {
+    EndpointId::from_bytes(dev.as_bytes())
+        .map_err(|e| CoreError::internal(format!("invalid device id: {e}")))
+}
+
+/// Parse `"<endpoint_id>[@<ip:port>[,<ip:port>...]]"` peer strings.
+fn parse_peers(peers: &[String]) -> CoreResult<Vec<EndpointAddr>> {
+    peers
+        .iter()
+        .map(|s| {
+            let s = s.trim();
+            let (id_part, addr_part) = match s.split_once('@') {
+                Some((id, rest)) => (id, Some(rest)),
+                None => (s, None),
+            };
+            let id = EndpointId::from_str(id_part.trim())
+                .map_err(|e| CoreError::invalid(format!("invalid peer endpoint id {id_part:?}: {e}")))?;
+            let mut addr = EndpointAddr::new(id);
+            if let Some(rest) = addr_part {
+                for sock in rest.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+                    let socket = SocketAddr::from_str(sock).map_err(|e| {
+                        CoreError::invalid(format!("invalid peer socket address {sock:?}: {e}"))
+                    })?;
+                    addr = addr.with_ip_addr(socket);
+                }
+            }
+            Ok(addr)
+        })
+        .collect()
+}
+
+/// A dialable `<endpoint_id>@<ip:port,...>` string, or `None` when no socket
+/// address is known yet.
+fn dialable_addr(node: &Node) -> Option<String> {
+    let addr = node.endpoint_addr().ok()?;
+    let socks: Vec<String> = addr.ip_addrs().map(|s| s.to_string()).collect();
+    if socks.is_empty() {
+        None
+    } else {
+        Some(format!("{}@{}", addr.id, socks.join(",")))
+    }
+}
+
+fn validate_room_name(name: &str) -> CoreResult<()> {
+    if name.is_empty() {
+        return Err(CoreError::invalid("room name must not be empty"));
+    }
+    if name.len() > MAX_ROOM_NAME_BYTES {
+        return Err(CoreError::invalid(format!(
+            "room name must be at most {MAX_ROOM_NAME_BYTES} bytes"
+        )));
+    }
+    if name.chars().any(char::is_control) {
+        return Err(CoreError::invalid(
+            "room name must not contain control characters",
+        ));
+    }
+    Ok(())
+}
+
+/// The room's genesis `room_name` from the local log, if present.
+fn genesis_name(store: &EventStore, room_id: &RoomId) -> Option<String> {
+    let genesis = store.by_type(room_id, EventType::RoomCreated).ok()?;
+    let stored = genesis.into_iter().next()?;
+    let event = SignedEvent::decode(&stored.wire.signed).ok()?;
+    match event.content {
+        Content::RoomCreated(c) => Some(c.room_name),
+        _ => None,
+    }
+}
+
+/// Log-derived departure sets (`member.removed` subjects, `member.left`
+/// subjects) backing the display-status refinement.
+fn departure_sets(
+    store: &EventStore,
+    room_id: &RoomId,
+) -> CoreResult<(BTreeSet<IdentityKey>, BTreeSet<IdentityKey>)> {
+    let mut removed_ids = BTreeSet::new();
+    for se in store
+        .by_type(room_id, EventType::MemberRemoved)
+        .map_err(|e| internal("could not read member.removed events", e))?
+    {
+        if let Ok(ev) = SignedEvent::decode(&se.wire.signed) {
+            if let Content::MemberRemoved(c) = ev.content {
+                removed_ids.insert(c.member_id);
+            }
+        }
+    }
+    let mut left_ids = BTreeSet::new();
+    for se in store
+        .by_type(room_id, EventType::MemberLeft)
+        .map_err(|e| internal("could not read member.left events", e))?
+    {
+        if let Ok(ev) = SignedEvent::decode(&se.wire.signed) {
+            if let Content::MemberLeft(c) = ev.content {
+                left_ids.insert(c.member_id);
+            }
+        }
+    }
+    Ok((removed_ids, left_ids))
+}
+
+/// `active | invited | removed | left` (the CLI's D5 display refinement: an
+/// admin removal dominates a concurrent self-leave).
+fn status_label(
+    status: Status,
+    subject: &IdentityKey,
+    removed_ids: &BTreeSet<IdentityKey>,
+    left_ids: &BTreeSet<IdentityKey>,
+) -> &'static str {
+    match status {
+        Status::Active => "active",
+        Status::Invited => "invited",
+        Status::Removed => {
+            if removed_ids.contains(subject) {
+                "removed"
+            } else if left_ids.contains(subject) {
+                "left"
+            } else {
+                "removed"
+            }
+        }
+    }
+}
+
+/// Map a `gate_join` rejection onto the protocol taxonomy.
+fn join_reject_error(reason: &RejectReason) -> CoreError {
+    match reason {
+        RejectReason::ExpiredInvite => {
+            CoreError::new(ErrorKind::TicketExpired, "this invite has expired")
+        }
+        RejectReason::BadCapability => CoreError::new(
+            ErrorKind::BadTicket,
+            "this ticket's secret or identity does not match the invite",
+        ),
+        RejectReason::InsufficientRole => CoreError::new(
+            ErrorKind::BadTicket,
+            "the ticket's role does not match the invite",
+        ),
+        RejectReason::NotAMember | RejectReason::UnboundDevice => CoreError::new(
+            ErrorKind::NotAMember,
+            format!("the room rejected the join ({})", reason.code()),
+        ),
+        other => CoreError::internal(format!("the room rejected the join ({})", other.code())),
+    }
+}
+
+/// Find the `file.shared` matching `file_id`, plus the author's device (the
+/// implicit default provider).
+fn find_file_shared(
+    events: &[StoredEvent],
+    file_id: [u8; SHORT_ID_LEN],
+) -> Option<(iroh_rooms::files::FileShared, DeviceKey)> {
+    for se in events {
+        if se.event_type != EventType::FileShared {
+            continue;
+        }
+        let Ok(ev) = SignedEvent::decode(&se.wire.signed) else {
+            continue;
+        };
+        let Content::FileShared(f) = ev.content else {
+            continue;
+        };
+        if f.file_id == file_id {
+            return Some((f, ev.device_id));
+        }
+    }
+    None
+}
+
+/// The set of pipe ids with a known `pipe.closed` in the room.
+fn closed_pipe_ids(
+    store: &EventStore,
+    room_id: &RoomId,
+) -> CoreResult<BTreeSet<[u8; SHORT_ID_LEN]>> {
+    let mut closed = BTreeSet::new();
+    for se in store
+        .by_type(room_id, EventType::PipeClosed)
+        .map_err(|e| internal("could not read pipe.closed events", e))?
+    {
+        if let Ok(ev) = SignedEvent::decode(&se.wire.signed) {
+            if let Content::PipeClosed(c) = ev.content {
+                closed.insert(c.pipe_id);
+            }
+        }
+    }
+    Ok(closed)
+}
+
+/// The governing `pipe.opened` for `pipe_id`, if present in the local log.
+fn open_pipe(
+    store: &EventStore,
+    room_id: &RoomId,
+    pipe_id: [u8; SHORT_ID_LEN],
+) -> CoreResult<Option<iroh_rooms::pipes::PipeOpened>> {
+    for se in store
+        .by_type(room_id, EventType::PipeOpened)
+        .map_err(|e| internal("could not read pipe.opened events", e))?
+    {
+        if let Ok(ev) = SignedEvent::decode(&se.wire.signed) {
+            if let Content::PipeOpened(p) = ev.content {
+                if p.pipe_id == pipe_id {
+                    return Ok(Some(p));
+                }
+            }
+        }
+    }
+    Ok(None)
+}
+
+/// Parse an expiry spec (`<int>{s|m|h|d}`, bare integer = seconds) into an
+/// absolute ms timestamp anchored at `now`.
+fn parse_expiry(spec: &str, now: u64) -> CoreResult<u64> {
+    let spec = spec.trim();
+    if spec.is_empty() {
+        return Err(CoreError::invalid("expiry must not be empty"));
+    }
+    let (digits, unit_ms): (&str, u64) = match spec.chars().last() {
+        Some('s') => (&spec[..spec.len() - 1], 1_000),
+        Some('m') => (&spec[..spec.len() - 1], 60_000),
+        Some('h') => (&spec[..spec.len() - 1], 3_600_000),
+        Some('d') => (&spec[..spec.len() - 1], 86_400_000),
+        _ => (spec, 1_000),
+    };
+    let value: u64 = digits.trim().parse().map_err(|_| {
+        CoreError::invalid(format!(
+            "expiry must be <int>{{s|m|h|d}} (e.g. \"24h\"); got {spec:?}"
+        ))
+    })?;
+    if value == 0 {
+        return Err(CoreError::invalid("expiry must be greater than zero"));
+    }
+    value
+        .checked_mul(unit_ms)
+        .and_then(|ms| now.checked_add(ms))
+        .ok_or_else(|| CoreError::invalid(format!("expiry {spec:?} is too large")))
+}
+
+/// Reduce a peer-supplied file name to a safe basename (path-traversal guard).
+fn sanitize_name(name: &str, file_id: [u8; SHORT_ID_LEN]) -> String {
+    let base = name.rsplit(['/', '\\']).next().unwrap_or(name);
+    let cleaned: String = base.chars().filter(|c| !c.is_control()).collect();
+    let cleaned = cleaned.trim();
+    if cleaned.is_empty() || cleaned == "." || cleaned == ".." {
+        format!("file_{}", hex::encode(file_id))
+    } else {
+        cleaned.to_owned()
+    }
+}
+
+/// Write bytes atomically (temp + rename); no partial file is ever visible.
+fn save_atomic(target: &Path, bytes: &[u8]) -> CoreResult<()> {
+    let dir = target
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .map_or_else(|| PathBuf::from("."), Path::to_path_buf);
+    let file_name = target
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("download");
+    let tmp = dir.join(format!(".{file_name}.part"));
+    let result = std::fs::write(&tmp, bytes).and_then(|()| std::fs::rename(&tmp, target));
+    if let Err(err) = result {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(internal("could not save the fetched file", err));
+    }
+    Ok(())
+}
+
+/// A dependency-free MIME guess from the extension (mirrors the CLI's table).
+fn guess_mime(path: &Path) -> String {
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(str::to_ascii_lowercase);
+    match ext.as_deref() {
+        Some("txt" | "text" | "log") => "text/plain",
+        Some("md" | "markdown") => "text/markdown",
+        Some("pdf") => "application/pdf",
+        Some("png") => "image/png",
+        Some("jpg" | "jpeg") => "image/jpeg",
+        Some("gif") => "image/gif",
+        Some("svg") => "image/svg+xml",
+        Some("json") => "application/json",
+        Some("html" | "htm") => "text/html",
+        Some("csv") => "text/csv",
+        Some("xml") => "application/xml",
+        Some("zip") => "application/zip",
+        Some("gz" | "tgz") => "application/gzip",
+        Some("tar") => "application/x-tar",
+        _ => "application/octet-stream",
+    }
+    .to_owned()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        parse_expiry, parse_file_id, parse_pipe_id, sanitize_name, validate_room_name,
+        RoomSupervisor,
+    };
+    use crate::error::ErrorKind;
+    use tempfile::tempdir;
+
+    #[test]
+    fn room_name_bounds() {
+        assert!(validate_room_name("Build Iroh Rooms MVP").is_ok());
+        assert!(validate_room_name("").is_err());
+        assert!(validate_room_name(&"a".repeat(129)).is_err());
+        assert!(validate_room_name("bad\nname").is_err());
+    }
+
+    #[test]
+    fn file_and_pipe_id_codecs() {
+        let id = [0xabu8; 16];
+        assert_eq!(parse_file_id(&format!("file_{}", "ab".repeat(16))).unwrap(), id);
+        assert_eq!(parse_file_id(&"ab".repeat(16)).unwrap(), id);
+        assert!(parse_file_id("file_xyz").is_err());
+        assert_eq!(parse_pipe_id(&"ab".repeat(16)).unwrap(), id);
+        assert!(parse_pipe_id("short").is_err());
+    }
+
+    #[test]
+    fn expiry_parses_units_and_bare_seconds() {
+        assert_eq!(parse_expiry("24h", 0).unwrap(), 24 * 3_600_000);
+        assert_eq!(parse_expiry("30", 1_000).unwrap(), 31_000);
+        assert!(parse_expiry("0s", 0).is_err());
+        assert!(parse_expiry("nope", 0).is_err());
+    }
+
+    #[test]
+    fn sanitize_name_guards_traversal() {
+        assert_eq!(sanitize_name("report.pdf", [0; 16]), "report.pdf");
+        assert_eq!(
+            sanitize_name("../../.ssh/authorized_keys", [0; 16]),
+            "authorized_keys"
+        );
+        assert_eq!(sanitize_name("..", [0xaa; 16]), format!("file_{}", "aa".repeat(16)));
+    }
+
+    #[test]
+    fn create_room_requires_identity() {
+        let dir = tempdir().unwrap();
+        let sup = RoomSupervisor::new(dir.path().to_path_buf(), true).unwrap();
+        let err = sup.create_room("Room").unwrap_err();
+        assert_eq!(err.kind, ErrorKind::IdentityMissing);
+    }
+
+    #[test]
+    fn create_room_then_offline_reads_work() {
+        let dir = tempdir().unwrap();
+        crate::identity::create(dir.path()).unwrap();
+        let sup = RoomSupervisor::new(dir.path().to_path_buf(), true).unwrap();
+        let room_id = sup.create_room("Build Room").unwrap();
+        assert!(room_id.starts_with("blake3:"));
+
+        let rooms = sup.list_rooms().unwrap();
+        assert_eq!(rooms.len(), 1);
+        assert_eq!(rooms[0]["name"], "Build Room");
+        assert_eq!(rooms[0]["role"], "owner");
+        assert_eq!(rooms[0]["member_count"], 1);
+        assert_eq!(rooms[0]["open"], false);
+
+        let timeline = sup.timeline(&room_id, None).unwrap();
+        assert_eq!(timeline.len(), 1);
+        assert_eq!(timeline[0]["kind"], "room_created");
+
+        let members = sup.members(&room_id).unwrap();
+        assert_eq!(members.len(), 1);
+        assert_eq!(members[0]["role"], "owner");
+        assert_eq!(members[0]["status"], "active");
+    }
+
+    #[test]
+    fn unknown_room_is_room_unknown() {
+        let dir = tempdir().unwrap();
+        crate::identity::create(dir.path()).unwrap();
+        let sup = RoomSupervisor::new(dir.path().to_path_buf(), true).unwrap();
+        sup.create_room("Seed").unwrap();
+        let unknown = format!("blake3:{}", "de".repeat(32));
+        let err = sup.timeline(&unknown, None).unwrap_err();
+        assert_eq!(err.kind, ErrorKind::RoomUnknown);
+    }
+
+    #[tokio::test]
+    async fn message_send_requires_open_room() {
+        let dir = tempdir().unwrap();
+        crate::identity::create(dir.path()).unwrap();
+        let sup = RoomSupervisor::new(dir.path().to_path_buf(), true).unwrap();
+        let room_id = sup.create_room("Room").unwrap();
+        let err = sup.send_message(&room_id, "hi").await.unwrap_err();
+        assert_eq!(err.kind, ErrorKind::RoomNotOpen);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn open_send_timeline_roundtrip_loopback() {
+        // The daemon's core happy path, end to end against the real SDK node.
+        let dir = tempdir().unwrap();
+        crate::identity::create(dir.path()).unwrap();
+        let sup = RoomSupervisor::new(dir.path().to_path_buf(), true).unwrap();
+        let room_id = sup.create_room("Live Room").unwrap();
+
+        let opened = sup.open_room(&room_id, &[]).await.unwrap();
+        assert!(opened["endpoint"]["endpoint_id"].is_string());
+        assert_eq!(opened["timeline"][0]["kind"], "room_created");
+
+        let event_id = sup.send_message(&room_id, "hello bantaba").await.unwrap();
+        assert_eq!(event_id.len(), 64);
+
+        // The freshly published message is pushed exactly once...
+        let typed_room: iroh_rooms::room::RoomId = room_id.parse().unwrap();
+        let pushed = sup.poll_new_events(&typed_room).await.unwrap();
+        assert_eq!(pushed.len(), 1);
+        assert_eq!(pushed[0]["kind"], "message");
+        assert_eq!(pushed[0]["body"], "hello bantaba");
+        assert!(sup.poll_new_events(&typed_room).await.unwrap().is_empty());
+
+        // ...and the offline timeline read sees genesis + message in order.
+        let timeline = sup.timeline(&room_id, None).unwrap();
+        assert_eq!(timeline.len(), 2);
+        assert_eq!(timeline[0]["kind"], "room_created");
+        assert_eq!(timeline[1]["kind"], "message");
+
+        sup.close_room(&room_id).await.unwrap();
+        assert!(sup.open_rooms().is_empty());
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn own_shared_file_list_and_fetch_agree() {
+        // Finding #5: file.list must not claim availability that file.fetch
+        // cannot honor. A file whose sole provider is this device shows
+        // available:false, and file.fetch returns file_unavailable — never a
+        // contradiction.
+        let dir = tempdir().unwrap();
+        crate::identity::create(dir.path()).unwrap();
+        let sup = RoomSupervisor::new(dir.path().to_path_buf(), true).unwrap();
+        let room_id = sup.create_room("Files").unwrap();
+        sup.open_room(&room_id, &[]).await.unwrap();
+
+        let path = dir.path().join("shared.txt");
+        std::fs::write(&path, b"hello bantaba file").unwrap();
+        let shared = sup
+            .share_file(&room_id, path.to_str().unwrap(), None, None)
+            .await
+            .unwrap();
+        let file_id = shared["file_id"].as_str().unwrap().to_owned();
+
+        let files = sup.list_files(&room_id).await.unwrap();
+        let row = files
+            .iter()
+            .find(|f| f["file_id"] == file_id.as_str())
+            .expect("the shared file appears in file.list");
+        assert_eq!(row["available"], false, "self-only provider is not fetchable");
+
+        let err = sup.fetch_file(&room_id, &file_id, None).await.unwrap_err();
+        assert_eq!(err.kind, ErrorKind::FileUnavailable);
+
+        sup.close_room(&room_id).await.unwrap();
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn file_share_confined_to_the_data_dir() {
+        // Finding #9: file.share must not read arbitrary local files.
+        let dir = tempdir().unwrap();
+        crate::identity::create(dir.path()).unwrap();
+        let sup = RoomSupervisor::new(dir.path().to_path_buf(), true).unwrap();
+        let room_id = sup.create_room("Files").unwrap();
+        sup.open_room(&room_id, &[]).await.unwrap();
+
+        // A file outside the data dir is refused (the exfiltration primitive).
+        let outside = tempdir().unwrap();
+        let secret = outside.path().join("id_rsa");
+        std::fs::write(&secret, b"PRIVATE KEY").unwrap();
+        let err = sup
+            .share_file(&room_id, secret.to_str().unwrap(), None, None)
+            .await
+            .unwrap_err();
+        assert_eq!(err.kind, ErrorKind::InvalidParams);
+
+        // The daemon's own secret file is refused even though it is under the dir.
+        let own_secret = dir.path().join(crate::identity::SECRET_FILE);
+        let err = sup
+            .share_file(&room_id, own_secret.to_str().unwrap(), None, None)
+            .await
+            .unwrap_err();
+        assert_eq!(err.kind, ErrorKind::InvalidParams);
+
+        // The room must still be open (a refused share never cycles the node).
+        assert!(sup.open_rooms().contains(&room_id));
+        sup.close_room(&room_id).await.unwrap();
+    }
+}

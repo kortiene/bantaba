@@ -1,0 +1,7 @@
+/target
+node_modules/
+ui/dist/
+.bantaba-data*/
+.bantaba-demo*/
+*.log
+.DS_Store
