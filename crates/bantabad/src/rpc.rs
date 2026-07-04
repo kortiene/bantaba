@@ -208,7 +208,7 @@ async fn dispatch(method: &str, raw_params: Value, state: &AppState) -> CoreResu
         }
         "room.timeline" => {
             let p: TimelineParams = params(raw_params)?;
-            Ok(json!({ "events": sup.timeline(&p.room_id, p.limit)? }))
+            Ok(json!({ "events": sup.timeline(&p.room_id, p.limit).await? }))
         }
         "room.members" => {
             let p: RoomIdParams = params(raw_params)?;

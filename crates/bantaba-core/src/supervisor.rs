@@ -785,10 +785,14 @@ impl RoomSupervisor {
     /// `room.timeline`: chronological `TimelineEvent`s from the local log
     /// (an offline read — works whether or not the room is open; a second
     /// read handle on the WAL-mode store sees the engine's committed writes).
-    pub fn timeline(&self, room_id_str: &str, limit: Option<u32>) -> CoreResult<Vec<Value>> {
+    pub async fn timeline(&self, room_id_str: &str, limit: Option<u32>) -> CoreResult<Vec<Value>> {
         let room_id = parse_room_id(room_id_str)?;
+        // Sender roles come from the fast membership snapshot (live snapshot for
+        // an open room, cached fold for a closed one) — NOT a full O(history)
+        // re-fold of the whole log on every timeline read. This also yields
+        // `RoomUnknown` for a room with no stored events, exactly like `fold`.
+        let snapshot = self.snapshot_for(&room_id).await?;
         let store = self.open_store()?;
-        let (_, snapshot) = self.fold(&store, &room_id)?;
         let rows = store
             .room_tail(&room_id, limit.unwrap_or(200))
             .map_err(|e| internal("could not read the timeline", e))?;
@@ -1400,7 +1404,18 @@ impl RoomSupervisor {
     pub async fn list_files(&self, room_id_str: &str) -> CoreResult<Vec<Value>> {
         let room_id = parse_room_id(room_id_str)?;
         let store = self.open_store()?;
-        let (_, _snapshot) = self.fold(&store, &room_id)?;
+        // Existence check without the O(history) re-fold (the membership
+        // snapshot is unused here — file rows are read directly by type).
+        if store
+            .count(&room_id)
+            .map_err(|e| internal("could not count the room's stored events", e))?
+            == 0
+        {
+            return Err(CoreError::new(
+                ErrorKind::RoomUnknown,
+                format!("no room {room_id} in {}", self.data_dir.display()),
+            ));
+        }
         let events = store
             .by_type(&room_id, EventType::FileShared)
             .map_err(|e| internal("could not read file.shared events", e))?;
@@ -1652,7 +1667,18 @@ impl RoomSupervisor {
     pub fn pipe_list(&self, room_id_str: &str) -> CoreResult<Vec<Value>> {
         let room_id = parse_room_id(room_id_str)?;
         let store = self.open_store()?;
-        let (_, _snapshot) = self.fold(&store, &room_id)?;
+        // Existence check without the O(history) re-fold (the membership
+        // snapshot is unused here — pipe rows are read directly from the log).
+        if store
+            .count(&room_id)
+            .map_err(|e| internal("could not count the room's stored events", e))?
+            == 0
+        {
+            return Err(CoreError::new(
+                ErrorKind::RoomUnknown,
+                format!("no room {room_id} in {}", self.data_dir.display()),
+            ));
+        }
         let profile = crate::identity::load_profile(&self.data_dir)?;
         let session = self.session_opt(&room_id);
 
@@ -3229,7 +3255,7 @@ mod tests {
         assert_eq!(rooms[0]["member_count"], 1);
         assert_eq!(rooms[0]["open"], false);
 
-        let timeline = sup.timeline(&room_id, None).unwrap();
+        let timeline = sup.timeline(&room_id, None).await.unwrap();
         assert_eq!(timeline.len(), 1);
         assert_eq!(timeline[0]["kind"], "room_created");
 
@@ -3239,14 +3265,14 @@ mod tests {
         assert_eq!(members[0]["status"], "active");
     }
 
-    #[test]
-    fn unknown_room_is_room_unknown() {
+    #[tokio::test]
+    async fn unknown_room_is_room_unknown() {
         let dir = tempdir().unwrap();
         crate::identity::create(dir.path()).unwrap();
         let sup = RoomSupervisor::new(dir.path().to_path_buf(), true).unwrap();
         sup.create_room("Seed").unwrap();
         let unknown = format!("blake3:{}", "de".repeat(32));
-        let err = sup.timeline(&unknown, None).unwrap_err();
+        let err = sup.timeline(&unknown, None).await.unwrap_err();
         assert_eq!(err.kind, ErrorKind::RoomUnknown);
     }
 
@@ -3284,7 +3310,7 @@ mod tests {
         assert!(sup.poll_new_events(&typed_room).await.unwrap().is_empty());
 
         // ...and the offline timeline read sees genesis + message in order.
-        let timeline = sup.timeline(&room_id, None).unwrap();
+        let timeline = sup.timeline(&room_id, None).await.unwrap();
         assert_eq!(timeline.len(), 2);
         assert_eq!(timeline[0]["kind"], "room_created");
         assert_eq!(timeline[1]["kind"], "message");
