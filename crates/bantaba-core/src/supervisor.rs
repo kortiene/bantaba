@@ -23,7 +23,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex as StdMutex, MutexGuard};
 use std::time::Duration;
 
-use iroh::{EndpointAddr, EndpointId, SecretKey, TransportAddr};
+use iroh::TransportAddr;
 use serde_json::{json, Value};
 use tokio::sync::{broadcast, Mutex as TokioMutex};
 
@@ -35,14 +35,13 @@ use iroh_rooms::events::{
     build_agent_status, build_message_text, capability_hash, validate_wire_bytes, Content,
     EventId, EventType, RejectReason, SignedEvent, ValidationContext, WireEvent,
 };
-use iroh_rooms::experimental::blob::BlobStore;
 use iroh_rooms::experimental::pipe_runtime::{is_loopback_target, PipeError, PipeForwarder};
 use iroh_rooms::experimental::session::{
-    Admission, AdmissionDecision, AdmissionView, AllowlistAdmission, BlobServeConfig, ConnEvent,
-    NetConfig, NetMode, Node, PeerConnState, RejectCause, SnapshotAdmission, TracingAudit,
-    DEFAULT_TICK,
+    Admission, AdmissionView, AllowlistAdmission, BlobServeConfig, ConnEvent, EndpointAddr,
+    EndpointId, JoinBootstrapAdmission, NetConfig, NetMode, Node, PeerConnState, SecretKey,
+    SnapshotAdmission, TracingAudit, DEFAULT_TICK,
 };
-use iroh_rooms::experimental::store::{EventStore, StoreError, StoredEvent};
+use iroh_rooms::experimental::store::{EventStore, StoreOptions, StoredEvent};
 use iroh_rooms::experimental::sync::{SyncConfig, SyncEngine};
 use iroh_rooms::files::build_file_shared;
 use iroh_rooms::identity::{DeviceBinding, DeviceKey, IdentityKey};
@@ -95,6 +94,22 @@ const RECLAIM_POLL: Duration = Duration::from_millis(50);
 pub struct RoomSession {
     node: Node,
     conn_rx: StdMutex<broadcast::Receiver<ConnEvent>>,
+    /// The node's live `room.event` push stream (issue #83): every event the
+    /// engine ingests (own or remote) is broadcast here the moment it commits,
+    /// so the daemon pushes with sub-second latency instead of synthesizing
+    /// pushes from a hot `room_tail` poll. Lossy by design (a lagged receiver
+    /// drops events); the `seen` dedupe plus the reconcile poll close the gap.
+    ///
+    /// Held behind its OWN `Arc` (independent of the session `Arc`) so the push
+    /// pump can park on `recv().await` while cloning only this handle — never a
+    /// session clone. A parked receiver must not pin the session, or
+    /// `room.close`'s `reclaim_session` would spin forever waiting for the pump
+    /// to drop a strong reference the pump never gets to release until the
+    /// broadcast closes (which only happens once the node is shut down, i.e.
+    /// AFTER reclaim). Dropping the session pin breaks that cycle: reclaim
+    /// unwraps immediately, `Node::shutdown` drops the broadcast senders, and
+    /// the parked `recv` wakes with `Closed`.
+    room_rx: Arc<TokioMutex<broadcast::Receiver<StoredEvent>>>,
     forwarders: StdMutex<HashMap<[u8; SHORT_ID_LEN], PipeForwarder>>,
     seen: StdMutex<BTreeSet<EventId>>,
     /// Live gate for join-bootstrap provisional admission (an unknown device may
@@ -112,10 +127,11 @@ pub struct RoomSession {
 /// span of a map lookup/insert/remove — never across an `.await`. Network work
 /// runs on the cloned `Arc<RoomSession>` after the guard is dropped, so no
 /// client request or the push loop can be head-of-line blocked by another
-/// client's slow call. `structural` serializes the three flows that spawn or
-/// tear a node down (`room.open` / `room.close` / `file.share`) so two of them
-/// never race the same room's exclusive blob-store lock; it is deliberately
-/// *not* taken by the message/fetch/pipe/peers/push paths.
+/// client's slow call. `structural` serializes the two flows that spawn or
+/// tear a node down (`room.open` / `room.close`) so they never race the same
+/// room's exclusive blob-store lock; it is deliberately *not* taken by the
+/// message/fetch/share/pipe/peers/push paths (since #84 `file.share` imports
+/// in-session and spawns/tears no node, so it needs no structural lock).
 pub struct RoomSupervisor {
     data_dir: PathBuf,
     loopback: bool,
@@ -123,73 +139,8 @@ pub struct RoomSupervisor {
     structural: TokioMutex<()>,
 }
 
-/// A join-bootstrap admission overlay whose provisional-accept flag can be
-/// flipped at runtime.
-///
-/// The SDK's `JoinBootstrapAdmission` bakes `accept_joins` in at construction,
-/// so the reference wiring left provisional admission on for an owner's whole
-/// session — any device that learned the dial address could pull the room's
-/// membership sub-DAG (identity keys, roles, display names) with no invite. This
-/// overlay reads the flag from an `Arc<AtomicBool>` the supervisor drives from
-/// the live pending-invite state instead, so the privacy window is open only
-/// while an invite actually is.
-struct DynamicJoinBootstrap {
-    inner: SnapshotAdmission,
-    accept_joins: Arc<AtomicBool>,
-}
-
-impl Admission for DynamicJoinBootstrap {
-    fn authorize(&self, device: EndpointId) -> AdmissionDecision {
-        match self.inner.authorize(device) {
-            AdmissionDecision::Reject(RejectCause::UnknownDevice)
-                if self.accept_joins.load(Ordering::Relaxed) =>
-            {
-                AdmissionDecision::AdmitProvisional
-            }
-            other => other,
-        }
-    }
-}
-
 fn internal(context: &str, err: impl std::fmt::Display) -> CoreError {
     CoreError::internal(format!("{context}: {err}"))
-}
-
-/// Whether a store error is a transient SQLITE_BUSY / "database is locked" — a
-/// colliding writer on the shared WAL `rooms.db`, worth a short retry rather
-/// than a hard `internal` failure.
-fn is_sqlite_busy(err: &StoreError) -> bool {
-    matches!(err, StoreError::Sqlite(_)) && {
-        let s = err.to_string().to_ascii_lowercase();
-        s.contains("locked") || s.contains("busy")
-    }
-}
-
-/// Run a store operation, retrying briefly on SQLITE_BUSY.
-///
-/// The daemon opens several writer connections on one shared `rooms.db` (one
-/// per open room's `SyncEngine`, plus transient `create_room` / `create_invite`
-/// inserts). WAL allows a single writer at a time and the SDK opens each
-/// connection with no `busy_timeout`, so a collision would otherwise error
-/// instantly. We retry with a short backoff so an ordinary collision does not
-/// surface as an `internal` error. (The SDK's own pump-side ingest writes are
-/// beyond our reach; a rare drop there is recovered by the peer's re-sync.)
-fn with_busy_retry<T>(
-    context: &str,
-    mut op: impl FnMut() -> Result<T, StoreError>,
-) -> CoreResult<T> {
-    const MAX_ATTEMPTS: u32 = 100;
-    let mut attempt = 0u32;
-    loop {
-        match op() {
-            Ok(value) => return Ok(value),
-            Err(err) if is_sqlite_busy(&err) && attempt < MAX_ATTEMPTS => {
-                attempt += 1;
-                std::thread::sleep(Duration::from_millis(20));
-            }
-            Err(err) => return Err(internal(context, err)),
-        }
-    }
 }
 
 /// Whether the folded membership has any subject still merely `Invited` (an
@@ -277,7 +228,13 @@ impl RoomSupervisor {
     }
 
     fn open_store(&self) -> CoreResult<EventStore> {
-        EventStore::open(&self.db_path())
+        // Open with an explicit 5s SQLITE_BUSY timeout: the daemon opens several
+        // writer connections on one shared WAL `rooms.db` (one per open room's
+        // `SyncEngine`, plus transient create_room / create_invite inserts), and
+        // WAL allows a single writer at a time. The busy_timeout lets a colliding
+        // writer wait inside SQLite instead of erroring instantly, which retires
+        // the old application-level `with_busy_retry` backoff loop.
+        EventStore::open_with(&self.db_path(), &StoreOptions::new(Some(Duration::from_millis(5000))))
             .map_err(|e| internal("could not open the event store", e))
     }
 
@@ -507,10 +464,10 @@ impl RoomSupervisor {
         let is_owner = snapshot.admin() == Some(&self_id);
         let accept_joins = Arc::new(AtomicBool::new(is_owner && any_pending_invite(&snapshot)));
         let admission_cell = Arc::new(StdMutex::new(AdmissionView::from_snapshot(&snapshot, &[])));
-        let admission: Arc<dyn Admission> = Arc::new(DynamicJoinBootstrap {
-            inner: SnapshotAdmission::new(admission_cell.clone()),
-            accept_joins: accept_joins.clone(),
-        });
+        let admission: Arc<dyn Admission> = Arc::new(JoinBootstrapAdmission::new_dynamic(
+            SnapshotAdmission::new(admission_cell.clone()),
+            accept_joins.clone(),
+        ));
         let engine = SyncEngine::open(store, *room_id, SyncConfig::default())
             .map_err(|e| internal("could not open the sync engine", e))?;
         let secret_key = SecretKey::from_bytes(&secret.device.to_seed());
@@ -534,7 +491,7 @@ impl RoomSupervisor {
 
     /// Build a shared session around a freshly spawned node, seeding the push
     /// dedupe set with `seen` (the caller passes the full current history at
-    /// open time, or carries the prior set across a `file.share` node cycle).
+    /// open time).
     fn make_session(
         node: Node,
         accept_joins: Arc<AtomicBool>,
@@ -542,9 +499,11 @@ impl RoomSupervisor {
         seen: BTreeSet<EventId>,
     ) -> Arc<RoomSession> {
         let conn_rx = node.conn_events();
+        let room_rx = node.room_events();
         Arc::new(RoomSession {
             node,
             conn_rx: StdMutex::new(conn_rx),
+            room_rx: Arc::new(TokioMutex::new(room_rx)),
             forwarders: StdMutex::new(HashMap::new()),
             seen: StdMutex::new(seen),
             accept_joins,
@@ -604,7 +563,9 @@ impl RoomSupervisor {
         })?;
 
         let mut store = self.open_store()?;
-        with_busy_retry("could not persist the room genesis", || store.insert(&validated))?;
+        store
+            .insert(&validated)
+            .map_err(|e| internal("could not persist the room genesis", e))?;
         localstate::remember_room(&self.data_dir, &room_id.to_string(), Some(name))?;
         Ok(room_id.to_string())
     }
@@ -858,7 +819,9 @@ impl RoomSupervisor {
                 }
             }
             if !is_open {
-                with_busy_retry("could not persist the invite", || store.insert(&validated))?;
+                store
+                    .insert(&validated)
+                    .map_err(|e| internal("could not persist the invite", e))?;
             }
             wire
         };
@@ -1228,10 +1191,13 @@ impl RoomSupervisor {
     /// `file.share`: import the file into the room's durable blob store and
     /// author + publish the signed `file.shared` reference.
     ///
-    /// The open session's node holds the blob store's exclusive lock (it is
-    /// serving), so the import briefly cycles the session: shut the node
-    /// down, import, respawn, publish. Peers see a short reconnect; the push
-    /// dedupe state carries over so no event is pushed twice.
+    /// Since issue #84 the import runs in-session via `Node::blob_import` on the
+    /// live serving node — it reuses the store handle the node already owns, so
+    /// there is no session cycle: the endpoint, engine pump, and every peer link
+    /// stay up, and the node's dial address never goes stale (the old
+    /// stale-addr-after-share bug is gone). A concurrent `room.close` still tears
+    /// down cleanly — its `reclaim_session` waits for this in-flight share to
+    /// finish, exactly as it waits for a `file.fetch`.
     pub async fn share_file(
         &self,
         room_id_str: &str,
@@ -1266,8 +1232,9 @@ impl RoomSupervisor {
             .map_err(|e| CoreError::invalid(format!("cannot resolve {}: {e}", path.display())))?;
         self.assert_shareable_path(&import_path)?;
 
-        // Serialize the node cycle against other structural flows.
-        let _structural = self.structural.lock().await;
+        // file.share is now an ordinary in-session op (like message.send): it
+        // holds only its cloned session Arc, taking no `structural` lock — there
+        // is no node spawn/teardown to serialize against room.open / room.close.
         let session = self.session(&room_id)?;
         {
             let store = self.open_store()?;
@@ -1280,52 +1247,15 @@ impl RoomSupervisor {
             }
         }
 
-        // Cycle the session around the import (the serving node holds the
-        // blob store's exclusive lock). Harvest the peers' live addresses
-        // first: the respawned node binds a new ephemeral UDP port, so the
-        // peers' hints toward us go stale — the fresh node must redial THEM.
-        self.sessions().remove(&room_id);
-        let seen = session.seen.lock().expect("seen poisoned").clone();
-        let harvested = Self::harvest_peer_hints(&session.node).await;
-        // Best-effort: a failed hint write must never abort before shutdown and
-        // leak the live node (its pump + the blob store's exclusive lock).
-        if let Err(err) = localstate::add_peer_hints(&self.data_dir, &room_id.to_string(), &harvested)
-        {
-            eprintln!("warning: could not persist peer hints for {room_id}: {err}");
-        }
-        let node = Self::reclaim_session(session).await;
-        node.shutdown()
+        // Import into the room's durable blob store on the LIVE session (issue
+        // #84): the node reuses the store handle it already owns, so there is no
+        // second FsStore open (no lock contention), no session cycle, and no
+        // endpoint rebind — the dial address stays valid and peers see no churn.
+        let import = session
+            .node
+            .blob_import(&import_path)
             .await
-            .map_err(|e| internal("could not pause the room session for the import", e))?;
-
-        let import = async {
-            let blob_store = BlobStore::open(&self.room_blobs_dir(&room_id))
-                .await
-                .map_err(|e| internal("could not open the blob store", e))?;
-            let import = blob_store.import_path(&import_path).await;
-            let close = blob_store.close().await;
-            let import =
-                import.map_err(|e| internal("could not import the file into the blob store", e))?;
-            close.map_err(|e| internal("could not finalize the blob store", e))?;
-            Ok::<_, CoreError>(import)
-        }
-        .await;
-
-        // Respawn the session whether or not the import succeeded, so the room
-        // does not silently fall closed on an import error. If the respawn
-        // itself fails the room genuinely IS closed now — report that honestly
-        // instead of leaving a phantom-open room.
-        let (node, accept_joins, is_owner) = match self.spawn_node(&room_id).await {
-            Ok(spawned) => spawned,
-            Err(err) => {
-                return Err(err.with_hint(
-                    "the room is now closed after the import; call room.open to reopen it",
-                ))
-            }
-        };
-        let respawned = Self::make_session(node, accept_joins, is_owner, seen);
-        self.sessions().insert(room_id, respawned);
-        let import = import?;
+            .map_err(|e| internal("could not import the file into the blob store", e))?;
 
         let mut file_id = [0u8; SHORT_ID_LEN];
         getrandom::fill(&mut file_id).map_err(|e| internal("OS CSPRNG unavailable", e))?;
@@ -1341,7 +1271,6 @@ impl RoomSupervisor {
             .filter(|m| !m.is_empty())
             .map_or_else(|| guess_mime(path), str::to_owned);
 
-        let session = self.session(&room_id)?;
         let heads = Self::node_heads(&session.node).await?;
         let wire = build_file_shared(
             &secret.identity,
@@ -1638,22 +1567,6 @@ impl RoomSupervisor {
         let opened = store
             .by_type(&room_id, EventType::PipeOpened)
             .map_err(|e| internal("could not read pipe.opened events", e))?;
-        // How many of this room's pipes are currently open. The SDK exposes only
-        // a NODE-WIDE live-session count (`live_pipe_sessions`), not a per-pipe
-        // one, so the owner side can only truthfully attribute a live session to
-        // a specific pipe when exactly one pipe is open — otherwise reporting
-        // `connected` from the aggregate would fabricate a per-pipe state
-        // (PROTOCOL.md honesty rule 1).
-        let open_pipe_count = opened
-            .iter()
-            .filter_map(|se| SignedEvent::decode(&se.wire.signed).ok())
-            .filter_map(|ev| match ev.content {
-                Content::PipeOpened(p) => Some(p.pipe_id),
-                _ => None,
-            })
-            .filter(|pid| !closed.contains(pid))
-            .collect::<BTreeSet<_>>()
-            .len();
         let mut pipes = Vec::new();
         for se in opened {
             let Ok(ev) = SignedEvent::decode(&se.wire.signed) else {
@@ -1666,15 +1579,17 @@ impl RoomSupervisor {
             let is_owner = profile
                 .as_ref()
                 .is_some_and(|prof| prof.identity_id == p.owner_id.to_string());
+            // `connected` is truthful per pipe (issue #86): the connector side
+            // knows it holds a live forwarder, and the owner side asks the node
+            // for THIS pipe's live session count (`live_pipe_sessions_for`)
+            // rather than the node-wide aggregate — so it stays honest even with
+            // several pipes open at once (no single-open-pipe caveat).
             let connected = session.as_deref().is_some_and(|s| {
                 s.forwarders
                     .lock()
                     .expect("forwarders poisoned")
                     .contains_key(&p.pipe_id)
-                    || (is_owner
-                        && !is_closed
-                        && open_pipe_count == 1
-                        && s.node.live_pipe_sessions() > 0)
+                    || (is_owner && !is_closed && s.node.live_pipe_sessions_for(p.pipe_id) > 0)
             });
             // Every authorized peer, not just the first — a validated remote
             // `pipe.opened` may carry several, and hiding the rest would
@@ -1902,8 +1817,16 @@ impl RoomSupervisor {
             .collect()
     }
 
-    /// Push-loop poll: the room's not-yet-pushed validated events (own or
-    /// remote), each returned exactly once, as materialized `TimelineEvent`s.
+    /// Reconcile poll (the push safety net, issue #83): the room's
+    /// not-yet-pushed validated events (own or remote), each returned exactly
+    /// once, as materialized `TimelineEvent`s.
+    ///
+    /// Since #83 the primary, sub-second push path is [`Self::recv_room_events`]
+    /// (the node's `room_events` broadcast); this poll stays as the reconcile
+    /// safety net that a lossy broadcast (a lagged receiver) cannot let drift,
+    /// and it is the sole place that keeps the join-bootstrap `accept_joins`
+    /// window tied to live pending-invite state. Both paths dedupe against the
+    /// same `seen` set, so an event delivered by either is pushed exactly once.
     ///
     /// Scans the FULL causally-complete tail (`room_tail(u32::MAX)`), not a
     /// fixed 512-row window: `lamport` is causal, not receive-monotonic, so a
@@ -1934,6 +1857,96 @@ impl RoomSupervisor {
         let mut seen = session.seen.lock().expect("seen poisoned");
         let mut out = Vec::new();
         for se in &rows {
+            if seen.insert(se.event_id) {
+                if let Some(v) = materializer::materialize(se, &snapshot) {
+                    out.push(v);
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    /// Primary push path (issue #83): await the next batch of live room events
+    /// from the node's `room_events` broadcast, materialized for the daemon to
+    /// fan out as `room.event` with sub-second latency.
+    ///
+    /// Blocks on the broadcast until at least one event arrives, then drains
+    /// every immediately-ready event. Each is deduped against the shared `seen`
+    /// set (exactly-once — the broadcast can coincide with the open-time
+    /// snapshot and with the reconcile poll, which share this set). The
+    /// broadcast is LOSSY: on `Lagged` — the receiver fell behind and the SDK
+    /// dropped events — this resyncs from the full causal tail exactly as the
+    /// reconcile poll does, so no ingested event is ever missed. Returns
+    /// `RoomNotOpen` once the session's broadcast closes (`room.close`), so the
+    /// caller's per-room pump loop exits cleanly.
+    pub async fn recv_room_events(&self, room_id: &RoomId) -> CoreResult<Vec<Value>> {
+        // Clone ONLY the broadcast-receiver handle, not the session. Parking on
+        // `recv().await` below must never pin the session `Arc`: `room.close`'s
+        // `reclaim_session` waits for `Arc::try_unwrap` of the session, and a
+        // quiet room emits no event to unpark us — so a session clone held here
+        // would deadlock close daemon-wide. This independent `Arc` keeps the
+        // receiver's cursor across pump iterations without keeping the node
+        // alive; when close shuts the node down, the broadcast closes and the
+        // parked `recv` wakes with `Closed` (handled below as `RoomNotOpen`).
+        let room_rx = self.session(room_id)?.room_rx.clone();
+
+        // Await the first event; a lagged/closed receiver short-circuits.
+        let mut lagged;
+        let mut batch: Vec<StoredEvent> = Vec::new();
+        {
+            let mut rx = room_rx.lock().await;
+            match rx.recv().await {
+                Ok(ev) => {
+                    lagged = false;
+                    batch.push(ev);
+                }
+                Err(broadcast::error::RecvError::Lagged(_)) => lagged = true,
+                Err(broadcast::error::RecvError::Closed) => {
+                    return Err(CoreError::new(
+                        ErrorKind::RoomNotOpen,
+                        format!("room {room_id} closed"),
+                    ));
+                }
+            }
+            // Drain any further already-ready events in the same wake-up.
+            loop {
+                match rx.try_recv() {
+                    Ok(ev) => batch.push(ev),
+                    Err(broadcast::error::TryRecvError::Lagged(_)) => lagged = true,
+                    Err(broadcast::error::TryRecvError::Empty)
+                    | Err(broadcast::error::TryRecvError::Closed) => break,
+                }
+            }
+        }
+
+        // Re-resolve the session now that we have events to materialize. If the
+        // room was closed while we were parked, this returns `RoomNotOpen` and
+        // the pump exits cleanly — the same signal a `Closed` broadcast gives.
+        // This clone is short-lived and bounded (a snapshot/tail read), so it
+        // never blocks `reclaim_session` the way a clone held across the park
+        // would.
+        let session = self.session(room_id)?;
+        let snapshot = session
+            .node
+            .snapshot()
+            .await
+            .map_err(|e| internal("could not read the membership snapshot", e))?;
+
+        // On lag the batch is incomplete, so recover from the authoritative
+        // full tail — a superset of anything the batch held — deduped against
+        // `seen`, exactly as the reconcile poll recovers.
+        if lagged {
+            let rows = session
+                .node
+                .room_tail(u32::MAX)
+                .await
+                .map_err(|e| internal("could not read the timeline", e))?;
+            batch = rows;
+        }
+
+        let mut seen = session.seen.lock().expect("seen poisoned");
+        let mut out = Vec::new();
+        for se in &batch {
             if seen.insert(se.event_id) {
                 if let Some(v) = materializer::materialize(se, &snapshot) {
                     out.push(v);
@@ -2497,7 +2510,8 @@ mod tests {
             .unwrap_err();
         assert_eq!(err.kind, ErrorKind::InvalidParams);
 
-        // The room must still be open (a refused share never cycles the node).
+        // The room must still be open (since #84 no share cycles the node, and a
+        // refused share returns before importing anything either way).
         assert!(sup.open_rooms().contains(&room_id));
         sup.close_room(&room_id).await.unwrap();
     }

@@ -10,7 +10,7 @@ rust-version = "1.80"
 [workspace.dependencies]
 # Pinned to the analyzed developer-preview rev; the local ~/TAC/iroh-room
 # working tree is intentionally NOT used (it drifts).
-iroh-rooms = { git = "https://github.com/kortiene/iroh-room", rev = "1d2f014e783893ffeaea055c436370179a31110a", features = ["experimental"] }
+iroh-rooms = { git = "https://github.com/kortiene/iroh-room", rev = "3cb9bfd1e43eb755c967315c37b6d4fd1c2bf020", features = ["experimental"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

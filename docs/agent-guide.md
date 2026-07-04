@@ -75,18 +75,18 @@ restarted), skip the ticket and rejoin:
 node scripts/bantaba-agent.mjs --room <room_id> --worker claude
 ```
 
-> **Known limitation (stale dial address after `file.share`):** sharing a
-> file cycles the room session — the `iroh-blobs` store takes an exclusive
-> lock, so the daemon shuts the node down to import and respawns it (see
-> upstream issue #84). The respawned node binds a **new** UDP port, so any
-> dial address captured before the share goes stale, and a joiner that dials
-> the old address fails with `peer_unreachable` ("could not reach the room
-> admin…"). Isolated with a controlled probe: a plain `message.send` does
-> **not** change the port and later joins succeed; only `file.share` (session
-> cycling) does. Practical guidance until #84 lands: **re-fetch the admin's
-> dialable address (from `room.open`/`daemon.status`) after any file share
-> before minting an invite or handing the address to a joiner.** Restarts of
-> an already-joined agent (`--room` rejoin mode) are unaffected.
+> **Resolved: stale dial address after `file.share`** (upstream issue #84,
+> fixed as of SDK rev `3cb9bfd1e43eb755c967315c37b6d4fd1c2bf020`). `file.share`
+> now imports into the blob store **on the live session** (`node.blob_import`),
+> reusing the store handle the node already holds. There is no second store
+> open, no node shutdown/respawn, and **no endpoint rebind** — the UDP port and
+> dial address stay valid across a share, exactly like `message.send`. A dial
+> address captured before a share remains dialable afterward, so you no longer
+> need to re-fetch it before minting an invite or handing it to a joiner. A
+> controlled real-mode probe confirms it: the endpoint id and every bound UDP
+> port are identical before and after `file.share` (only extra reflexive
+> address candidates get added by normal network discovery, reusing the same
+> ports).
 
 ## Flags
 

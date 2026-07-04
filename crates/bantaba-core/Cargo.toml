@@ -10,9 +10,13 @@ description = "Bantaba resident core: the only crate in the project that talks t
 # The SDK facade (stable tier + experimental online runtime). This crate is the
 # ONLY place in the Bantaba workspace that imports iroh_rooms.
 iroh-rooms = { workspace = true }
-# Endpoint address/id/secret types the SDK's online tier exchanges at its API
-# boundary (the CLI reference imports these the same way; they are not
-# iroh-rooms-core/-net internals).
+# iroh's `TransportAddr` ONLY (issue #87). The facade at the pinned rev
+# re-exports Endpoint/EndpointAddr/EndpointId/SecretKey (now used via
+# iroh_rooms::experimental::session), but NOT `TransportAddr`, which
+# `harvest_peer_hints` / `enriched_addr` need to read peers' learned IP socket
+# addresses out of `Endpoint::remote_info().addrs()`. No facade path exposes it,
+# so this one type keeps a minimal, version-pinned direct dep. Must match the
+# `iroh` the pinned iroh-rooms re-exports so the types stay identical (no dup).
 iroh = "=1.0.1"
 anyhow = "1"
 serde = { version = "1", features = ["derive"] }

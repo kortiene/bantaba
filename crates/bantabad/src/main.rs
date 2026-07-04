@@ -8,9 +8,10 @@
 
 mod rpc;
 
+use std::collections::HashSet;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use clap::Parser;
@@ -21,10 +22,13 @@ use tokio::sync::broadcast;
 use tokio_tungstenite::tungstenite::handshake::server::{ErrorResponse, Request, Response};
 use tokio_tungstenite::tungstenite::Message;
 
+use bantaba_core::error::ErrorKind;
 use bantaba_core::supervisor::RoomSupervisor;
 
-/// The daemon poll interval for the room-event push loop (~300ms per the
-/// protocol build notes).
+/// The daemon tick for the reconcile safety net + peer-change drain (~300ms per
+/// the protocol build notes). Since issue #83 live `room.event` pushes arrive
+/// immediately via each room's `room_events` pump, so this tick is no longer the
+/// latency path — only the reconcile that a lossy broadcast cannot let drift.
 const PUSH_TICK: Duration = Duration::from_millis(300);
 
 #[derive(Parser, Debug)]
@@ -100,18 +104,68 @@ async fn main() {
     }
 }
 
-/// Poll each open room's tail (~300ms), dedupe by event id inside the
-/// supervisor, and push each new validated event exactly once as
-/// `room.event`; drain each session's `conn_events` broadcast and push
-/// `peers.changed` with truthful direct/relay path info on any transition.
+/// Drive the room-event push fan-out (issue #83).
+///
+/// Each open room gets a dedicated pump task that awaits its node's
+/// `room_events` broadcast and pushes each new validated event as `room.event`
+/// the moment it commits (sub-second latency, no hot tail poll). This ticker
+/// (~300ms) supervises those pumps, runs the reconcile safety net
+/// (`poll_new_events`, which a lossy broadcast cannot let drift and which keeps
+/// the join-bootstrap window tied to live state), and drains each session's
+/// `conn_events` broadcast to push `peers.changed` with truthful direct/relay
+/// path info on any transition. The pump and the reconcile share the
+/// supervisor's per-room `seen` set, so every event is pushed exactly once.
 async fn push_loop(state: AppState) {
     let mut ticker = tokio::time::interval(PUSH_TICK);
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    // Rooms with a live per-room `room_events` pump task. Shared with the pumps
+    // so a pump deregisters itself on exit (room.close), letting a later re-open
+    // re-spawn a fresh pump.
+    let pumped: Arc<Mutex<HashSet<String>>> = Arc::new(Mutex::new(HashSet::new()));
     loop {
         ticker.tick().await;
         let sup = &state.supervisor;
         for room_id in sup.open_room_ids() {
             let room_str = room_id.to_string();
+
+            // Ensure a live push pump for this room.
+            let fresh = pumped
+                .lock()
+                .expect("pumped mutex poisoned")
+                .insert(room_str.clone());
+            if fresh {
+                let state = state.clone();
+                let pumped = pumped.clone();
+                let key = room_str.clone();
+                tokio::spawn(async move {
+                    loop {
+                        match state.supervisor.recv_room_events(&room_id).await {
+                            Ok(events) => {
+                                for event in events {
+                                    let frame = json!({
+                                        "push": "room.event",
+                                        "data": { "room_id": key, "event": event },
+                                    });
+                                    let _ = state.push_tx.send(frame.to_string());
+                                }
+                            }
+                            // The room closed: stop pumping and deregister so a
+                            // later re-open re-spawns a fresh pump.
+                            Err(err) if err.kind == ErrorKind::RoomNotOpen => break,
+                            // A transient read error: the reconcile poll still
+                            // covers pushes; back off briefly, then keep pumping.
+                            Err(err) => {
+                                eprintln!("warning: room-event pump error for {key}: {err}");
+                                tokio::time::sleep(Duration::from_millis(200)).await;
+                            }
+                        }
+                    }
+                    pumped.lock().expect("pumped mutex poisoned").remove(&key);
+                });
+            }
+
+            // Reconcile safety net: re-scan the tail so a lagged/dropped
+            // broadcast event is still pushed exactly once (shared `seen`).
             match sup.poll_new_events(&room_id).await {
                 Ok(events) => {
                     for event in events {
@@ -122,7 +176,7 @@ async fn push_loop(state: AppState) {
                         let _ = state.push_tx.send(frame.to_string());
                     }
                 }
-                Err(err) => eprintln!("warning: push poll failed for {room_str}: {err}"),
+                Err(err) => eprintln!("warning: push reconcile failed for {room_str}: {err}"),
             }
             if sup.drain_conn_changes(&room_id) {
                 if let Ok(peers) = sup.peers_status(&room_str).await {
