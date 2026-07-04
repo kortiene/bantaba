@@ -24,6 +24,52 @@ and invites all still work, at relay latency. A `direct` path on either side
 is the strong result. Same-network runs (both machines on one LAN) will
 trivially report `direct` and prove nothing about NAT traversal.
 
+## Fast path — one command (`gate-a.mjs`)
+
+`scripts/gate-a.mjs` runs the whole test from machine A: it fingerprints both
+sides' public IPs, **refuses to certify a pass when they share one** (a
+same-NAT run cannot test hole punching), starts the host here, drives machine
+B, and prints a single Gate A verdict. It ships a static Linux `bantabad` +
+the two scripts B needs, so a Linux B only needs **Node 22** — no Rust build.
+
+**Recommended: a cloud VM as machine B.** A VM has a public IP that A can SSH
+to from any network, and it is genuinely on a different network — so you do
+not even have to move this Mac:
+
+```sh
+cargo build --workspace                      # A: debug binary for the host side
+# (ship path is a static musl build; make it once:)
+rustup target add x86_64-unknown-linux-musl
+cargo zigbuild --release --target x86_64-unknown-linux-musl -p bantabad
+
+node scripts/gate-a.mjs --remote user@<vm-public-ip>
+```
+
+**Phone-hotspot variant.** Tether this Mac to a hotspot (now A is on a
+different network from your home box B), and point `--remote` at a box you can
+still reach — e.g. over its public IPv6, or use a VM. If A cannot SSH to B
+from the hotspot, use manual mode:
+
+```sh
+node scripts/gate-a.mjs --manual --peer-identity <B id>
+# prints the exact `realnet-check.mjs` command — run it on B yourself
+```
+
+**Dry-run the machinery** (same machine, no Gate A claim — verifies the
+plumbing and that the validity gate correctly withholds certification):
+
+```sh
+node scripts/gate-a.mjs --local-dryrun
+```
+
+Verdicts: `PASS` (direct path both sides — hole punch confirmed) · `PARTIAL`
+(connected across networks but via relay fallback) · `NOT A GATE A` /
+`UNVERIFIED NETWORK` (same network, or B's public IP unseen — nothing
+certified). Evidence JSON is written under `.bantaba-gatea/`.
+
+The manual, step-by-step flow below is the fallback (and what `gate-a.mjs`
+automates); use it when B is a Mac, or when you want to drive each side by hand.
+
 ## Prerequisites
 
 | | machine A (host) | machine B (joiner) |

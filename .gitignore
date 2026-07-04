@@ -6,3 +6,4 @@ ui/dist/
 *.log
 .DS_Store
 .bantaba-realnet*/
+.bantaba-gatea/
