@@ -75,15 +75,18 @@ restarted), skip the ticket and rejoin:
 node scripts/bantaba-agent.mjs --room <room_id> --worker claude
 ```
 
-> **Known daemon limitation (join ordering):** `room.join` currently only
-> bootstraps into a room whose event log is membership-only. Once any chat
-> message / status / file event exists, later joins fail with
-> `peer_unreachable` ("could not reach the room admin…"). Reproduced with
-> plain three-daemon probes in both loopback and real mode — it is a
-> `bantaba-core`/SDK join-bootstrap bug, not an agent-harness one. Practical
-> guidance until it is fixed: **invite and join the agent before the room's
-> first message.** Restarts of an already-joined agent (`--room` rejoin mode)
-> are unaffected.
+> **Known limitation (stale dial address after `file.share`):** sharing a
+> file cycles the room session — the `iroh-blobs` store takes an exclusive
+> lock, so the daemon shuts the node down to import and respawns it (see
+> upstream issue #84). The respawned node binds a **new** UDP port, so any
+> dial address captured before the share goes stale, and a joiner that dials
+> the old address fails with `peer_unreachable` ("could not reach the room
+> admin…"). Isolated with a controlled probe: a plain `message.send` does
+> **not** change the port and later joins succeed; only `file.share` (session
+> cycling) does. Practical guidance until #84 lands: **re-fetch the admin's
+> dialable address (from `room.open`/`daemon.status`) after any file share
+> before minting an invite or handing the address to a joiner.** Restarts of
+> an already-joined agent (`--room` rejoin mode) are unaffected.
 
 ## Flags
 
