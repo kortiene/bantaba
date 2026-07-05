@@ -49,20 +49,20 @@ static binaries and dodge glibc-version breakage (the tree has C deps — `ring`
 `libsqlite3-sys` — and a QUIC/UDP stack via `iroh`, so a C toolchain is
 required; zig supplies it).
 
-## Phase 0 status
+## Phase 0 / v0.1.0 status
 
 1. **GitHub remote / repo:** configured as `git@github.com:kortiene/bantaba.git`.
 2. **Redistribution rights:** confirmed for publishing built `bantabad` binaries
    that include the pinned `iroh-rooms` git dependency.
-3. **Remaining:** push the first `v*` tag so GitHub Actions creates a Release
-   and attaches the platform archives plus `.sha256` sidecars.
+3. **First release:** `v0.1.0` is published with macOS, Linux musl, and Windows
+   archives plus `.sha256` sidecars.
+4. **Homebrew formula:** `bantaba.rb` is filled for `v0.1.0`; publish it to the
+   `kortiene/homebrew-bantaba` tap when ready.
 
 ## Per-release follow-up
 
-| Item | Where | Fill with |
-| --- | --- | --- |
-| `version "0.1.0"` | `bantaba.rb` | the release number (no leading `v`) |
-| `REPLACE_WITH_*_SHA256` (×4) | `bantaba.rb` | sha256 of each tarball — copy from the `<asset>.sha256` files the workflow uploads |
+For the next release, update `version` in `bantaba.rb`, push the new `v*` tag,
+then replace the formula sha256 values from the new release sidecars.
 
 `release.yml` needs no slug edit — it always builds the repo it runs in.
 
