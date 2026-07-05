@@ -16,28 +16,28 @@
 class Bantaba < Formula
   desc "Bantaba peer-to-peer daemon (bantabad): serves the Bantaba UI over a local WebSocket"
   homepage "https://github.com/kortiene/bantaba"
-  version "0.1.0"
+  version "0.2.0"
   license "MIT OR Apache-2.0"
 
   on_macos do
     on_arm do
       url "https://github.com/kortiene/bantaba/releases/download/v#{version}/bantabad-v#{version}-aarch64-apple-darwin.tar.gz"
-      sha256 "2de1288e906278dcc1a7feeefaa11064d06c3c14b80635a04e2b277dae317ac5"
+      sha256 "485cf9d5a86020fa7cbfb2ed6ce1f33a8f9090374eafe24d65ddca479f858d84"
     end
     on_intel do
       url "https://github.com/kortiene/bantaba/releases/download/v#{version}/bantabad-v#{version}-x86_64-apple-darwin.tar.gz"
-      sha256 "606be521804745bafe29b067b0ed37897033e1fc1a1c3c364228b26234192057"
+      sha256 "59ca2968cb2a0b8bb952ccbd1ea2801d5fd7c61bddf77971be0c8b3b427eeb60"
     end
   end
 
   on_linux do
     on_arm do
       url "https://github.com/kortiene/bantaba/releases/download/v#{version}/bantabad-v#{version}-aarch64-unknown-linux-musl.tar.gz"
-      sha256 "83dd9036b450528ae62c6ff2c767604c3c90e51530dbf10de863c06694dc697c"
+      sha256 "f58ab4b597c5b50707e26708deca66856fd542ffa3e2dd14a8bca3a019ff63a0"
     end
     on_intel do
       url "https://github.com/kortiene/bantaba/releases/download/v#{version}/bantabad-v#{version}-x86_64-unknown-linux-musl.tar.gz"
-      sha256 "96d74e6b510804b152e0dfa42d52d26e5aff1a8b7bc08af92a9d056b5dfa5bb2"
+      sha256 "13d7ca5c86ebaf02b03e9ccaa77cfda40795f1ba6fb56cc8d130a9fb4f869896"
     end
   end
 
