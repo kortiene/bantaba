@@ -70,6 +70,7 @@ export default function App({ client }: { client: Client }) {
   const [inviteOpen, setInviteOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [joinOpen, setJoinOpen] = useState(false);
+  const [leaveOpen, setLeaveOpen] = useState(false);
   const [renameTarget, setRenameTarget] = useState<string | null>(null);
   const [aliases, setAliases] = useState<Record<string, string>>(loadAliases);
 
@@ -190,7 +191,7 @@ export default function App({ client }: { client: Client }) {
       });
       if (event.kind === 'file_shared') void refreshFiles(room_id);
       if (event.kind === 'pipe_opened' || event.kind === 'pipe_closed') void refreshPipes(room_id);
-      if (event.kind === 'member_joined' || event.kind === 'member_invited') {
+      if (event.kind === 'member_joined' || event.kind === 'member_invited' || event.kind === 'member_left') {
         void refreshMembers(room_id);
         void refreshRooms();
       }
@@ -228,6 +229,12 @@ export default function App({ client }: { client: Client }) {
           return;
         }
         setPhase('ready');
+        const activeRooms = rooms.filter((r) => r.status !== 'left' && r.status !== 'removed');
+        if (activeRooms.length === 0) {
+          roomIdRef.current = null;
+          setRoomId(null);
+          return;
+        }
         let saved: string | null = null;
         try {
           saved = localStorage.getItem(LAST_ROOM_KEY);
@@ -235,9 +242,9 @@ export default function App({ client }: { client: Client }) {
           /* ignore */
         }
         const target =
-          (roomIdRef.current && rooms.some((r) => r.room_id === roomIdRef.current) && roomIdRef.current) ||
-          (saved && rooms.some((r) => r.room_id === saved) && saved) ||
-          rooms[0].room_id;
+          (roomIdRef.current && activeRooms.some((r) => r.room_id === roomIdRef.current) && roomIdRef.current) ||
+          (saved && activeRooms.some((r) => r.room_id === saved) && saved) ||
+          activeRooms[0].room_id;
         void openRoom(target);
       } catch {
         // daemon.status failed (connection dropped mid-flight) — the
@@ -283,6 +290,16 @@ export default function App({ client }: { client: Client }) {
   const fetchFile = (fileId: string) => {
     const rid = roomIdRef.current;
     if (!rid) return;
+    const file = files.find((f) => f.file_id === fileId);
+    if (selfId !== null && file?.sender_id === selfId) {
+      setFetches((m) => {
+        if (!m[fileId]) return m;
+        const next = { ...m };
+        delete next[fileId];
+        return next;
+      });
+      return;
+    }
     setFetches((m) => ({ ...m, [fileId]: { phase: 'pending' } }));
     void (async () => {
       try {
@@ -369,6 +386,32 @@ export default function App({ client }: { client: Client }) {
     if (!rid) return;
     await client.call('pipe.expose', { room_id: rid, target, peer_identity: peerIdentity });
     void refreshPipes(rid);
+  };
+
+  const leaveCurrentRoom = () => {
+    roomIdRef.current = null;
+    setRoomId(null);
+    setMembers([]);
+    setTimeline([]);
+    setFiles([]);
+    setPipes([]);
+    setPeers([]);
+    setEndpointAddr(null);
+    setRoomError(null);
+    setRoomLoading(false);
+    setFetches({});
+    setPipeConns({});
+    setClosingPipes(new Set());
+    setMobileView('rooms');
+    try {
+      localStorage.removeItem(LAST_ROOM_KEY);
+    } catch {
+      /* ignore */
+    }
+    void refreshRooms();
+    void client.call('daemon.status', {}).then(setStatus).catch(() => {
+      /* transient */
+    });
   };
 
   const currentRoom = rooms.find((r) => r.room_id === roomId) ?? null;
@@ -459,6 +502,11 @@ export default function App({ client }: { client: Client }) {
           activeNav={activeNav}
           onNav={navigate}
           onSelectRoom={(rid) => {
+            const room = rooms.find((r) => r.room_id === rid);
+            if (room?.status === 'left' || room?.status === 'removed') {
+              setMobileView('rooms');
+              return;
+            }
             setMobileView('chat');
             if (rid !== roomId) void openRoom(rid);
           }}
@@ -490,6 +538,7 @@ export default function App({ client }: { client: Client }) {
                 files={files}
                 fetches={fetches}
                 loading={roomLoading}
+                selfId={selfId}
                 onFetch={fetchFile}
                 onShowPipes={() => setTab('pipes')}
               />
@@ -503,6 +552,7 @@ export default function App({ client }: { client: Client }) {
         <RightPanel
           tab={tab}
           onTab={setTab}
+          roomName={currentRoom?.name ?? null}
           members={members}
           timeline={timeline}
           files={files}
@@ -517,6 +567,7 @@ export default function App({ client }: { client: Client }) {
           onPipeConnect={pipeConnect}
           onPipeClose={pipeClose}
           onPipeExpose={pipeExpose}
+          onLeaveRoom={() => setLeaveOpen(true)}
         />
 
         {activeNav === 'agents' ? (
@@ -524,6 +575,8 @@ export default function App({ client }: { client: Client }) {
             client={client}
             rooms={rooms}
             onOpenRoom={(rid) => {
+              const room = rooms.find((r) => r.room_id === rid);
+              if (room?.status === 'left' || room?.status === 'removed') return;
               setMobileView('chat');
               if (rid !== roomId) void openRoom(rid);
             }}
@@ -536,6 +589,7 @@ export default function App({ client }: { client: Client }) {
             <span className="settings-label">P2P Identity</span>
             <code className="mono settings-val">{status?.identity?.identity_id ?? '—'}</code>
           </div>
+          <p className="muted">Unrecoverable if this device or its data folder is lost.</p>
           <div className="settings-card">
             <span className="settings-label">Endpoint</span>
             <code className="mono settings-val">{status?.endpoint?.endpoint_id ?? '—'}</code>
@@ -577,6 +631,19 @@ export default function App({ client }: { client: Client }) {
               setJoinOpen(false);
               void refreshRooms();
               void openRoom(rid);
+            }}
+          />
+        ) : null}
+
+        {leaveOpen && roomId && currentRoom ? (
+          <LeaveRoomModal
+            client={client}
+            roomId={roomId}
+            roomName={currentRoom.name}
+            onClose={() => setLeaveOpen(false)}
+            onLeft={() => {
+              setLeaveOpen(false);
+              leaveCurrentRoom();
             }}
           />
         ) : null}
@@ -711,6 +778,61 @@ function CreateRoomModal({
         <button type="submit" className="btn btn-primary" disabled={busy || !name.trim()}>
           {busy ? 'Creating…' : 'Create room'}
         </button>
+        <ErrorNote error={error} />
+      </form>
+    </Modal>
+  );
+}
+
+function LeaveRoomModal({
+  client,
+  roomId,
+  roomName,
+  onClose,
+  onLeft,
+}: {
+  client: Client;
+  roomId: string;
+  roomName: string;
+  onClose(): void;
+  onLeft(): void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<DaemonErrorShape | null>(null);
+
+  const leave = async () => {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await client.call('room.leave', { room_id: roomId });
+      onLeft();
+    } catch (e) {
+      setError(errorShape(e));
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal title="Leave room" onClose={onClose}>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          void leave();
+        }}
+      >
+        <p className="muted">
+          Leaving <strong>{roomName}</strong> publishes a signed membership departure. This is different from closing
+          the local session; you’ll need a new invite to join again.
+        </p>
+        <div className="field-row">
+          <button type="submit" className="btn btn-danger" disabled={busy} autoFocus>
+            {busy ? 'Leaving…' : 'Leave room'}
+          </button>
+          <button type="button" className="btn btn-ghost" onClick={onClose} disabled={busy}>
+            Cancel
+          </button>
+        </div>
         <ErrorNote error={error} />
       </form>
     </Modal>

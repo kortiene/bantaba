@@ -52,22 +52,25 @@ required; zig supplies it).
 ## Release status (and the 2026-07-05 rename)
 
 The project was renamed **Bantaba → Jeliya** on 2026-07-05 (`docs/naming.md`).
-Everything in this directory targets the new name, so the published history
-needs one bridging release:
+The rename is complete and the bridging release it required has already
+shipped:
 
-1. **GitHub repo:** the remote is still `git@github.com:kortiene/bantaba.git`
-   until the repo is renamed to `jeliya` on GitHub (GitHub redirects old URLs
-   afterwards). Rename the repo **before** pushing the next tag.
-2. **Existing releases:** `v0.1.0` and `v0.2.0` were published under the old
-   name with `bantabad-<tag>-<target>` archives containing a `bantabad`
-   binary. The current formula and install scripts look for
-   `jeliyad-<tag>-<target>` — they **cannot install those old releases**.
-3. **Next release (restores installs):** after the repo rename, push a new
-   tag (e.g. `v0.3.0`); `release.yml` already builds `-p jeliyad` and
-   packages `jeliyad-<tag>-<target>` archives. Then copy the new version and
-   all four sha256 values into `jeliya.rb`.
-4. **Homebrew tap:** rename the tap repo to `homebrew-jeliya` (formula file
-   `Formula/jeliya.rb`) and push the updated formula.
+1. **GitHub repo:** renamed — `git remote -v` resolves to
+   `git@github.com:kortiene/jeliya.git`.
+2. **Old releases:** `v0.1.0` and `v0.2.0` were published under the old name
+   with `bantabad-<tag>-<target>` archives containing a `bantabad` binary.
+   The formula and install scripts look for `jeliyad-<tag>-<target>` — they
+   could not install those old releases.
+3. **Bridging release:** `v0.3.0` ("first installable Jeliya release") and
+   `v0.3.1` were cut after the repo rename, built by `release.yml` from
+   `-p jeliyad`, and packaged as `jeliyad-<tag>-<target>` archives. `jeliya.rb`
+   was filled in with the matching version and sha256 values for both tags.
+4. **Homebrew tap:** the top-level README's install command
+   (`brew install kortiene/jeliya/jeliya`) resolves against a
+   `kortiene/homebrew-jeliya` tap carrying the `jeliya.rb` formula, so the tap
+   is reachable under the new name. This directory doesn't track that tap
+   repo's own history, so we can confirm the naming is correct but not
+   whether the tap repo was renamed in place or created fresh.
 5. **Redistribution rights:** confirmed for publishing built binaries that
    include the pinned `iroh-rooms` git dependency (unchanged by the rename).
 

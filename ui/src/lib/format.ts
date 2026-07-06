@@ -31,7 +31,11 @@ export function dayLabel(ts: number): string {
 /** Relative time from a real event timestamp — display only, never a
  *  liveness claim. */
 export function relTime(ts: number): string {
-  const delta = Date.now() - ts;
+  // Clamp at 0: a `ts` more than 45s in the future (should never happen —
+  // fixtures are authored strictly in the past — but a clock skew or a bad
+  // caller shouldn't produce one) would otherwise fall through to a negative
+  // `mins`/`hours` and render as nonsense like "-2m ago" instead of "just now".
+  const delta = Math.max(0, Date.now() - ts);
   if (delta < 45_000) return 'just now';
   const mins = Math.round(delta / 60_000);
   if (mins < 60) return `${mins}m ago`;

@@ -271,12 +271,14 @@ function StatTiles({ fleet }: { fleet: FleetResult }) {
 
 // -- filters ------------------------------------------------------------------
 
-type FleetFilter = 'all' | 'active' | 'working' | 'offline';
+type FleetFilter = 'all' | 'active' | 'needs-attention' | 'working' | 'offline';
 
 function matchesFilter(a: FleetAgent, f: FleetFilter): boolean {
   switch (f) {
     case 'active':
       return a.liveness === 'working' || a.liveness === 'online-idle';
+    case 'needs-attention':
+      return a.latest != null && labelTone(a.latest.label) === 'blue';
     case 'working':
       return a.liveness === 'working';
     case 'offline':
@@ -300,6 +302,7 @@ function AddAgentModal({
   const ownedRooms = rooms.filter((r) => r.role === 'owner');
   const [roomId, setRoomId] = useState(ownedRooms[0]?.room_id ?? '');
   const [identityId, setIdentityId] = useState('');
+  const [worker, setWorker] = useState<'echo' | 'claude'>('echo');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<DaemonErrorShape | null>(null);
   const [result, setResult] = useState<{ ticket: string; addr: string | null } | null>(null);
@@ -328,7 +331,7 @@ function AddAgentModal({
   };
 
   const command = result
-    ? `node scripts/jeliya-agent.mjs --ticket ${result.ticket}${result.addr ? ` --peer ${result.addr}` : ''} --worker claude`
+    ? `node scripts/jeliya-agent.mjs --ticket ${result.ticket}${result.addr ? ` --peer ${result.addr}` : ''} --worker ${worker}`
     : '';
 
   return (
@@ -369,6 +372,20 @@ function AddAgentModal({
               autoFocus
             />
           </label>
+          <label className="field">
+            <span>Worker</span>
+            <select value={worker} onChange={(e) => setWorker(e.target.value as 'echo' | 'claude')}>
+              <option value="echo">echo (safe — no real execution, for trying the flow)</option>
+              <option value="claude">claude (runs real commands — arbitrary code/file execution for this room’s allowlisted senders)</option>
+            </select>
+          </label>
+          {worker === 'claude' ? (
+            <p className="error-note" role="alert">
+              WARNING — --worker claude runs the <code>claude</code> CLI with --permission-mode acceptEdits on every
+              triggered message from an allowlisted sender. That is arbitrary code / file execution on this host.
+              Only enable it for a room and senders you trust.
+            </p>
+          ) : null}
           <button type="submit" className="btn btn-primary" disabled={busy || !identityId.trim() || !roomId}>
             {busy ? 'Minting…' : 'Mint agent invite'}
           </button>
@@ -472,6 +489,7 @@ export function FleetDashboard({
   const counts = {
     all: fleet?.agents.length ?? 0,
     active: fleet?.agents.filter((a) => matchesFilter(a, 'active')).length ?? 0,
+    'needs-attention': fleet?.agents.filter((a) => matchesFilter(a, 'needs-attention')).length ?? 0,
     working: fleet?.agents.filter((a) => matchesFilter(a, 'working')).length ?? 0,
     offline: fleet?.agents.filter((a) => matchesFilter(a, 'offline')).length ?? 0,
   };
@@ -486,6 +504,7 @@ export function FleetDashboard({
   const filters: { key: FleetFilter; label: string }[] = [
     { key: 'all', label: 'All' },
     { key: 'active', label: 'Active' },
+    { key: 'needs-attention', label: 'Needs attention' },
     { key: 'working', label: 'Working' },
     { key: 'offline', label: 'Offline' },
   ];

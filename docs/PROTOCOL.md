@@ -51,22 +51,24 @@ present only for that kind.
   "room_id": "blake3:…",
   "ts": 1783190000000,
   "sender": { "identity_id": "…64-hex…", "device_id": "…64-hex…", "role": "owner|member|agent" },
-  "kind": "room_created | member_invited | member_joined | message | agent_status | file_shared | pipe_opened | pipe_closed",
+  "kind": "room_created | member_invited | member_joined | member_left | message | agent_status | file_shared | pipe_opened | pipe_closed",
 
   "body": "hello",                                             // message
   "label": "running_tests", "status_message": "…",             // agent_status
   "progress": 60, "artifacts": ["file_…32-hex…"],              // agent_status (optional)
   "file": { "file_id": "file_…", "name": "PRD.pdf", "size": 123, "mime": "application/pdf" },  // file_shared
   "pipe": { "pipe_id": "…32-hex…", "target": "127.0.0.1:3000", "authorized_peer": "…identity…" }, // pipe_opened / pipe_closed
-  "member": { "identity_id": "…", "role": "member" }           // member_invited / member_joined
+  "member": { "identity_id": "…", "role": "member" }           // member_invited / member_joined; member_left omits role
 }
 ```
 
 ### PeerStatus
 
 ```json
-{ "endpoint_id": "…", "state": "connected|connecting|offline", "path": "direct|relay|null" }
+{ "endpoint_id": "…", "state": "connected|connecting|offline", "path": "direct|relay|null", "identity_id": "…64-hex…|null" }
 ```
+
+`identity_id` is null until the SDK has bound that device to a membership identity (on admit) — expect null before/during admission, not just for strangers.
 
 ## Methods
 
@@ -85,9 +87,10 @@ present only for that kind.
 | Method | Params | Result |
 |---|---|---|
 | `room.create` | `{ name }` | `{ room_id }` — name is daemon-local metadata if the protocol has no name field |
-| `room.list` | `{}` | `{ rooms: [{ room_id, name, role, member_count, open }] }` |
+| `room.list` | `{}` | `{ rooms: [{ room_id, name, role, status, member_count, open }] }` — `status` is this identity's roster status (`active|invited|left|removed|null`) |
 | `room.open` | `{ room_id }` | `{ endpoint: { endpoint_id, addr }, members, timeline }` — spawns the room's node session, starts pushes; `addr` is the dialable string an inviter shares with joiners |
-| `room.close` | `{ room_id }` | `{}` |
+| `room.close` | `{ room_id }` | `{}` — closes only this daemon's live session; membership remains active |
+| `room.leave` | `{ room_id }` | `{ event_id }` — authors `member.left` for this identity and closes the local session; owners are rejected until ownership transfer exists |
 | `room.timeline` | `{ room_id, limit? }` | `{ events: [TimelineEvent] }` (chronological) |
 | `room.members` | `{ room_id }` | `{ members: [{ identity_id, role, status }] }` |
 | `invite.create` | `{ room_id, identity_id, role: "member"\|"agent", expiry? }` | `{ ticket }` |

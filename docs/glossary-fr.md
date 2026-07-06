@@ -6,6 +6,13 @@ across surfaces. Jeliya targets francophone West Africa first (Mali,
 Senegal, Guinea, Côte d'Ivoire); Bambara (bm) is a community aspiration
 unlocked after French ships.
 
+This is a contract for translators and reviewers preparing a planned French
+release — it is not a live, end-user-facing glossary, and nothing here is
+wired into the UI yet (no i18n framework exists). Until French strings
+ship, francophone users have no way to find or use this page. Once they
+ship, add a linked, user-facing pointer (a `README.fr.md`, or a "Voir aussi"
+link from the main README) so this glossary is actually discoverable.
+
 ## Tier 1 — communal vocabulary: translate
 
 Everyday nouns rendered as prose. First-pass equivalents (translators may

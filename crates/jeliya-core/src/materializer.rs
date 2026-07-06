@@ -4,8 +4,9 @@
 //! One validated room event folds into one JSON object with a stable common
 //! header (`event_id`, `room_id`, `ts`, `sender`, `kind`) plus kind-specific
 //! fields present only for that kind. Event kinds outside the protocol's
-//! enumerated eight (`member.left` / `member.removed`) fold to `None` and are
-//! omitted from timelines.
+//! displayed set (`member.removed`) fold to `None` and are omitted from
+//! timelines. `member.left` is displayed as a lightweight system event so live
+//! clients can refresh rosters when someone leaves.
 
 use serde_json::{json, Map, Value};
 
@@ -96,7 +97,7 @@ pub fn materialize_signed(
 }
 
 /// The protocol `kind` plus its kind-specific fields, or `None` for kinds the
-/// protocol does not enumerate (`member.left`, `member.removed`).
+/// protocol does not enumerate (`member.removed`).
 fn kind_fields(content: &Content) -> Option<(&'static str, Map<String, Value>)> {
     let mut m = Map::new();
     let kind = match content {
@@ -195,8 +196,17 @@ fn kind_fields(content: &Content) -> Option<(&'static str, Map<String, Value>)> 
             );
             "pipe_closed"
         }
+        Content::MemberLeft(c) => {
+            m.insert(
+                "member".into(),
+                json!({
+                    "identity_id": c.member_id.to_string(),
+                }),
+            );
+            "member_left"
+        }
         // Not part of the protocol's TimelineEvent kind enumeration.
-        Content::MemberLeft(_) | Content::MemberRemoved(_) => return None,
+        Content::MemberRemoved(_) => return None,
     };
     Some((kind, m))
 }
@@ -475,13 +485,15 @@ mod tests {
     }
 
     #[test]
-    fn member_left_is_not_a_timeline_kind() {
+    fn member_left_is_a_system_timeline_kind() {
         let fx = fixture();
         let wire = build_member_left(&fx.identity, &fx.device, &fx.room_id, None, &[], TS + 1);
         let snapshot = snapshot_of(&fx);
         let ev = decode(&wire);
         let id = iroh_rooms::events::EventId::from_bytes([0x01; 32]);
-        assert!(materialize_signed(&fx.room_id, &id, &ev, &snapshot).is_none());
+        let v = materialize_signed(&fx.room_id, &id, &ev, &snapshot).expect("left materializes");
+        assert_eq!(v["kind"], "member_left");
+        assert_eq!(v["member"]["identity_id"], fx.identity.identity_key().to_string());
     }
 
     #[test]

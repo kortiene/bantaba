@@ -280,6 +280,23 @@ export function FetchDetail({ state }: { state?: FetchState }) {
     );
   }
   if (state.phase === 'error') {
+    // hash_mismatch means a real integrity-check failure: the file was fetched but
+    // its content didn't match the expected hash, so it was discarded. Lead with
+    // plain language — the raw code/message/hint is real BLAKE3-hash-and-security
+    // language that means nothing to a non-developer. Keep it, but de-emphasized.
+    if (state.error.code === 'hash_mismatch') {
+      return (
+        <div className="fetch-detail err">
+          This file failed a security check and wasn't saved — it may have been
+          corrupted or tampered with in transit.
+          <details className="fetch-detail-advanced">
+            <summary className="muted">Technical details</summary>
+            <code className="error-code">{state.error.code}</code> {state.error.message}
+            {state.error.hint ? ` — ${state.error.hint}` : ''}
+          </details>
+        </div>
+      );
+    }
     return (
       <div className="fetch-detail err">
         <code className="error-code">{state.error.code}</code> {state.error.message}

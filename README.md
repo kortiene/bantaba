@@ -14,6 +14,14 @@ the [Iroh Rooms](https://github.com/kortiene/iroh-room) peer-to-peer runtime.
 </p>
 <p align="center"><sub><em>The shipped shell in demo mode — deterministic sample data, no daemon (<code>VITE_MOCK=1</code>).</em></sub></p>
 
+**Want to see that yourself, right now, with nothing installed?** Zero-install
+preview — no daemon, no build, just the UI with sample data.
+
+```bash
+git clone https://github.com/kortiene/jeliya.git && cd jeliya/ui
+npm install && VITE_MOCK=1 npm run dev
+```
+
 > **New here? Read this first.** Jeliya has no central server. Your rooms live
 > on the computers of the people in them and sync directly, device to device.
 > Everything you see on screen (messages, files, agent updates) is rebuilt from
@@ -61,6 +69,7 @@ New to peer-to-peer tools? These are the only terms you need to get started:
 | **shell / UI** | The Jeliya window you actually look at and click (a web page). |
 | **peer-to-peer (P2P)** | Computers talk to each other directly, with no central server owning your data. |
 | **room** | A private space (like a channel) shared by its members. |
+| **ticket** | An invite code tied to one room, one role, and one invitee identity. Generate one to invite someone; paste one to join. |
 | **loopback mode** | A local-only test mode. Everything stays on your own machine (`127.0.0.1`) — great for trying things without real networking. |
 | **relay / direct** | How two peers connect. *Direct* is computer-to-computer. *Relay* is a fallback that bounces traffic through a helper server when a direct link can't be made. Jeliya always tells you which one you're on. |
 
@@ -102,6 +111,9 @@ irm https://raw.githubusercontent.com/kortiene/jeliya/main/packaging/install.ps1
 
 Prefer to grab a file yourself? Download the build for your system from the
 [Releases page](https://github.com/kortiene/jeliya/releases) and unpack it.
+Note: these builds are unsigned, so macOS/Windows will show a security warning
+on first run (see [Troubleshooting](#troubleshooting)) — the `brew`/`curl`/
+PowerShell installs above don't trigger this.
 
 ### 2. Run it
 
@@ -269,9 +281,16 @@ node scripts/agent-e2e.mjs
 - **Peers show a `relay` badge instead of `direct`.** That's normal on some
   networks: a direct link couldn't be made, so traffic uses a relay fallback.
   Everything still works; it's just not a direct connection.
-- **A browser-downloaded macOS binary is blocked.** Release binaries are
-  currently unsigned. Prefer Homebrew or the install script on macOS; they
-  install the same release without setting the browser quarantine bit.
+- **A browser-downloaded macOS binary is blocked ("cannot be opened because
+  the developer cannot be verified").** Release binaries are currently
+  unsigned. Prefer Homebrew or the install script on macOS; they install the
+  same release without setting the browser quarantine bit. If you did download
+  it directly, right-click (or Control-click) the binary, choose **Open**, then
+  confirm **Open** in the dialog — this only needs to be done once.
+- **Windows SmartScreen says "Windows protected your PC" for a
+  browser-downloaded build.** Same cause: the binary is unsigned. Click
+  **More info**, then **Run anyway**. The PowerShell install script above
+  doesn't trigger this.
 - **Upgrading from a pre-rename (Bantaba) install?** The project was renamed
   to Jeliya on 2026-07-05 (`docs/naming.md`), and the data directory moved
   with it. Your identity and rooms are still on disk under the old name.

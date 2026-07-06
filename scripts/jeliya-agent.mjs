@@ -324,7 +324,11 @@ async function claudeWorker(task, ctx) {
             toolCalls += 1;
             // Honest, throttled progress: the tool actually being run,
             // counted as tool calls (the CLI's own turn accounting differs).
-            void ctx.postStatus("working", `running: ${blk.name} (tool call ${toolCalls})`);
+            // Task excerpt appended so Fleet/Agents shows what prompted the
+            // tool call, not just the low-level tool name; postStatus (via
+            // postStatusNow) truncates to STATUS_MESSAGE_LIMIT regardless.
+            const excerpt = task.length > 60 ? `${task.slice(0, 60)}…` : task;
+            void ctx.postStatus("working", `running: ${blk.name} (tool call ${toolCalls}) — ${excerpt}`);
           }
         }
       } else if (obj.type === "result") {
@@ -1028,6 +1032,15 @@ try {
     const winner = [...ids].sort()[0];
     if (winner !== myClaimId) {
       log(`lost claim task:${token} to ${winner.slice(0, 12)}… — standing down silently`);
+      // LIVENESS: without this, our last posted status for this task stays
+      // "claiming" forever — an operator can't tell a just-lost arbitration
+      // from a stuck agent. Mirror the idle-liveness post in startTask's
+      // finally block: best-effort, never let a status failure crash us.
+      try {
+        await postStatusNow("idle", "stood down - lost claim arbitration");
+      } catch (err) {
+        log(`"idle" status failed (ignored): ${err.message}`);
+      }
       return;
     }
     log(`won claim task:${token} (${ids.size} claim(s) observed)`);

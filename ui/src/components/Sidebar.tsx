@@ -111,12 +111,16 @@ export function Sidebar({
         {rooms.map((room) => {
           const tint = colorForId(room.room_id);
           const active = room.room_id === currentRoomId;
+          const departed = room.status === 'left' || room.status === 'removed';
+          const stateLabel = departed ? (room.status === 'left' ? 'Left' : 'Removed') : room.open ? 'Active' : 'Idle';
           return (
             <button
               key={room.room_id}
               type="button"
-              className={`room-item${active ? ' selected' : ''}`}
+              className={`room-item${active ? ' selected' : ''}${departed ? ' departed' : ''}`}
               onClick={() => onSelectRoom(room.room_id)}
+              disabled={departed}
+              title={departed ? `You ${room.status === 'left' ? 'left' : 'were removed from'} this room` : undefined}
             >
               <span className="room-hex" style={{ color: tint, background: `${tint}1f` }} aria-hidden="true">
                 ⬡
@@ -124,7 +128,7 @@ export function Sidebar({
               <span className="room-info">
                 <span className="room-name">{room.name}</span>
                 <span className="room-meta">
-                  {room.member_count} member{room.member_count === 1 ? '' : 's'} · {room.open ? 'Active' : 'Idle'}
+                  {room.member_count} member{room.member_count === 1 ? '' : 's'} · {stateLabel}
                 </span>
               </span>
               {room.open ? <span className="dot dot-green" title="Session open" /> : null}
@@ -138,7 +142,7 @@ export function Sidebar({
         <span aria-hidden="true">⊕</span> Create Room
       </button>
       <button type="button" className="create-room join-room" onClick={onJoinRoom}>
-        <span aria-hidden="true">⇥</span> Join with Ticket
+        <span aria-hidden="true">⇥</span> Join with a ticket
       </button>
 
       <footer className="identity-footer">
