@@ -1,16 +1,18 @@
 import { useEffect, useRef } from 'react';
 import type { ReactNode } from 'react';
-import type { FileEntry, TimelineEvent } from '../lib/protocol';
+import type { FileEntry, FileRef, TimelineEvent } from '../lib/protocol';
 import { dayLabel, extOf, fileTint, formatBytes, formatTime, labelTone, prettyLabel, shortId } from '../lib/format';
 import { Avatar, FetchControl, FetchDetail, ProgressBar, SenderName } from './ui';
 import type { FetchState } from './ui';
 
 function FileTile({
   file,
+  isSelfOwned,
   state,
   onFetch,
 }: {
-  file: { file_id: string; name: string; size: number; mime: string };
+  file: FileRef;
+  isSelfOwned: boolean;
   state?: FetchState;
   onFetch(fileId: string): void;
 }) {
@@ -28,9 +30,15 @@ function FileTile({
             {formatBytes(file.size)} · {ext}
           </span>
         </span>
-        <FetchControl state={state} onFetch={() => onFetch(file.file_id)} />
+        {isSelfOwned ? (
+          <span className="file-self-note" title="This daemon is already serving this file to peers.">
+            Serving
+          </span>
+        ) : (
+          <FetchControl state={state} onFetch={() => onFetch(file.file_id)} />
+        )}
       </div>
-      <FetchDetail state={state} />
+      {isSelfOwned ? null : <FetchDetail state={state} />}
     </div>
   );
 }
@@ -39,12 +47,14 @@ function EventCard({
   event,
   files,
   fetches,
+  selfId,
   onFetch,
   onShowPipes,
 }: {
   event: TimelineEvent;
   files: FileEntry[];
   fetches: Record<string, FetchState>;
+  selfId: string | null;
   onFetch(fileId: string): void;
   onShowPipes(): void;
 }) {
@@ -74,6 +84,15 @@ function EventCard({
       return (
         <div className="sysline">
           <SenderName id={who} /> joined as {event.member?.role ?? event.sender.role} · {time}
+        </div>
+      );
+    }
+
+    case 'member_left': {
+      const who = event.member?.identity_id ?? senderId;
+      return (
+        <div className="sysline">
+          <SenderName id={who} /> left the room · {time}
         </div>
       );
     }
@@ -146,7 +165,12 @@ function EventCard({
               <span className="muted">shared a file</span>
               <time dateTime={new Date(event.ts).toISOString()}>{time}</time>
             </div>
-            <FileTile file={event.file} state={fetches[event.file.file_id]} onFetch={onFetch} />
+            <FileTile
+              file={event.file}
+              isSelfOwned={selfId !== null && senderId === selfId}
+              state={fetches[event.file.file_id]}
+              onFetch={onFetch}
+            />
           </div>
         </div>
       );
@@ -200,6 +224,7 @@ export function Timeline({
   files,
   fetches,
   loading,
+  selfId,
   onFetch,
   onShowPipes,
 }: {
@@ -207,6 +232,7 @@ export function Timeline({
   files: FileEntry[];
   fetches: Record<string, FetchState>;
   loading: boolean;
+  selfId: string | null;
   onFetch(fileId: string): void;
   onShowPipes(): void;
 }) {
@@ -244,7 +270,14 @@ export function Timeline({
     rows.push({
       key: event.event_id,
       node: (
-        <EventCard event={event} files={files} fetches={fetches} onFetch={onFetch} onShowPipes={onShowPipes} />
+        <EventCard
+          event={event}
+          files={files}
+          fetches={fetches}
+          selfId={selfId}
+          onFetch={onFetch}
+          onShowPipes={onShowPipes}
+        />
       ),
     });
   }

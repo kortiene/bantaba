@@ -206,6 +206,11 @@ async fn dispatch(method: &str, raw_params: Value, state: &AppState) -> CoreResu
             sup.close_room(&p.room_id).await?;
             Ok(json!({}))
         }
+        "room.leave" => {
+            let p: RoomIdParams = params(raw_params)?;
+            let event_id = sup.leave_room(&p.room_id).await?;
+            Ok(json!({ "event_id": event_id }))
+        }
         "room.timeline" => {
             let p: TimelineParams = params(raw_params)?;
             Ok(json!({ "events": sup.timeline(&p.room_id, p.limit).await? }))

@@ -62,6 +62,10 @@ function IdentityStep({ client, onAdvance }: { client: Client; onAdvance(): void
         A keypair generated and stored by your local daemon. No account, no server — the private key never leaves this
         machine.
       </p>
+      <p className="muted">
+        There's no password reset and no recovery — if you lose this device or its data folder, this identity is gone
+        for good.
+      </p>
       <button type="button" className="btn btn-primary btn-lg" disabled={busy} onClick={() => void create()}>
         {busy ? 'Creating…' : 'Create identity'}
       </button>
@@ -130,6 +134,10 @@ function RoomsStep({
           </div>
           <code className="mono onboarding-identity-id">{identityId}</code>
           <p className="muted">Being invited to a room? Send this id to the inviter first — tickets are bound to it.</p>
+          <p className="muted">
+            Peers show up by this same hex id at first — click any name in a room to set a local nickname for them
+            (only visible to you).
+          </p>
         </div>
       ) : null}
       <div className="onboarding-columns">

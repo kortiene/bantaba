@@ -306,6 +306,41 @@ select {
   .form-row {
     flex-wrap: wrap;
   }
+
+  /* The filter chips above the fleet list (All/Active/Needs attention/Working/
+     Offline) already carry live Active/Working counts, and room coverage isn't
+     check-in-relevant on a phone — so drop this KPI row rather than repeat it.
+     `.app`-scoped (see the note above on `.app .sidebar` etc.): the base
+     `.fleet-stats` rule sits later in this file at equal specificity and would
+     otherwise win by source order regardless of this media query. */
+  .app .fleet-stats {
+    display: none;
+  }
+
+  /* Redundant with the fixed bottom `.mobile-tabbar`; the sidebar's other
+     content (profile card, rooms list) reflows fine without it since
+     `.sidebar` is a plain flex column and `.rooms-list` already has `flex: 1`
+     to take up whatever space opens up. `.app`-scoped for the same
+     later-in-file-base-rule reason as `.fleet-stats` above. */
+  .app .nav-list {
+    display: none;
+  }
+
+  /* Files/Pipes are standalone panes here (RoomHeader lives in the hidden
+     `.center` pane), so this is the only room label a mobile user gets —
+     same weight/truncation as `.room-title h1`, just sized for a slim strip.
+     `.app`-scoped: the desktop `display: none` base rule for this class sits
+     later in the file and would otherwise win by source order. */
+  .app .panel-room-context {
+    display: block;
+    padding: 10px 16px 0;
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
 }
 
 .conn-banner {
@@ -810,6 +845,14 @@ button.sender-name:not(:disabled):hover {
 
 .room-item:hover {
   background: var(--bg-card);
+}
+
+.room-item.departed {
+  opacity: 0.62;
+}
+
+.room-item.departed:disabled {
+  cursor: not-allowed;
 }
 
 .room-item.selected {
@@ -1372,6 +1415,13 @@ button.sender-name:not(:disabled):hover {
   min-height: 0;
 }
 
+/* Mobile-only room label for the standalone Files/Pipes tab — see the mobile
+   breakpoint below. Desktop always shows RoomHeader alongside this panel, so
+   it would be pure duplication there. */
+.panel-room-context {
+  display: none;
+}
+
 .panel-tabs {
   display: flex;
   flex-wrap: wrap;
@@ -1520,7 +1570,7 @@ button.sender-name:not(:disabled):hover {
 
 .member-row {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 10px;
   padding: 11px 12px;
@@ -1617,6 +1667,16 @@ button.sender-name:not(:disabled):hover {
 .member-status.status-removed,
 .member-status.status-unknown {
   color: var(--text-mute);
+}
+
+.member-leave-btn {
+  justify-self: end;
+}
+
+.member-owner-note {
+  color: var(--text-mute);
+  font-size: 11px;
+  white-space: nowrap;
 }
 
 /* agents */
@@ -1865,6 +1925,15 @@ button.sender-name:not(:disabled):hover {
 
 .file-advanced-path[open] summary {
   margin-bottom: 8px;
+}
+
+.fetch-detail-advanced {
+  margin-top: 6px;
+}
+
+.fetch-detail-advanced summary {
+  cursor: pointer;
+  font-size: 12px;
 }
 
 .file-share-row {
@@ -2849,12 +2918,6 @@ select {
   font-size: 11.5px;
 }
 
-@media (max-width: 720px) {
-  .fleet-stats {
-    grid-template-columns: 1fr;
-  }
-}
-
 @media (max-width: 480px) {
   .ticket-box {
     flex-direction: column;
@@ -2870,12 +2933,21 @@ select {
     align-items: flex-start;
   }
 
-  .member-badges {
+  .member-badges,
+  .member-leave-btn,
+  .member-owner-note {
     grid-column: 1 / -1;
+  }
+
+  .member-badges {
     flex-direction: row;
     align-items: center;
     justify-content: flex-start;
     flex-wrap: wrap;
+  }
+
+  .member-leave-btn {
+    justify-self: flex-start;
   }
 
   .selected-file-card {

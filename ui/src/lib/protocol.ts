@@ -13,6 +13,7 @@ export type TimelineKind =
   | 'room_created'
   | 'member_invited'
   | 'member_joined'
+  | 'member_left'
   | 'message'
   | 'agent_status'
   | 'file_shared'
@@ -34,7 +35,7 @@ export interface PipeRef {
 
 export interface MemberRef {
   identity_id: string;
-  role: Role;
+  role?: Role;
 }
 
 /** One validated room event, folded for display. Kind-specific fields are
@@ -56,7 +57,7 @@ export interface TimelineEvent {
   file?: FileRef;
   /** kind: pipe_opened / pipe_closed */
   pipe?: PipeRef;
-  /** kind: member_invited / member_joined */
+  /** kind: member_invited / member_joined / member_left */
   member?: MemberRef;
 }
 
@@ -67,6 +68,8 @@ export interface PeerStatus {
   endpoint_id: string;
   state: PeerState;
   path: PeerPath;
+  /** The peer's membership identity, once the SDK has bound the device (on admit); null before/during admission. */
+  identity_id: string | null;
 }
 
 export interface Identity {
@@ -93,6 +96,7 @@ export interface RoomSummary {
   room_id: string;
   name: string;
   role: Role;
+  status: string | null;
   member_count: number;
   open: boolean;
 }
@@ -210,6 +214,7 @@ export interface MethodMap {
     };
   };
   'room.close': { params: { room_id: string }; result: Record<string, never> };
+  'room.leave': { params: { room_id: string }; result: { event_id: string } };
   'room.timeline': { params: { room_id: string; limit?: number }; result: { events: TimelineEvent[] } };
   'room.members': { params: { room_id: string }; result: { members: Member[] } };
   'invite.create': {

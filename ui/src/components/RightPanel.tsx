@@ -47,7 +47,15 @@ function shortMemberId(id: string): string {
   return id.length > 18 ? `${id.slice(0, 8)}…${id.slice(-6)}` : id;
 }
 
-function MembersTab({ members, selfId }: { members: Member[]; selfId: string | null }) {
+function MembersTab({
+  members,
+  selfId,
+  onLeaveRoom,
+}: {
+  members: Member[];
+  selfId: string | null;
+  onLeaveRoom(): void;
+}) {
   const names = useNames();
   const sorted = [...members].sort((a, b) => {
     const aSelf = selfId !== null && a.identity_id === selfId;
@@ -102,6 +110,8 @@ function MembersTab({ members, selfId }: { members: Member[]; selfId: string | n
       {sorted.map((member) => {
         const mine = selfId !== null && member.identity_id === selfId;
         const tone = statusTone(member.status);
+        const canLeave = mine && member.status === 'active' && member.role !== 'owner';
+        const ownerCannotLeave = mine && member.status === 'active' && member.role === 'owner';
         return (
           <div key={member.identity_id} className={`member-row member-row-${tone}`} title={member.identity_id}>
             <Avatar id={member.identity_id} size={38} />
@@ -118,6 +128,16 @@ function MembersTab({ members, selfId }: { members: Member[]; selfId: string | n
                 <span className="dot" /> {displayStatus(member.status)}
               </span>
             </div>
+            {canLeave ? (
+              <button type="button" className="btn btn-sm btn-danger member-leave-btn" onClick={onLeaveRoom}>
+                Leave
+              </button>
+            ) : null}
+            {ownerCannotLeave ? (
+              <span className="member-owner-note" title="Owners cannot leave until ownership transfer exists.">
+                Owner stays
+              </span>
+            ) : null}
           </div>
         );
       })}
@@ -388,10 +408,10 @@ function FilesTab({
         // not-available from your own view even though peers can fetch it. Label
         // by ownership so that is never shown as a fault. See list_files() in
         // crates/jeliya-core/src/supervisor.rs.
-        const health = file.available
-          ? { tone: 'ok', text: 'Ready to fetch' }
-          : mine
-            ? { tone: 'self', text: 'Serving to peers' }
+        const health = mine
+          ? { tone: 'self', text: 'Serving to peers' }
+          : file.available
+            ? { tone: 'ok', text: 'Ready to fetch' }
             : { tone: 'warn', text: 'No provider online' };
         const providerText = `${file.providers} provider${file.providers === 1 ? '' : 's'}`;
         return (
@@ -418,7 +438,7 @@ function FilesTab({
                 </span>
               </div>
               <div className="file-row-action">
-                {mine && !file.available && !fetches[file.file_id] ? (
+                {mine ? (
                   <span className="file-self-note" title="This daemon is already serving this file to peers.">
                     Serving
                   </span>
@@ -427,7 +447,7 @@ function FilesTab({
                 )}
               </div>
             </div>
-            <FetchDetail state={fetches[file.file_id]} />
+            {mine ? null : <FetchDetail state={fetches[file.file_id]} />}
           </div>
         );
       })}
@@ -590,6 +610,7 @@ function tabCountLabel(count: number): string {
 export function RightPanel({
   tab,
   onTab,
+  roomName,
   members,
   timeline,
   files,
@@ -604,9 +625,11 @@ export function RightPanel({
   onPipeConnect,
   onPipeClose,
   onPipeExpose,
+  onLeaveRoom,
 }: {
   tab: PanelTab;
   onTab(tab: PanelTab): void;
+  roomName?: string | null;
   members: Member[];
   timeline: TimelineEvent[];
   files: FileEntry[];
@@ -621,6 +644,7 @@ export function RightPanel({
   onPipeConnect(pipeId: string): void;
   onPipeClose(pipeId: string): void;
   onPipeExpose(target: string, peerIdentity: string): Promise<void>;
+  onLeaveRoom(): void;
 }) {
   const agentCount = members.filter((m) => m.role === 'agent').length;
   const openPipes = pipes.filter((p) => p.state === 'open').length;
@@ -650,6 +674,12 @@ export function RightPanel({
 
   return (
     <aside className="right-panel">
+      {/* Mobile-only: on the standalone Files/Pipes tab this panel is the whole
+          screen and RoomHeader (which normally carries the room name) is off in
+          the hidden `.center` pane, so without this a multi-room user has no way
+          to tell which room they're looking at. Not aria-hidden — this is the
+          only place the room name reaches the accessible tree in that view. */}
+      {roomName ? <div className="panel-room-context">{roomName}</div> : null}
       <div className="panel-tabs" role="tablist" aria-label="Room panel" onKeyDown={onTabsKeyDown}>
         {tabs.map((t) => (
           <button
@@ -669,7 +699,7 @@ export function RightPanel({
         ))}
       </div>
       <div className="panel-body" id="panel-body" role="tabpanel" aria-labelledby={`panel-tab-${tab}`}>
-        {tab === 'members' ? <MembersTab members={members} selfId={selfId} /> : null}
+        {tab === 'members' ? <MembersTab members={members} selfId={selfId} onLeaveRoom={onLeaveRoom} /> : null}
         {tab === 'agents' ? <AgentsTab members={members} timeline={timeline} /> : null}
         {tab === 'files' ? (
           <FilesTab

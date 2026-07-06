@@ -64,9 +64,16 @@ function base32ish(seed: string, len: number): string {
   return out;
 }
 
-/** ms epoch for today at h:m local time */
+/** ms epoch for "yesterday" at h:m local time. Anchoring on yesterday (not
+ *  today) guarantees every fixture timestamp is strictly before `Date.now()`
+ *  regardless of what time the demo is opened — anchoring on today put
+ *  morning fixtures (8:58 etc.) in the future for anyone opening the app
+ *  before those hours, which buried live messages under "future" history and
+ *  masked a hardcoded-stale agent behind relTime()'s just-now floor. Relative
+ *  ordering between fixtures is unaffected since they all shift by the same
+ *  24h. */
 function at(h: number, m: number, s = 0): number {
-  const d = new Date();
+  const d = new Date(Date.now() - 24 * 60 * 60 * 1000);
   d.setHours(h, m, s, 0);
   return d.getTime();
 }
@@ -115,6 +122,16 @@ interface MockRoom {
   open: boolean;
   timers: number[];
   simulated: boolean;
+}
+
+/** What a minted `invite.create` ticket actually redeems — looked up by
+ *  `room.join` so it lands in the room it was really minted for instead of a
+ *  fabricated one. `expiresAt: null` means no expiry was requested. */
+interface TicketEntry {
+  room_id: string;
+  identity_id: string;
+  role: Role;
+  expiresAt: number | null;
 }
 
 let eventSeq = 0;
@@ -249,11 +266,11 @@ function buildMainRoom(): MockRoom {
   ];
 
   const peers: PeerStatus[] = [
-    { endpoint_id: MAYA.ep, state: 'connected', path: 'direct' },
-    { endpoint_id: SAM.ep, state: 'connected', path: 'relay' },
-    { endpoint_id: BACKEND.ep, state: 'connected', path: 'direct' },
-    { endpoint_id: FRONTEND.ep, state: 'connected', path: 'direct' },
-    { endpoint_id: QA.ep, state: 'offline', path: null },
+    { endpoint_id: MAYA.ep, state: 'connected', path: 'direct', identity_id: MAYA.id },
+    { endpoint_id: SAM.ep, state: 'connected', path: 'relay', identity_id: SAM.id },
+    { endpoint_id: BACKEND.ep, state: 'connected', path: 'direct', identity_id: BACKEND.id },
+    { endpoint_id: FRONTEND.ep, state: 'connected', path: 'direct', identity_id: FRONTEND.id },
+    { endpoint_id: QA.ep, state: 'offline', path: null, identity_id: QA.id },
   ];
 
   return {
@@ -291,7 +308,7 @@ function buildSideRoom(seed: string, name: string, people: Person[], myRole: Rol
     pipes: [],
     peers: people
       .filter((p) => p.id !== ALEX.id)
-      .map((p) => ({ endpoint_id: p.ep, state: 'connected' as const, path: 'direct' as const })),
+      .map((p) => ({ endpoint_id: p.ep, state: 'connected' as const, path: 'direct' as const, identity_id: p.id })),
     open: false,
     timers: [],
     simulated: false,
@@ -343,6 +360,7 @@ class MockClient implements Client {
   };
   private identity: Identity | null;
   private rooms = new Map<string, MockRoom>();
+  private tickets = new Map<string, TicketEntry>();
   private portSeq = 41732;
   private startTimer: number | null = null;
 
@@ -511,10 +529,13 @@ class MockClient implements Client {
   }
 
   private summary(room: MockRoom): RoomSummary {
+    const identity = this.identity;
+    const mine = identity ? room.members.find((m) => m.identity_id === identity.identity_id) : null;
     return {
       room_id: room.room_id,
       name: room.name,
-      role: room.myRole,
+      role: mine?.role ?? room.myRole,
+      status: mine?.status ?? null,
       member_count: room.members.length,
       open: room.open,
     };
@@ -690,6 +711,11 @@ class MockClient implements Client {
 
       case 'room.open': {
         const room = this.needRoom((params as MethodMap['room.open']['params']).room_id);
+        const identity = this.needIdentity();
+        const mine = room.members.find((m) => m.identity_id === identity.identity_id);
+        if (!mine || mine.status !== 'active') {
+          this.err('not_a_member', `this identity is not an active member of "${room.name}"`, 'ask the room admin for an invite');
+        }
         room.open = true;
         this.simulate(room);
         return {
@@ -708,6 +734,29 @@ class MockClient implements Client {
         return {};
       }
 
+      case 'room.leave': {
+        const room = this.needRoom((params as MethodMap['room.leave']['params']).room_id);
+        const identity = this.needIdentity();
+        const idx = room.members.findIndex((m) => m.identity_id === identity.identity_id);
+        const mine = idx >= 0 ? room.members[idx] : null;
+        if (!mine || mine.status !== 'active') {
+          this.err('not_a_member', `this identity is not an active member of "${room.name}"`, 'ask the room admin for an invite');
+        }
+        if (mine.role === 'owner') {
+          this.err('invalid_params', 'room owners cannot leave yet; close the local room session instead', null);
+        }
+        const event = ev(room.room_id, Date.now(), this.me(room), 'member_left', {
+          member: { identity_id: identity.identity_id },
+        });
+        room.members[idx] = { ...mine, status: 'left' };
+        this.ingest(room, event);
+        room.open = false;
+        room.simulated = false;
+        for (const t of room.timers) window.clearTimeout(t);
+        room.timers = [];
+        return { event_id: event.event_id };
+      }
+
       case 'room.timeline': {
         const p = params as MethodMap['room.timeline']['params'];
         const room = this.needRoom(p.room_id);
@@ -724,48 +773,51 @@ class MockClient implements Client {
         const p = params as MethodMap['invite.create']['params'];
         const room = this.needOpenRoom(p.room_id);
         if (!p.identity_id || !/^[0-9a-f]{16,}$/i.test(p.identity_id.trim())) {
-          this.err('invalid_params', 'identity_id must be the invitee\'s hex identity id', 'ask the invitee to run daemon.status and send you their identity_id');
+          this.err('invalid_params', 'identity_id must be the invitee\'s hex identity id', 'ask the invitee to copy their identity id from their onboarding screen or sidebar footer');
         }
         const me = this.me(room);
         this.ingest(room, ev(room.room_id, Date.now(), me, 'member_invited', {
           member: { identity_id: p.identity_id.trim(), role: p.role },
         }));
         const ticket = `roomtkt1${base32ish(`${room.room_id}:${p.identity_id}:${Date.now()}`, 96)}`;
+        // `expiry` is seconds-from-now (see docs/PROTOCOL.md); no expiry means
+        // the ticket is good until redeemed once (single-use, not time-boxed).
+        const expiresAt = typeof p.expiry === 'number' && p.expiry > 0 ? Date.now() + p.expiry * 1000 : null;
+        this.tickets.set(ticket, { room_id: room.room_id, identity_id: p.identity_id.trim(), role: p.role, expiresAt });
         return { ticket };
       }
 
       case 'room.join': {
         const p = params as MethodMap['room.join']['params'];
-        this.needIdentity();
+        const identity = this.needIdentity();
         const ticket = (p.ticket ?? '').trim();
         if (!ticket.startsWith('roomtkt1') || ticket.length < 24) {
           this.err('bad_ticket', 'ticket is not a valid roomtkt1 token', 'ask the inviter for a fresh ticket');
         }
-        const room_id = `blake3:${hex(`joined-${ticket}`, 64)}`;
-        if (!this.rooms.has(room_id)) {
-          const name = p.name?.trim() || 'Joined Room';
-          const identity = this.needIdentity();
-          const room: MockRoom = {
-            room_id,
-            name,
-            myRole: 'member',
-            members: [member(MAYA), { identity_id: identity.identity_id, role: 'member', status: 'active' }],
-            timeline: [
-              ev(room_id, Date.now() - 60_000, MAYA, 'room_created'),
-              ev(room_id, Date.now(), { ...ALEX, id: identity.identity_id, dev: identity.device_id, role: 'member' }, 'member_joined', {
-                member: { identity_id: identity.identity_id, role: 'member' },
-              }),
-            ],
-            files: [],
-            pipes: [],
-            peers: [{ endpoint_id: MAYA.ep, state: 'connected', path: p.peers?.length ? 'direct' : 'relay' }],
-            open: false,
-            timers: [],
-            simulated: false,
-          };
-          this.rooms.set(room_id, room);
+        const entry = this.tickets.get(ticket);
+        if (!entry) {
+          // A well-formed roomtkt1 string nobody minted on this daemon is
+          // never something a real person hand-types — they only ever paste
+          // one they received — so this is a genuine failure, not a demo
+          // shortcut. (No fabricated room, unlike before.)
+          this.err('bad_ticket', 'this ticket was never issued on this daemon', 'ask the inviter for a fresh ticket');
         }
-        return { room_id };
+        if (entry.expiresAt !== null && Date.now() > entry.expiresAt) {
+          this.tickets.delete(ticket);
+          this.err('ticket_expired', 'this ticket has expired', 'ask the inviter to generate a fresh one');
+        }
+        const room = this.rooms.get(entry.room_id);
+        if (!room) this.err('room_unknown', 'the invited room no longer exists on this daemon', 'ask the inviter for a fresh ticket');
+        // Single-use: redeeming the same ticket twice should fail like a real
+        // spent one, not silently succeed again.
+        this.tickets.delete(ticket);
+        if (!room.members.some((m) => m.identity_id === identity.identity_id)) {
+          room.members.push({ identity_id: identity.identity_id, role: entry.role, status: 'active' });
+          this.ingest(room, ev(room.room_id, Date.now(), { ...ALEX, id: identity.identity_id, dev: identity.device_id, role: entry.role }, 'member_joined', {
+            member: { identity_id: identity.identity_id, role: entry.role },
+          }));
+        }
+        return { room_id: room.room_id };
       }
 
       case 'message.send': {
@@ -809,7 +861,7 @@ class MockClient implements Client {
         room.files.push({
           file_id, name, size, mime,
           sender_id: this.needIdentity().identity_id,
-          ts: now, available: true, providers: 1,
+          ts: now, available: false, providers: 1,
         });
         const event = ev(room.room_id, now, this.me(room), 'file_shared', {
           file: { file_id, name, size, mime },

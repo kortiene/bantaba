@@ -71,6 +71,10 @@ node scripts/jeliya-agent.mjs --ticket <TICKET> --peer <ID@IP:PORT,...> --worker
 #    @agent write a haiku about NAT traversal into haiku.txt
 ```
 
+`--worker claude` above is a deliberate opt-in to real execution (see trust
+model). To try the flow first without it, drop the flag or pass `--worker
+echo` — the safe, inert default.
+
 The agent announces itself in chat when it comes online. On Ctrl-C/SIGTERM it
 kills any in-flight claude worker (the whole process group), posts a
 best-effort `failed` status for the aborted task plus an `offline` status,
@@ -105,7 +109,7 @@ node scripts/jeliya-agent.mjs --room <room_id> --worker claude
 | `--room <room_id>` | — | With `--ticket`: assert the joined room. Alone: rejoin mode (already a member — skip join, just open) |
 | `--port <n>` | `7461` | WS port for the spawned `jeliyad` |
 | `--data-dir <dir>` | `.jeliya-agent` | Daemon data dir; the identity persists here across runs |
-| `--worker claude\|echo` | `claude` | `claude`: real work via the claude CLI. `echo`: deterministic test worker |
+| `--worker claude\|echo` | `echo` | `claude`: real work via the claude CLI. `echo`: deterministic test worker |
 | `--workspace <dir>` | fresh OS temp dir | Parent dir; each task gets a fresh numbered subdir. The default is deliberately OUTSIDE `--data-dir` (which holds `identity.secret`) — keep any override outside it too |
 | `--trigger <phrase>` | `@agent` | Task trigger; matched case-insensitively at the start of a message |
 | `--allow-sender <64hex>` | room owner | Allowlisted sender identity; repeatable. See trust model |

@@ -46,8 +46,9 @@ use iroh_rooms::experimental::sync::{SyncConfig, SyncEngine};
 use iroh_rooms::files::build_file_shared;
 use iroh_rooms::identity::{DeviceBinding, DeviceKey, IdentityKey};
 use iroh_rooms::room::{
-    build_member_invited, build_member_joined, build_room_created, derive_room_id, Ingest,
-    MembershipSnapshot, Role, RoomId, RoomInviteTicket, RoomMembership, Status,
+    build_member_invited, build_member_joined, build_member_left, build_room_created,
+    derive_room_id, Ingest, MembershipSnapshot, Role, RoomId, RoomInviteTicket,
+    RoomMembership, Status,
 };
 
 use crate::error::{CoreError, CoreResult, ErrorKind};
@@ -690,10 +691,21 @@ impl RoomSupervisor {
                 .as_ref()
                 .and_then(|key| snapshot.role(key))
                 .map(role_label);
+            let status = if let Some(key) = self_key.as_ref() {
+                let store = self.open_store()?;
+                let (removed_ids, left_ids) = departure_sets(&store, &room_id)?;
+                snapshot
+                    .members()
+                    .find(|member| &member.identity == key)
+                    .map(|member| status_label(member.status, key, &removed_ids, &left_ids))
+            } else {
+                None
+            };
             rooms.push(json!({
                 "room_id": room_id.to_string(),
                 "name": name,
                 "role": role,
+                "status": status,
                 "member_count": snapshot.members().count(),
                 "open": self.is_open(&room_id),
             }));
@@ -759,16 +771,8 @@ impl RoomSupervisor {
         }))
     }
 
-    /// `room.close`: shut the session down (pipes first, then the node).
-    pub async fn close_room(&self, room_id_str: &str) -> CoreResult<()> {
-        let room_id = parse_room_id(room_id_str)?;
-        let _structural = self.structural.lock().await;
-        let Some(session) = self.sessions().remove(&room_id) else {
-            return Err(CoreError::new(
-                ErrorKind::RoomNotOpen,
-                format!("room {room_id} is not open"),
-            ));
-        };
+    /// Shut down an already-removed session (pipes first, then the node).
+    async fn shutdown_session(&self, room_id: &RoomId, session: Arc<RoomSession>) -> CoreResult<()> {
         // Keep the freshest peer addresses so a later re-open can redial them.
         // This write is best-effort: a corrupt/unwritable state.json must never
         // leave the live node leaked (its pump + blob-store lock) by aborting
@@ -783,6 +787,124 @@ impl RoomSupervisor {
             .await
             .map_err(|e| internal("could not shut the room node down", e))?;
         Ok(())
+    }
+
+    /// `room.close`: shut the session down without changing membership.
+    pub async fn close_room(&self, room_id_str: &str) -> CoreResult<()> {
+        let room_id = parse_room_id(room_id_str)?;
+        let _structural = self.structural.lock().await;
+        let Some(session) = self.sessions().remove(&room_id) else {
+            return Err(CoreError::new(
+                ErrorKind::RoomNotOpen,
+                format!("room {room_id} is not open"),
+            ));
+        };
+        self.shutdown_session(&room_id, session).await
+    }
+
+    /// `room.leave`: publish a signed `member.left` for this identity, then
+    /// close this daemon's local live session if one is open. The immutable room
+    /// owner cannot leave yet: the protocol has no ownership transfer, and an
+    /// owner-authored `member.left` would not remove the genesis admin anyway.
+    pub async fn leave_room(&self, room_id_str: &str) -> CoreResult<String> {
+        let room_id = parse_room_id(room_id_str)?;
+        let secret = self.secrets()?;
+        let self_id = secret.identity.identity_key();
+        let _structural = self.structural.lock().await;
+
+        let event_id = if let Some(session) = self.session_opt(&room_id) {
+            let snapshot = session
+                .node
+                .snapshot()
+                .await
+                .map_err(|e| internal("could not read the membership snapshot", e))?;
+            ensure_can_leave(&snapshot, &self_id, &room_id)?;
+            let heads = Self::node_heads(&session.node).await?;
+            let wire = build_member_left(&secret.identity, &secret.device, &room_id, None, &heads, now_ms());
+            let validated = validate_wire_bytes(
+                &wire.to_bytes(),
+                &ValidationContext::for_room(room_id),
+            )
+            .map_err(|reason| {
+                CoreError::internal(format!(
+                    "freshly built member.left failed validation ({})",
+                    reason.code()
+                ))
+            })?;
+            let event_id = validated.event_id;
+            {
+                let store = self.open_store()?;
+                let (mut membership, _) = self.fold(&store, &room_id)?;
+                match membership.ingest(validated) {
+                    Ingest::Accepted { .. } => {}
+                    Ingest::Rejected { reason, .. } => {
+                        return Err(CoreError::internal(format!(
+                            "freshly built member.left was rejected by the fold ({})",
+                            reason.code()
+                        )))
+                    }
+                    Ingest::Buffered { .. } => {
+                        return Err(CoreError::internal(
+                            "freshly built member.left is causally incomplete",
+                        ))
+                    }
+                }
+            }
+            session
+                .node
+                .publish(wire.to_bytes())
+                .await
+                .map_err(|e| internal("could not publish the leave", e))?;
+            // Give connected peers a brief chance to ingest the departure before
+            // this daemon tears down its room node and stops serving the session.
+            tokio::time::sleep(FLUSH_GRACE).await;
+            drop(session);
+            let removed_session = { self.sessions().remove(&room_id) };
+            if let Some(session) = removed_session {
+                self.shutdown_session(&room_id, session).await?;
+            }
+            event_id
+        } else {
+            let mut store = self.open_store()?;
+            let (mut membership, snapshot) = self.fold(&store, &room_id)?;
+            ensure_can_leave(&snapshot, &self_id, &room_id)?;
+            let mut heads = store
+                .heads(&room_id)
+                .map_err(|e| internal("could not read the room heads", e))?;
+            heads.truncate(MAX_PREV_EVENTS);
+            let wire = build_member_left(&secret.identity, &secret.device, &room_id, None, &heads, now_ms());
+            let validated = validate_wire_bytes(
+                &wire.to_bytes(),
+                &ValidationContext::for_room(room_id),
+            )
+            .map_err(|reason| {
+                CoreError::internal(format!(
+                    "freshly built member.left failed validation ({})",
+                    reason.code()
+                ))
+            })?;
+            match membership.ingest(validated.clone()) {
+                Ingest::Accepted { .. } => {}
+                Ingest::Rejected { reason, .. } => {
+                    return Err(CoreError::internal(format!(
+                        "freshly built member.left was rejected by the fold ({})",
+                        reason.code()
+                    )))
+                }
+                Ingest::Buffered { .. } => {
+                    return Err(CoreError::internal(
+                        "freshly built member.left is causally incomplete",
+                    ))
+                }
+            }
+            let event_id = validated.event_id;
+            store
+                .insert(&validated)
+                .map_err(|e| internal("could not persist the leave", e))?;
+            event_id
+        };
+
+        Ok(bare_event_hex(&event_id))
     }
 
     /// `room.timeline`: chronological `TimelineEvent`s from the local log
@@ -1933,10 +2055,15 @@ impl RoomSupervisor {
                 } else {
                     Value::Null
                 };
+                // `identity` is only set once the SDK has bound this device to
+                // a membership identity (on admit); null before/during
+                // admission is expected, not a bug.
+                let identity_id = entry.identity.as_ref().map(|id| id.to_string());
                 json!({
                     "endpoint_id": device.to_string(),
                     "state": state,
                     "path": path,
+                    "identity_id": identity_id,
                 })
             })
             .collect()
@@ -2597,6 +2724,26 @@ fn status_label(
     }
 }
 
+/// Validate the product policy for voluntary departure.
+fn ensure_can_leave(
+    snapshot: &MembershipSnapshot,
+    self_id: &IdentityKey,
+    room_id: &RoomId,
+) -> CoreResult<()> {
+    if snapshot.admin() == Some(self_id) {
+        return Err(CoreError::invalid(
+            "room owners cannot leave yet; close the local room session instead",
+        ));
+    }
+    if !snapshot.is_active(self_id) {
+        return Err(CoreError::new(
+            ErrorKind::NotAMember,
+            format!("this identity ({self_id}) is not an active member of room {room_id}"),
+        ));
+    }
+    Ok(())
+}
+
 /// Map a `gate_join` rejection onto the protocol taxonomy.
 fn join_reject_error(reason: &RejectReason) -> CoreError {
     match reason {
@@ -2870,6 +3017,31 @@ mod tests {
             identity, device, &room_id, body, None, None, &[], &heads, ts,
         );
         insert_wire(sup, &room_id, &wire);
+    }
+
+    async fn wait_member_status(
+        sup: &RoomSupervisor,
+        room_id: &str,
+        identity_id: &str,
+        status: &str,
+    ) -> serde_json::Value {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        loop {
+            let members = sup.members(room_id).await.unwrap();
+            if let Some(member) = members
+                .iter()
+                .find(|m| m["identity_id"].as_str() == Some(identity_id))
+            {
+                if member["status"] == status {
+                    return member.clone();
+                }
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "timed out waiting for member {identity_id} to be {status}; last members: {members:?}"
+            );
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
     }
 
     /// Poll `agents.fleet` until `pred` holds (or fail after a deadline).
@@ -3323,6 +3495,68 @@ mod tests {
 
         sup.close_room(&room_id).await.unwrap();
         assert!(sup.open_rooms().is_empty());
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn owner_cannot_leave_room() {
+        let dir = tempdir().unwrap();
+        crate::identity::create(dir.path()).unwrap();
+        let sup = RoomSupervisor::new(dir.path().to_path_buf(), true).unwrap();
+        let room_id = sup.create_room("Owner Stays").unwrap();
+        sup.open_room(&room_id, &[]).await.unwrap();
+
+        let err = sup.leave_room(&room_id).await.unwrap_err();
+        assert_eq!(err.kind, ErrorKind::InvalidParams);
+        assert!(err.message.contains("owners cannot leave"));
+
+        let members = sup.members(&room_id).await.unwrap();
+        assert_eq!(members[0]["role"], "owner");
+        assert_eq!(members[0]["status"], "active");
+        sup.close_room(&room_id).await.unwrap();
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn member_leave_is_distinct_from_close_and_blocks_reopen() {
+        let owner_dir = tempdir().unwrap();
+        crate::identity::create(owner_dir.path()).unwrap();
+        let owner = RoomSupervisor::new(owner_dir.path().to_path_buf(), true).unwrap();
+        let room_id = owner.create_room("Leave Room").unwrap();
+        let opened = owner.open_room(&room_id, &[]).await.unwrap();
+        let owner_addr = opened["endpoint"]["addr"].as_str().unwrap().to_owned();
+
+        let member_dir = tempdir().unwrap();
+        let member_profile = crate::identity::create(member_dir.path()).unwrap();
+        let member = RoomSupervisor::new(member_dir.path().to_path_buf(), true).unwrap();
+        let ticket = owner
+            .create_invite(&room_id, &member_profile.identity_id, "member", None)
+            .await
+            .unwrap();
+        member
+            .join_room(&ticket, Some("leaver"), &[owner_addr.clone()])
+            .await
+            .unwrap();
+        member.open_room(&room_id, &[]).await.unwrap();
+        wait_member_status(&owner, &room_id, &member_profile.identity_id, "active").await;
+
+        // `room.close` is only a local session shutdown: membership remains active.
+        member.close_room(&room_id).await.unwrap();
+        let mine = wait_member_status(&member, &room_id, &member_profile.identity_id, "active").await;
+        assert_eq!(mine["role"], "member");
+
+        // `room.leave` authors member.left, closes the local session, and makes
+        // the departure visible to both the leaver and connected peers.
+        member.open_room(&room_id, &[]).await.unwrap();
+        let event_id = member.leave_room(&room_id).await.unwrap();
+        assert_eq!(event_id.len(), 64);
+        assert!(member.open_rooms().is_empty());
+        let mine = wait_member_status(&member, &room_id, &member_profile.identity_id, "left").await;
+        assert_eq!(mine["role"], "member");
+        wait_member_status(&owner, &room_id, &member_profile.identity_id, "left").await;
+
+        let err = member.open_room(&room_id, &[owner_addr]).await.unwrap_err();
+        assert_eq!(err.kind, ErrorKind::NotAMember);
+
+        owner.close_room(&room_id).await.unwrap();
     }
 
     #[tokio::test(flavor = "multi_thread")]
