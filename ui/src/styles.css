@@ -1591,6 +1591,27 @@ button.sender-name:not(:disabled):hover {
   white-space: nowrap;
 }
 
+.fetch-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.fetch-offline {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 4px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--border-strong);
+  color: var(--amber);
+  background: var(--bg-raise);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
 .fetch-err {
   color: var(--red);
   font-size: 12.5px;
@@ -2254,7 +2275,8 @@ button.sender-name:not(:disabled):hover {
 }
 
 .file-row-main {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
   align-items: flex-start;
   gap: 11px;
 }
@@ -2327,7 +2349,8 @@ button.sender-name:not(:disabled):hover {
 }
 
 .file-row-action {
-  flex: none;
+  grid-column: 2;
+  justify-self: start;
 }
 
 .file-self-note {
@@ -3286,9 +3309,16 @@ select {
   }
 
   .file-row-action .btn,
+  .file-row-action .fetch-actions,
   .file-self-note {
     justify-content: center;
     width: 100%;
+  }
+
+  .file-row-action .fetch-actions .btn,
+  .file-row-action .fetch-offline {
+    flex: 1 1 140px;
+    justify-content: center;
   }
 }
 

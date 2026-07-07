@@ -5,7 +5,7 @@ import { errorShape } from '../lib/protocol';
 import { extOf, fileTint, formatBytes, formatTime, labelTone, prettyLabel } from '../lib/format';
 import { useNames } from './names';
 import { Avatar, ErrorNote, FetchControl, FetchDetail, ProgressBar, SenderName } from './ui';
-import type { FetchState } from './ui';
+import type { FetchAvailability, FetchState } from './ui';
 
 export type PanelTab = 'members' | 'agents' | 'files' | 'pipes';
 
@@ -219,6 +219,7 @@ function FilesTab({
   selfId,
   fetches,
   onFetch,
+  onRecheckFiles,
   onSharePath,
   onShareBrowserFile,
 }: {
@@ -226,6 +227,7 @@ function FilesTab({
   selfId: string | null;
   fetches: Record<string, FetchState>;
   onFetch(fileId: string): void;
+  onRecheckFiles(): void;
   onSharePath(path: string): Promise<void>;
   onShareBrowserFile(file: File): Promise<void>;
 }) {
@@ -414,7 +416,9 @@ function FilesTab({
         const type = fileTypeLabel(file, ext.toLowerCase());
         const mine = selfId !== null && file.sender_id === selfId;
         const fetchState = fetches[file.file_id];
+        const availability: FetchAvailability = { available: file.available, providers: file.providers };
         const fetched = fetchState?.phase === 'verified' || fetchState?.phase === 'fetched' || file.fetched;
+        const failedState = fetchState?.phase === 'error' ? fetchState : null;
         // `available` is "another provider device is a connected peer right now"
         // (the daemon excludes THIS device), so a file you shared reads as
         // not-available from your own view even though peers can fetch it. Label
@@ -424,6 +428,11 @@ function FilesTab({
           ? { tone: 'self', text: 'Serving to peers' }
           : fetched
             ? { tone: 'ok', text: 'Fetched locally' }
+          : failedState
+            ? {
+                tone: 'warn',
+                text: failedState.error.code === 'hash_mismatch' ? 'Security check failed' : 'Fetch failed',
+              }
           : file.available
             ? { tone: 'ok', text: 'Ready to fetch' }
             : { tone: 'warn', text: 'No provider online' };
@@ -457,7 +466,12 @@ function FilesTab({
                     Serving
                   </span>
                 ) : (
-                  <FetchControl state={fetchState} onFetch={() => onFetch(file.file_id)} />
+                  <FetchControl
+                    state={fetchState}
+                    availability={availability}
+                    onFetch={() => onFetch(file.file_id)}
+                    onRecheck={onRecheckFiles}
+                  />
                 )}
               </div>
             </div>
@@ -632,6 +646,7 @@ export function RightPanel({
   selfId,
   fetches,
   onFetch,
+  onRecheckFiles,
   onSharePath,
   onShareBrowserFile,
   pipeConns,
@@ -651,6 +666,7 @@ export function RightPanel({
   selfId: string | null;
   fetches: Record<string, FetchState>;
   onFetch(fileId: string): void;
+  onRecheckFiles(): void;
   onSharePath(path: string): Promise<void>;
   onShareBrowserFile(file: File): Promise<void>;
   pipeConns: Record<string, PipeConnState>;
@@ -721,6 +737,7 @@ export function RightPanel({
             selfId={selfId}
             fetches={fetches}
             onFetch={onFetch}
+            onRecheckFiles={onRecheckFiles}
             onSharePath={onSharePath}
             onShareBrowserFile={onShareBrowserFile}
           />

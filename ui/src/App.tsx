@@ -444,6 +444,12 @@ export default function App({ client }: { client: Client }) {
     void sendMessage(pending.body, clientId);
   };
 
+  const recheckFiles = useCallback(() => {
+    const rid = roomIdRef.current;
+    if (!rid) return;
+    void refreshFiles(rid);
+  }, [refreshFiles]);
+
   const fetchFile = (fileId: string) => {
     const rid = roomIdRef.current;
     if (!rid) return;
@@ -756,6 +762,7 @@ export default function App({ client }: { client: Client }) {
                 loading={roomLoading}
                 selfId={selfId}
                 onFetch={fetchFile}
+                onRecheckFiles={recheckFiles}
                 onRetryPendingMessage={retryPendingMessage}
                 onShowPipes={() => setTab('pipes')}
               />
@@ -783,6 +790,7 @@ export default function App({ client }: { client: Client }) {
           selfId={selfId}
           fetches={fetches}
           onFetch={fetchFile}
+          onRecheckFiles={recheckFiles}
           onSharePath={shareFilePath}
           onShareBrowserFile={shareBrowserFile}
           pipeConns={pipeConns}

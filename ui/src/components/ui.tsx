@@ -246,10 +246,52 @@ export type FetchState =
   | { phase: 'fetched'; path: string; bytes: number; url?: string }
   | { phase: 'error'; error: DaemonErrorShape };
 
-export function FetchControl({ state, onFetch }: { state?: FetchState; onFetch(): void }) {
+export interface FetchAvailability {
+  available: boolean;
+  providers: number;
+}
+
+function providerTitle(availability?: FetchAvailability): string | undefined {
+  if (!availability) return undefined;
+  const providers = `${availability.providers} provider${availability.providers === 1 ? '' : 's'} listed`;
+  return availability.available ? `${providers}; at least one is online` : `${providers}; none are online right now`;
+}
+
+export function FetchControl({
+  state,
+  availability,
+  availabilityPending = false,
+  onFetch,
+  onRecheck,
+}: {
+  state?: FetchState;
+  availability?: FetchAvailability;
+  availabilityPending?: boolean;
+  onFetch(): void;
+  onRecheck?(): void;
+}) {
   if (!state) {
+    if (availabilityPending) {
+      return (
+        <button type="button" className="btn btn-sm" disabled>
+          <span className="spinner" aria-hidden="true" /> Checking…
+        </button>
+      );
+    }
+    if (availability && !availability.available) {
+      return (
+        <span className="fetch-actions" title={providerTitle(availability)}>
+          <span className="fetch-offline">No provider online</span>
+          {onRecheck ? (
+            <button type="button" className="btn btn-sm btn-ghost" onClick={onRecheck}>
+              Recheck
+            </button>
+          ) : null}
+        </span>
+      );
+    }
     return (
-      <button type="button" className="btn btn-sm" onClick={onFetch}>
+      <button type="button" className="btn btn-sm" onClick={onFetch} title={providerTitle(availability)}>
         Fetch
       </button>
     );
@@ -263,8 +305,17 @@ export function FetchControl({ state, onFetch }: { state?: FetchState; onFetch()
   }
   if (state.phase === 'verified' || state.phase === 'fetched') {
     return (
-      <span className="fetch-ok" title={`${state.phase === 'verified' ? 'verified' : 'fetched'} · ${state.path}`}>
-        {state.phase === 'verified' ? '✓ Verified' : '✓ Fetched'}
+      <span className="fetch-actions">
+        {state.url ? (
+          <a className="btn btn-sm btn-primary" href={state.url} target="_blank" rel="noreferrer">
+            Open file
+          </a>
+        ) : (
+          <span className="fetch-ok" title={`${state.phase === 'verified' ? 'verified' : 'fetched'} · ${state.path}`}>
+            {state.phase === 'verified' ? '✓ Verified' : '✓ Fetched'}
+          </span>
+        )}
+        <CopyButton text={state.path} label="Copy path" ariaLabel="Copy saved file path" />
       </span>
     );
   }
@@ -272,11 +323,43 @@ export function FetchControl({ state, onFetch }: { state?: FetchState; onFetch()
   if (state.error.code === 'hash_mismatch') {
     return <span className="fetch-err">✕ Failed</span>;
   }
+  if (availability && !availability.available) {
+    return (
+      <span className="fetch-actions" title={providerTitle(availability)}>
+        <span className="fetch-offline">No provider online</span>
+        {onRecheck ? (
+          <button type="button" className="btn btn-sm btn-ghost" onClick={onRecheck}>
+            Recheck
+          </button>
+        ) : null}
+      </span>
+    );
+  }
   return (
     <button type="button" className="btn btn-sm btn-danger" onClick={onFetch}>
       Retry
     </button>
   );
+}
+
+function fetchErrorCopy(error: DaemonErrorShape): { message: string; detail?: string } {
+  switch (error.code) {
+    case 'file_unavailable':
+      return {
+        message: 'No provider is online for this file yet. Recheck when the sender is back online.',
+        detail: error.hint ?? error.message,
+      };
+    case 'provider_refused':
+      return {
+        message: 'The provider refused this fetch. Ask the sender to keep the room open, then retry.',
+        detail: error.hint ?? error.message,
+      };
+    default:
+      return {
+        message: error.message,
+        detail: error.hint ?? undefined,
+      };
+  }
 }
 
 export function FetchDetail({ state }: { state?: FetchState }) {
@@ -314,10 +397,16 @@ export function FetchDetail({ state }: { state?: FetchState }) {
         </div>
       );
     }
+    const copy = fetchErrorCopy(state.error);
     return (
       <div className="fetch-detail err">
-        <code className="error-code">{state.error.code}</code> {state.error.message}
-        {state.error.hint ? ` — ${state.error.hint}` : ''}
+        {copy.message}
+        {copy.detail ? (
+          <details className="fetch-detail-advanced">
+            <summary className="muted">Technical details</summary>
+            <code className="error-code">{state.error.code}</code> {copy.detail}
+          </details>
+        ) : null}
       </div>
     );
   }

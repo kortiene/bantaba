@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 import type { DaemonErrorShape, FileEntry, FileRef, TimelineEvent } from '../lib/protocol';
 import { dayLabel, extOf, fileTint, formatBytes, formatTime, labelTone, prettyLabel, shortId } from '../lib/format';
 import { Avatar, FetchControl, FetchDetail, ProgressBar, SenderName } from './ui';
-import type { FetchState } from './ui';
+import type { FetchAvailability, FetchState } from './ui';
 
 export interface PendingMessage {
   clientId: string;
@@ -23,12 +23,16 @@ function FileTile({
   file,
   isSelfOwned,
   state,
+  availability,
   onFetch,
+  onRecheckFiles,
 }: {
   file: FileRef;
   isSelfOwned: boolean;
   state?: FetchState;
+  availability?: FetchAvailability;
   onFetch(fileId: string): void;
+  onRecheckFiles(): void;
 }) {
   const tint = fileTint(file.name);
   const ext = extOf(file.name).toUpperCase() || 'FILE';
@@ -49,7 +53,13 @@ function FileTile({
             Serving
           </span>
         ) : (
-          <FetchControl state={state} onFetch={() => onFetch(file.file_id)} />
+          <FetchControl
+            state={state}
+            availability={availability}
+            availabilityPending={!availability}
+            onFetch={() => onFetch(file.file_id)}
+            onRecheck={onRecheckFiles}
+          />
         )}
       </div>
       {isSelfOwned ? null : <FetchDetail state={state} />}
@@ -64,6 +74,7 @@ function EventCard({
   selfId,
   compact,
   onFetch,
+  onRecheckFiles,
   onShowPipes,
 }: {
   event: TimelineEvent;
@@ -72,6 +83,7 @@ function EventCard({
   selfId: string | null;
   compact: boolean;
   onFetch(fileId: string): void;
+  onRecheckFiles(): void;
   onShowPipes(): void;
 }) {
   const senderId = event.sender.identity_id;
@@ -176,6 +188,7 @@ function EventCard({
 
     case 'file_shared': {
       if (!event.file) return null;
+      const fileEntry = files.find((f) => f.file_id === event.file?.file_id);
       return (
         <div className={`event-card${isOwn ? ' own' : ''}`}>
           {isOwn ? null : <Avatar id={senderId} />}
@@ -190,7 +203,11 @@ function EventCard({
               file={event.file}
               isSelfOwned={isOwn}
               state={fetches[event.file.file_id]}
+              availability={
+                fileEntry ? { available: fileEntry.available, providers: fileEntry.providers } : undefined
+              }
               onFetch={onFetch}
+              onRecheckFiles={onRecheckFiles}
             />
           </div>
         </div>
@@ -313,6 +330,7 @@ export function Timeline({
   loading,
   selfId,
   onFetch,
+  onRecheckFiles,
   onRetryPendingMessage,
   onShowPipes,
 }: {
@@ -323,6 +341,7 @@ export function Timeline({
   loading: boolean;
   selfId: string | null;
   onFetch(fileId: string): void;
+  onRecheckFiles(): void;
   onRetryPendingMessage(clientId: string): void;
   onShowPipes(): void;
 }) {
@@ -400,6 +419,7 @@ export function Timeline({
             selfId={selfId}
             compact={compact}
             onFetch={onFetch}
+            onRecheckFiles={onRecheckFiles}
             onShowPipes={onShowPipes}
           />
         ) : (
