@@ -1,0 +1,127 @@
+/// Local app preferences — the desktop counterpart of the web client's
+/// localStorage keys ('jeliya.lastRoom', 'jeliya.draft.{roomId}',
+/// 'jeliya.aliases.v1'). One JSON file in the daemon data dir; every access
+/// degrades silently, exactly like the reference's try/catch-wrapped storage.
+///
+/// Aliases are LOCAL ONLY — names never leave this machine (never wire data).
+library;
+
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:flutter/foundation.dart';
+
+/// A [ChangeNotifier] so alias renames re-render name labels everywhere.
+class PrefsStore extends ChangeNotifier {
+  /// Backed by the JSON file at [path] (conventionally
+  /// `<data_dir>/app_prefs.json`). Call [load] before first use.
+  PrefsStore(this.path);
+
+  /// In-memory store for widget tests — no disk I/O at all.
+  PrefsStore.inMemory() : path = null;
+
+  /// Null in in-memory mode.
+  final String? path;
+
+  String? _lastRoomId;
+  final Map<String, String> _drafts = {};
+  final Map<String, String> _aliases = {};
+
+  /// The last opened room id ('jeliya.lastRoom').
+  String? get lastRoomId => _lastRoomId;
+
+  set lastRoomId(String? roomId) {
+    if (_lastRoomId == roomId) return;
+    _lastRoomId = roomId;
+    _save();
+    notifyListeners();
+  }
+
+  /// The composer draft for [roomId] ('jeliya.draft.{roomId}'), or null.
+  String? draftFor(String roomId) => _drafts[roomId];
+
+  /// Saved on each keystroke; an empty/blank draft removes the entry.
+  void setDraft(String roomId, String draft) {
+    if (draft.isEmpty) {
+      if (_drafts.remove(roomId) == null) return;
+    } else {
+      if (_drafts[roomId] == draft) return;
+      _drafts[roomId] = draft;
+    }
+    _save();
+    // No notify: drafts are only read on room switch (like the reference),
+    // and notifying on every keystroke would rebuild listeners for nothing.
+  }
+
+  /// Local peer aliases ('jeliya.aliases.v1'): identity id → name.
+  Map<String, String> get aliases => Map.unmodifiable(_aliases);
+
+  String? aliasFor(String identityId) => _aliases[identityId];
+
+  /// A trimmed non-empty [name] stores the alias; null/blank deletes it
+  /// (the Rename modal's Save/Clear-alias semantics).
+  void setAlias(String identityId, String? name) {
+    final trimmed = name?.trim() ?? '';
+    if (trimmed.isEmpty) {
+      if (_aliases.remove(identityId) == null) return;
+    } else {
+      if (_aliases[identityId] == trimmed) return;
+      _aliases[identityId] = trimmed;
+    }
+    _save();
+    notifyListeners();
+  }
+
+  /// Read the JSON file; malformed content and non-string values are dropped
+  /// (the reference drops non-string alias values on load). Never throws.
+  Future<void> load() async {
+    final p = path;
+    if (p == null) return;
+    try {
+      final raw = await File(p).readAsString();
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) return;
+      final map = decoded.cast<String, dynamic>();
+      final last = map['lastRoom'];
+      _lastRoomId = last is String && last.isNotEmpty ? last : null;
+      _drafts
+        ..clear()
+        ..addAll(_stringMap(map['drafts']));
+      _aliases
+        ..clear()
+        ..addAll(_stringMap(map['aliases']));
+      notifyListeners();
+    } catch (_) {
+      // Missing or corrupt prefs file — start fresh, like localStorage misses.
+    }
+  }
+
+  static Map<String, String> _stringMap(dynamic v) {
+    if (v is! Map) return const {};
+    return {
+      for (final entry in v.entries)
+        if (entry.key is String && entry.value is String)
+          entry.key as String: entry.value as String,
+    };
+  }
+
+  void _save() {
+    final p = path;
+    if (p == null) return;
+    try {
+      final file = File(p);
+      file.parent.createSync(recursive: true);
+      // Write-then-rename: a crash mid-write must never destroy the previous
+      // prefs (rename is atomic on the same filesystem).
+      final tmp = File('$p.tmp');
+      tmp.writeAsStringSync(jsonEncode({
+        if (_lastRoomId != null) 'lastRoom': _lastRoomId,
+        'drafts': _drafts,
+        'aliases': _aliases,
+      }));
+      tmp.renameSync(p);
+    } catch (_) {
+      // Save failures are silently ignored (reference behavior).
+    }
+  }
+}
