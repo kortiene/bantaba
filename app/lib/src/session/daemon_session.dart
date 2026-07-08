@@ -71,15 +71,28 @@ String? resolveJeliyadBinary() {
   return null;
 }
 
+/// The user's REAL home from a raw `$HOME` value. Inside the App Sandbox
+/// `$HOME` points at the app container (`~/Library/Containers/<id>/Data`),
+/// but the shared data dir ships as a home-RELATIVE sandbox exception that
+/// macOS resolves against the real home — so unwrap the container prefix.
+@visibleForTesting
+String realHomeFrom(String home) {
+  const marker = '/Library/Containers/';
+  final i = home.indexOf(marker);
+  return i > 0 ? home.substring(0, i) : home;
+}
+
 /// The daemon data dir: `JELIYA_DATA_DIR` env override (test automation and
-/// side-by-side profiles) → `~/Library/Application Support/Jeliya` in release,
+/// side-by-side profiles) → `~/Library/Application Support/Jeliya` in release
+/// (shared with a Homebrew-installed jeliyad — the settled data-dir decision;
+/// reachable from the sandbox via the Release.entitlements exception),
 /// `…/JeliyaAppDev` in debug (so dev runs never touch real user data).
 String defaultDataDir() {
   final override = Platform.environment['JELIYA_DATA_DIR'];
   if (override != null && override.isNotEmpty) return override;
   final home = Platform.environment['HOME'] ?? Directory.systemTemp.path;
   final name = kDebugMode ? 'JeliyaAppDev' : 'Jeliya';
-  return '$home/Library/Application Support/$name';
+  return '${realHomeFrom(home)}/Library/Application Support/$name';
 }
 
 class DaemonSession extends ChangeNotifier {
@@ -190,7 +203,19 @@ class DaemonSession extends ChangeNotifier {
         }
         final supervisor = _supervisor ??
             SidecarSupervisor(binaryPath: binary, dataDir: dataDir, loopback: true);
-        final ready = await supervisor.start(port: 0);
+        Ready ready;
+        try {
+          ready = await supervisor.start(port: 0);
+        } on ProtocolMismatchError {
+          // Version-skew rule (docs/PROTOCOL.md): never adopt a foreign-
+          // protocol incumbent and never race it with a second daemon —
+          // evict it and respawn our bundled binary. One retry only: if the
+          // fresh spawn also mismatches, OUR binary is the skewed one and
+          // the failure surfaces on the boot screen.
+          _setBoot(Boot.spawning, BootStrings.evictingIncumbent);
+          await supervisor.evictIncumbent();
+          ready = await supervisor.start(port: 0);
+        }
         _supervisor = supervisor;
         if (_disposed) {
           // Disposed mid-spawn: dispose()'s teardown ran before the

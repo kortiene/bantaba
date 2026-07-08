@@ -3,11 +3,11 @@
 <plist version="1.0">
 <dict>
 	<!--
-	  Walking-skeleton dev entitlements. App Sandbox is OFF so the app can spawn
-	  the jeliyad sidecar (a subprocess outside the bundle) and connect to it on
-	  loopback. This is the Phase 0 risk-register mitigation for the dev build;
-	  Phase 5 (packaging/signing) replaces it with a co-signed bundled sidecar
-	  under a sandbox with network.client/server + sandbox-inherit.
+	  Dev entitlements. App Sandbox stays OFF in debug so the app can spawn the
+	  REPO-BUILT jeliyad (a subprocess outside any bundle, via JELIYAD_BIN or
+	  the target/debug fallback) and use JELIYA_DATA_DIR freely. The shipping
+	  posture lives in Release.entitlements + Sidecar.entitlements and is
+	  applied by scripts/package-macos.mjs (Phase 5).
 	-->
 	<key>com.apple.security.app-sandbox</key>
 	<false/>

@@ -197,5 +197,25 @@ void main() {
       expect(await adopter.healthCheck(), isFalse);
       await owner.shutdown(); // reap the exited child handle
     });
+
+    test('evictIncumbent clears the way for the version-skew respawn', () async {
+      final owner = SidecarSupervisor(
+          binaryPath: binary, dataDir: dataDir.path, loopback: true);
+      await owner.start(port: 0);
+
+      // The rule's eviction half: SIGTERM by portfile pid (protocol-agnostic),
+      // verified dark — usable against an incumbent whose RPC we cannot speak.
+      final evictor = SidecarSupervisor(
+          binaryPath: binary, dataDir: dataDir.path, loopback: true);
+      await evictor.evictIncumbent();
+      expect(await evictor.healthCheck(), isFalse);
+
+      // The respawn half: a fresh start now OWNS a new daemon (not adopted).
+      final ready = await evictor.start(port: 0);
+      expect(ready.adopted, isFalse);
+      await evictor.shutdown();
+      expect(await evictor.healthCheck(), isFalse);
+      await owner.shutdown(); // reaps the evicted child's handle
+    });
   });
 }

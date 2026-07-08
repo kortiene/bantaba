@@ -3,16 +3,30 @@
 <plist version="1.0">
 <dict>
 	<!--
-	  Dev walking-skeleton release build: sandbox OFF so the app can spawn and
-	  reach the jeliyad sidecar. NOT the shipping posture — Phase 5 restores the
-	  sandbox with a co-signed bundled sidecar (network.client/server +
-	  sandbox-inherit) and Developer ID notarization.
+	  Shipping posture (Phase 5): App Sandbox ON with the bundled jeliyad
+	  sidecar signed to inherit it (Sidecar.entitlements). The temporary
+	  exception below keeps the settled data-dir decision intact: the app
+	  shares `~/Library/Application Support/Jeliya` with a Homebrew-installed
+	  jeliyad instead of retreating into its container. Legal for Developer ID
+	  distribution; a Mac App Store build would have to drop it and migrate to
+	  a container-private dir.
+
+	  network.server is needed by the INHERITING sidecar (loopback WS bind +
+	  QUIC), not by the app's own code. user-selected.read-only powers the
+	  file-share picker. Hardened runtime is applied at codesign time
+	  (`scripts/package-macos.mjs`), not here.
 	-->
 	<key>com.apple.security.app-sandbox</key>
-	<false/>
+	<true/>
 	<key>com.apple.security.network.client</key>
 	<true/>
 	<key>com.apple.security.network.server</key>
 	<true/>
+	<key>com.apple.security.files.user-selected.read-only</key>
+	<true/>
+	<key>com.apple.security.temporary-exception.files.home-relative-path.read-write</key>
+	<array>
+		<string>/Library/Application Support/Jeliya/</string>
+	</array>
 </dict>
 </plist>

@@ -177,3 +177,97 @@ jobs:
           files: |
             ${{ env.ASSET }}
             ${{ env.ASSET }}.sha256
+
+  # --- Jeliya.app (Flutter desktop, Phase 5) ----------------------------------
+  # Universal (arm64 + x86_64) sandboxed bundle with the co-signed jeliyad
+  # sidecar, packaged as a DMG by scripts/package-macos.mjs. Signing and
+  # notarization activate automatically once the repo secrets exist
+  # (MACOS_CERT_P12 / MACOS_CERT_PASSWORD / MACOS_SIGN_IDENTITY /
+  # NOTARY_APPLE_ID / NOTARY_TEAM_ID / NOTARY_PASSWORD); without them the DMG
+  # is ad-hoc signed and carries the same Gatekeeper caveat as the bare
+  # binaries above.
+  macos-app:
+    name: macos-app (Jeliya.app DMG)
+    runs-on: macos-14
+    env:
+      HAS_SIGNING: ${{ secrets.MACOS_CERT_P12 != '' && secrets.MACOS_SIGN_IDENTITY != '' }}
+      HAS_NOTARY: ${{ secrets.NOTARY_APPLE_ID != '' && secrets.NOTARY_TEAM_ID != '' && secrets.NOTARY_PASSWORD != '' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install Rust toolchain (both mac targets for the universal sidecar)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: macos-app
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Import Developer ID certificate
+        if: ${{ env.HAS_SIGNING == 'true' }}
+        env:
+          CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+          CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+        run: |
+          set -eu
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          keychain_pass="$(uuidgen)"
+          security create-keychain -p "$keychain_pass" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$keychain_pass" "$keychain"
+          echo "$CERT_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$keychain" -P "$CERT_PASSWORD" \
+            -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -k "$keychain_pass" "$keychain"
+          security list-keychains -d user -s "$keychain" login.keychain
+          rm -f "$RUNNER_TEMP/cert.p12"
+
+      - name: Store notarization credentials
+        if: ${{ env.HAS_SIGNING == 'true' && env.HAS_NOTARY == 'true' }}
+        env:
+          NOTARY_APPLE_ID: ${{ secrets.NOTARY_APPLE_ID }}
+          NOTARY_TEAM_ID: ${{ secrets.NOTARY_TEAM_ID }}
+          NOTARY_PASSWORD: ${{ secrets.NOTARY_PASSWORD }}
+        run: |
+          xcrun notarytool store-credentials jeliya-notary \
+            --apple-id "$NOTARY_APPLE_ID" --team-id "$NOTARY_TEAM_ID" \
+            --password "$NOTARY_PASSWORD"
+
+      # The runtime gate is skipped on CI: it launches the sandboxed GUI app
+      # and SIGTERMs it, which is validated locally per release; runner window
+      # servers make it flaky. Everything static (signatures, entitlements,
+      # universal archs) still gates the build.
+      - name: Package Jeliya.app + DMG
+        env:
+          JELIYA_SIGN_IDENTITY: ${{ env.HAS_SIGNING == 'true' && secrets.MACOS_SIGN_IDENTITY || '-' }}
+          JELIYA_NOTARY_PROFILE: ${{ env.HAS_SIGNING == 'true' && env.HAS_NOTARY == 'true' && 'jeliya-notary' || '' }}
+        run: node scripts/package-macos.mjs --skip-gate
+
+      - name: Checksum
+        run: |
+          set -eu
+          dmg="$(ls dist/Jeliya-v*-macos.dmg)"
+          shasum -a 256 "$dmg" > "$dmg.sha256"
+          echo "DMG=$dmg" >> "$GITHUB_ENV"
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          generate_release_notes: false
+          files: |
+            ${{ env.DMG }}
+            ${{ env.DMG }}.sha256

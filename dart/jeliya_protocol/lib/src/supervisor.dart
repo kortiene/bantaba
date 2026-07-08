@@ -246,6 +246,30 @@ class SidecarSupervisor {
     return health['ok'] == true && health['pid'] == pf.pid && health['data_dir'] == pf.dataDir;
   }
 
+  /// The eviction half of the documented version-skew rule (docs/PROTOCOL.md,
+  /// "Version skew (adopt-vs-respawn rule)"): a protocol-mismatched incumbent
+  /// must not be adopted and must not be raced with a second daemon — ask it
+  /// to exit, then respawn the bundled binary. SIGTERM (not `daemon.shutdown`)
+  /// because it is protocol-agnostic: a foreign-protocol daemon cannot be
+  /// assumed to speak our RPC. Waits (bounded) for the daemon to actually go
+  /// dark; throws [SidecarError] if it outlives [timeout]. A no-op with no
+  /// readable portfile.
+  Future<void> evictIncumbent({Duration timeout = const Duration(seconds: 12)}) async {
+    final pf = readPortfile();
+    if (pf == null) return;
+    try {
+      Process.killPid(pf.pid, ProcessSignal.sigterm);
+    } catch (_) {/* already gone */}
+    final deadline = DateTime.now().add(timeout);
+    while (await healthCheck(timeout: const Duration(seconds: 1))) {
+      if (DateTime.now().isAfter(deadline)) {
+        throw SidecarError(
+            'incumbent daemon (pid ${pf.pid}) is still healthy ${timeout.inSeconds}s after SIGTERM');
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+    }
+  }
+
   /// Attach to an already-running daemon from its portfile alone — no binary,
   /// no spawn (pair with [SidecarSupervisor.attach]). Health-checks before
   /// adopting and refuses a protocol major we were not built against

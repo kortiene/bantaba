@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	  Entitlements for the BUNDLED jeliyad sidecar (Contents/Helpers/jeliyad),
+	  applied by scripts/package-macos.mjs at codesign time. sandbox + inherit
+	  is the Apple-supported child-process pattern: the daemon runs inside the
+	  app's sandbox profile (so the app's network.client/server and the shared
+	  data-dir exception govern it) and may carry NO other entitlements.
+	-->
+	<key>com.apple.security.app-sandbox</key>
+	<true/>
+	<key>com.apple.security.inherit</key>
+	<true/>
+</dict>
+</plist>

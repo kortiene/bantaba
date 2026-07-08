@@ -14,6 +14,7 @@ sha256 values are copied in.
 | `install.sh` | POSIX-sh one-liner installer for macOS + Linux (`curl \| sh`). Detects OS/arch, downloads the matching `.tar.gz`, installs `jeliyad` to `/usr/local/bin` (or `~/.local/bin`). |
 | `install.ps1` | Windows PowerShell equivalent. Downloads the `.zip`, expands to `%LOCALAPPDATA%\Programs\Jeliya`, adds it to the user PATH. |
 | `jeliya.rb` | Homebrew formula template. Belongs in a tap (`kortiene/homebrew-jeliya`), not homebrew-core. |
+| `jeliya-app.rb` | Homebrew CASK template for the desktop app (`Jeliya.app` DMG from the `macos-app` release job; built by `../scripts/package-macos.mjs`). Belongs in the same tap, as `Casks/jeliya.rb`. |
 
 ## How they fit together
 
