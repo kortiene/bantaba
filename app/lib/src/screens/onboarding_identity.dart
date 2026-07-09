@@ -6,7 +6,7 @@ library;
 import 'package:flutter/material.dart' hide ConnectionState;
 import 'package:jeliya_protocol/jeliya_protocol.dart';
 
-import '../l10n/strings_onboarding.dart';
+import '../l10n/strings_context.dart';
 import '../session/daemon_session.dart';
 import '../theme.dart';
 import '../widgets/buttons.dart';
@@ -19,6 +19,7 @@ class OnboardingBrand extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = context.strings;
     final tokens = JeliyaTokens.of(context);
     return Column(
       children: [
@@ -27,7 +28,7 @@ class OnboardingBrand extends StatelessWidget {
         const Wordmark(fontSize: 30, asHeading: true),
         const SizedBox(height: JeliyaSpacing.x8),
         Text(
-          OnboardingStrings.tagline,
+          s.onboardingTagline,
           textAlign: TextAlign.center,
           style: TextStyle(fontSize: 13.5, color: tokens.textDim),
         ),
@@ -97,6 +98,7 @@ class _OnboardingIdentityScreenState extends State<OnboardingIdentityScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final s = context.strings;
     final tokens = JeliyaTokens.of(context);
     return Scaffold(
       body: Center(
@@ -111,21 +113,21 @@ class _OnboardingIdentityScreenState extends State<OnboardingIdentityScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(OnboardingStrings.identityTitle,
+                    Text(s.onboardingIdentityTitle,
                         style: JeliyaText.onboardingCardTitle),
                     const SizedBox(height: JeliyaSpacing.x10),
-                    Text(OnboardingStrings.identityCopy1,
+                    Text(s.onboardingIdentityCopy1,
                         style:
                             TextStyle(fontSize: 13, color: tokens.textDim)),
                     const SizedBox(height: JeliyaSpacing.x8),
-                    Text(OnboardingStrings.identityCopy2,
+                    Text(s.onboardingIdentityCopy2,
                         style:
                             TextStyle(fontSize: 13, color: tokens.textDim)),
                     const SizedBox(height: JeliyaSpacing.x16),
                     JeliyaButton(
                       label: _busy
-                          ? OnboardingStrings.creatingIdentity
-                          : OnboardingStrings.createIdentity,
+                          ? s.onboardingCreatingIdentity
+                          : s.onboardingCreateIdentity,
                       variant: JeliyaButtonVariant.primary,
                       size: JeliyaButtonSize.lg,
                       busy: _busy,

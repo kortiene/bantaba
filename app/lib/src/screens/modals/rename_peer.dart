@@ -7,7 +7,7 @@ library;
 
 import 'package:flutter/material.dart';
 
-import '../../l10n/strings_panel.dart';
+import '../../l10n/strings_context.dart';
 import '../../session/daemon_session.dart';
 import '../../theme.dart';
 import '../../widgets/buttons.dart';
@@ -55,17 +55,23 @@ class _RenamePeerModalState extends State<RenamePeerModal> {
 
   @override
   Widget build(BuildContext context) {
+    final s = context.strings;
     final tokens = JeliyaTokens.of(context);
     return ModalScaffold(
-      title: RenamePeerStrings.title,
+      title: s.renamePeerTitle,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            RenamePeerStrings.copy,
+            s.renamePeerCopy,
             style: TextStyle(fontSize: 13, color: tokens.textDim),
           ),
           const SizedBox(height: JeliyaSpacing.x4),
+          Text(
+            s.renamePeerIdentityLabel,
+            style: TextStyle(fontSize: 12.5, color: tokens.textDim),
+          ),
+          const SizedBox(height: JeliyaSpacing.x2),
           SelectableText(
             widget.identityId,
             style: JeliyaText.mono(fontSize: 11, color: tokens.textMute),
@@ -74,28 +80,28 @@ class _RenamePeerModalState extends State<RenamePeerModal> {
           Padding(
             padding: const EdgeInsets.only(bottom: 5),
             child: Text(
-              RenamePeerStrings.aliasLabel,
+              s.renamePeerAliasLabel,
               style: TextStyle(fontSize: 12.5, color: tokens.textDim),
             ),
           ),
           TextField(
             controller: _alias,
             autofocus: true,
-            decoration: const InputDecoration(
-                hintText: RenamePeerStrings.aliasPlaceholder),
+            decoration:
+                InputDecoration(hintText: s.renamePeerAliasPlaceholder),
             onSubmitted: (_) => _save(),
           ),
           const SizedBox(height: JeliyaSpacing.x12),
           Row(
             children: [
               JeliyaButton(
-                label: RenamePeerStrings.save,
+                label: s.renamePeerSave,
                 variant: JeliyaButtonVariant.primary,
                 onPressed: _save,
               ),
               const SizedBox(width: JeliyaSpacing.x8),
               JeliyaButton(
-                label: RenamePeerStrings.clearAlias,
+                label: s.renamePeerClearAlias,
                 variant: JeliyaButtonVariant.ghost,
                 onPressed: _clear,
               ),

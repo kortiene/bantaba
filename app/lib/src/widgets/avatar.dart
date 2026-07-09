@@ -6,6 +6,7 @@ library;
 import 'package:flutter/widgets.dart';
 
 import '../session/daemon_session.dart';
+import '../l10n/strings_context.dart';
 import '../theme.dart';
 
 /// format.ts `initials`: 1 word → first 2 chars uppercased; 2+ words → first
@@ -35,7 +36,8 @@ class Avatar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = JeliyaTokens.of(context);
-    final display = label ?? SessionScope.of(context).displayName(id);
+    final display =
+        label ?? SessionScope.of(context).displayName(context.strings, id);
     final color = tokens.colorForId(id);
     return ExcludeSemantics(
       child: ClipPath(

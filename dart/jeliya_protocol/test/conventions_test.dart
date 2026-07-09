@@ -295,7 +295,7 @@ void main() {
       expect(only.phase, JoinPhases.connecting);
       expect(only.attempt, 1);
       expect(only.maxAttempts, 5);
-      expect(only.message, 'Finding the inviter and syncing the room invite...');
+      expect(only.retryDelay, isNull);
       expect(only.lastError, isNull);
     });
 
@@ -319,12 +319,12 @@ void main() {
         JoinPhases.retrying,
         JoinPhases.connecting,
       ]);
-      // JS Math.round(1.5) == 2, so the first retry message also says 2s.
-      expect(progress[1].message, 'The first path did not answer. Retrying in 2s...');
+      expect(progress[1].retryDelay, const Duration(milliseconds: 1500));
       expect(progress[1].lastError?.code, ErrorCodes.peerUnreachable);
-      expect(progress[2].message, 'Retrying join (2/5)...');
-      expect(progress[3].message, 'The first path did not answer. Retrying in 2s...');
-      expect(progress[4].message, 'Retrying join (3/5)...');
+      expect(progress[2].attempt, 2);
+      expect(progress[2].retryDelay, isNull);
+      expect(progress[3].retryDelay, const Duration(milliseconds: 2000));
+      expect(progress[4].attempt, 3);
     });
 
     test('exhausts five attempts, then rethrows peer_unreachable', () async {

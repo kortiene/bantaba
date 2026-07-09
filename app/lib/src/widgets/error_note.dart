@@ -8,15 +8,20 @@ library;
 import 'package:flutter/material.dart';
 import 'package:jeliya_protocol/jeliya_protocol.dart' show RequestError;
 
-import '../l10n/strings_errors.dart';
-import '../l10n/strings_widgets.dart';
+import '../l10n/error_display.dart';
+import '../l10n/strings_context.dart';
 import '../theme.dart';
 
 class ErrorNote extends StatefulWidget {
-  const ErrorNote({super.key, required this.error});
+  const ErrorNote({super.key, required this.error, this.friendly});
 
   /// Renders nothing when null (matching the reference's null-friendly prop).
   final RequestError? error;
+
+  /// Optional pre-built copy for client-local errors whose specific guidance
+  /// beats the generic code mapping (e.g. the invite modal's expiry
+  /// validation). The raw [error] still feeds "Technical details".
+  final FriendlyError? friendly;
 
   @override
   State<ErrorNote> createState() => _ErrorNoteState();
@@ -29,8 +34,9 @@ class _ErrorNoteState extends State<ErrorNote> {
   Widget build(BuildContext context) {
     final error = widget.error;
     if (error == null) return const SizedBox.shrink();
+    final s = context.strings;
     final tokens = JeliyaTokens.of(context);
-    final friendly = friendlyError(error);
+    final friendly = widget.friendly ?? s.friendlyError(error);
     return Semantics(
       liveRegion: true, // role="alert"
       child: Container(
@@ -61,7 +67,7 @@ class _ErrorNoteState extends State<ErrorNote> {
             InkWell(
               onTap: () => setState(() => _detailsOpen = !_detailsOpen),
               child: Text(
-                '${_detailsOpen ? '▾' : '▸'} ${WidgetStrings.technicalDetails}',
+                '${_detailsOpen ? '▾' : '▸'} ${s.commonTechnicalDetails}',
                 style: TextStyle(fontSize: 12, color: tokens.textMute),
               ),
             ),

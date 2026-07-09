@@ -23,7 +23,7 @@ Future<DaemonSession> pumpToRoomsStep(WidgetTester tester) async {
   await pumpApp(tester, session);
   await pumpSteps(tester, steps: 6);
   expect(find.byType(OnboardingIdentityScreen), findsOneWidget);
-  await tester.tap(find.text('Create identity'));
+  await tester.tap(find.text(en.onboardingCreateIdentity));
   await pumpSteps(tester, steps: 6);
   expect(find.byType(OnboardingRoomsScreen), findsOneWidget);
   expect(session.phase, BootstrapPhase.noRooms);
@@ -41,25 +41,22 @@ void main() {
 
     expect(session.phase, BootstrapPhase.noIdentity);
     expect(find.byType(OnboardingIdentityScreen), findsOneWidget);
-    expect(find.text('Create your identity'), findsOneWidget);
-    expect(
-      find.text(
-          'Your rooms, your data. Private by default — built for humans & agents.'),
-      findsOneWidget,
-    );
+    expect(find.text(en.onboardingIdentityTitle), findsOneWidget);
+    expect(find.text(en.onboardingTagline), findsOneWidget);
 
-    await tester.tap(find.text('Create identity'));
+    await tester.tap(find.text(en.onboardingCreateIdentity));
     await tester.pump();
-    expect(find.text('Creating…'), findsOneWidget); // busy label swap
+    expect(
+        find.text(en.onboardingCreatingIdentity), findsOneWidget); // busy label swap
 
     // identity.create → daemon.status → room.list (zero rooms) → rooms step.
     await pumpSteps(tester, steps: 6);
     expect(session.phase, BootstrapPhase.noRooms);
     expect(find.byType(OnboardingRoomsScreen), findsOneWidget);
     expect(session.selfId, MockPeople.alex.identityId);
-    expect(find.text('Your identity id'), findsOneWidget);
-    expect(find.text('Create a room'), findsOneWidget);
-    expect(find.text('Join with a ticket'), findsOneWidget);
+    expect(find.text(en.onboardingYourIdentityId), findsOneWidget);
+    expect(find.text(en.modalCreateRoomTitle), findsOneWidget);
+    expect(find.text(en.modalJoinRoomTitle), findsOneWidget);
   });
 
   testWidgets('identity_exists on identity.create is treated as success',
@@ -74,13 +71,14 @@ void main() {
     expect(session.phase, BootstrapPhase.noIdentity);
     expect(find.byType(OnboardingIdentityScreen), findsOneWidget);
 
-    await tester.tap(find.text('Create identity'));
+    await tester.tap(find.text(en.onboardingCreateIdentity));
     await pumpSteps(tester);
 
     expect(session.phase, BootstrapPhase.ready);
     expect(find.byType(ShellScreen), findsOneWidget);
     // No error copy ever surfaced — the failure was swallowed as success.
-    expect(find.text('Something went wrong'), findsNothing);
+    expect(find.text(en.errUnknownTitle), findsNothing);
+    // i18n-exempt: raw daemon wire error message (mock_client), not catalog copy
     expect(find.text('an identity already exists on this daemon'),
         findsNothing);
   });
@@ -90,18 +88,18 @@ void main() {
     final session = await pumpToRoomsStep(tester);
 
     // Disabled while the name is blank.
-    final createButton = find.widgetWithText(JeliyaButton, 'Create room');
+    final createButton = find.widgetWithText(JeliyaButton, en.modalCreateRoom);
     expect(tester.widget<JeliyaButton>(createButton).onPressed, isNull);
 
     await tester.enterText(
-        find.widgetWithText(TextField, 'Build Iroh Rooms MVP'),
+        find.widgetWithText(TextField, en.modalRoomNamePlaceholder),
         'My First Room');
     await tester.pump();
     expect(tester.widget<JeliyaButton>(createButton).onPressed, isNotNull);
 
     await tester.tap(createButton);
     await tester.pump();
-    expect(find.text('Creating…'), findsOneWidget); // busy label swap
+    expect(find.text(en.modalCreatingRoom), findsOneWidget); // busy label swap
 
     // room.create → bootstrap → ready shell with the new room opened.
     await pumpSteps(tester);
@@ -121,12 +119,11 @@ void main() {
     final session = await pumpToRoomsStep(tester);
 
     // Disabled while the ticket is blank.
-    final joinButton = find.widgetWithText(JeliyaButton, 'Join room');
+    final joinButton = find.widgetWithText(JeliyaButton, en.modalJoinRoom);
     expect(tester.widget<JeliyaButton>(joinButton).onPressed, isNull);
 
     await tester.enterText(
-        find.widgetWithText(
-            TextField, 'roomtkt1… or roomtkt1…#<endpoint_id>@host:port'),
+        find.widgetWithText(TextField, en.modalTicketPlaceholder),
         'this-is-not-a-ticket');
     await tester.pump();
     expect(tester.widget<JeliyaButton>(joinButton).onPressed, isNotNull);
@@ -134,19 +131,18 @@ void main() {
     await tester.tap(joinButton);
     await tester.pump(const Duration(milliseconds: 10));
     // In-flight: busy label + the retry-ladder progress row (attempt 1/5).
-    expect(find.text('Joining…'), findsOneWidget);
-    expect(find.text('Attempt 1/5'), findsOneWidget);
+    expect(find.text(en.modalJoiningRoom), findsOneWidget);
+    expect(find.text(en.onboardingJoinAttempt(1, 5)), findsOneWidget);
 
     // bad_ticket is NOT peer_unreachable: no retries, friendly error copy.
     await pumpSteps(tester, steps: 3);
-    expect(find.text("This invite can't be used"), findsOneWidget);
-    expect(
-      find.text(
-          'The ticket is invalid for this identity, malformed, or no longer matches the room invite.'),
-      findsOneWidget,
-    );
-    expect(find.textContaining('Attempt'), findsNothing); // progress cleared
-    expect(find.text('Join room'), findsOneWidget); // button re-enabled
+    expect(find.text(en.errBadTicketTitle), findsOneWidget);
+    expect(find.text(en.errBadTicketMessage), findsOneWidget);
+    // Progress cleared: no attempt counter (any count) remains on screen.
+    for (var attempt = 1; attempt <= 5; attempt++) {
+      expect(find.text(en.onboardingJoinAttempt(attempt, 5)), findsNothing);
+    }
+    expect(find.text(en.modalJoinRoom), findsOneWidget); // button re-enabled
     expect(session.phase, BootstrapPhase.noRooms); // still on the rooms step
   });
 }

@@ -16,7 +16,7 @@ import 'package:flutter/material.dart' hide ConnectionState;
 import 'package:jeliya_protocol/jeliya_protocol.dart'
     show ConnectionState, RoomSummary;
 
-import '../l10n/strings_shell.dart';
+import '../l10n/strings_context.dart';
 import '../session/daemon_session.dart';
 import '../theme.dart';
 import '../widgets/error_note.dart';
@@ -196,7 +196,7 @@ class _ShellScreenState extends State<ShellScreen> {
       context,
       builder: (_) => LeaveRoomModal(
         roomId: room.roomId,
-        roomName: summary?.name ?? ShellStrings.untitledRoom,
+        roomName: summary?.name,
       ),
     );
     if (left == true) {
@@ -213,6 +213,7 @@ class _ShellScreenState extends State<ShellScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final s = context.strings;
     final session = SessionScope.of(context);
     final tokens = JeliyaTokens.of(context);
     final overlayActive = _overlay != _Overlay.none;
@@ -247,7 +248,7 @@ class _ShellScreenState extends State<ShellScreen> {
                         child: Row(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                            Expanded(child: _buildCenter(session, tokens)),
+                            Expanded(child: _buildCenter(s, session, tokens)),
                             SizedBox(
                               width: _rightPanelWidth,
                               child: RightPanel(
@@ -296,14 +297,15 @@ class _ShellScreenState extends State<ShellScreen> {
     );
   }
 
-  Widget _buildCenter(DaemonSession session, JeliyaTokens tokens) {
+  Widget _buildCenter(
+      AppStrings s, DaemonSession session, JeliyaTokens tokens) {
     final room = session.room;
     final summary = _currentSummary(session);
     if (room == null) {
       return ColoredBox(
         color: tokens.bg,
         child: Center(
-          child: Text(ShellStrings.selectRoom,
+          child: Text(s.shellSelectRoom,
               style: TextStyle(fontSize: 13.5, color: tokens.textDim)),
         ),
       );
@@ -316,7 +318,7 @@ class _ShellScreenState extends State<ShellScreen> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             RoomHeader(
-              name: summary?.name ?? ShellStrings.untitledRoom,
+              name: summary?.name ?? s.shellUntitledRoom,
               memberCount: room.members.isNotEmpty
                   ? room.members.length
                   : summary?.memberCount ?? 0,
@@ -356,11 +358,12 @@ class _ConnectionBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = context.strings;
     final tokens = JeliyaTokens.of(context);
     final disconnected = conn == ConnectionState.disconnected;
     final text = disconnected
-        ? ShellStrings.bannerDisconnected
-        : ShellStrings.bannerReconnecting(wsUrl);
+        ? s.shellBannerDisconnected
+        : s.shellBannerReconnecting(wsUrl);
     final fg = disconnected ? tokens.red : tokens.amber;
     final bg = disconnected ? tokens.bannerDisconnectBg : tokens.bannerReconnectBg;
     final borderColor =

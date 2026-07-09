@@ -6,16 +6,16 @@
 /// '⊕ Create Room' / '⇥ Join with a ticket' rows, identity footer (shortId +
 /// endpoint suffix, CopyButton ⧉, connection badge).
 ///
-/// Data comes from `SessionScope.of(context)`; all copy lives in
-/// `l10n/strings_sidebar.dart` (+ the shared CONN labels in strings_shell).
+/// Data comes from `SessionScope.of(context)`; all copy comes from the
+/// generated catalog via `context.strings` (+ glyph consts in `l10n/tokens.dart`).
 library;
 
 import 'package:flutter/material.dart' hide ConnectionState;
 import 'package:jeliya_protocol/jeliya_protocol.dart'
     show ConnectionState, RoomSummary, shortId;
 
-import '../l10n/strings_shell.dart';
-import '../l10n/strings_sidebar.dart';
+import '../l10n/strings_context.dart';
+import '../l10n/tokens.dart';
 import '../session/daemon_session.dart';
 import '../theme.dart';
 import '../widgets/copy_button.dart';
@@ -34,16 +34,16 @@ class _NavEntry {
   final bool soon;
 }
 
-const List<_NavEntry> _nav = [
-  _NavEntry(NavKey.home, SidebarStrings.glyphHome, SidebarStrings.navHome),
-  _NavEntry(NavKey.rooms, SidebarStrings.glyphRooms, SidebarStrings.navRooms),
-  _NavEntry(NavKey.agents, SidebarStrings.glyphAgents, SidebarStrings.navAgents),
-  _NavEntry(NavKey.pipes, SidebarStrings.glyphPipes, SidebarStrings.navPipes),
-  _NavEntry(NavKey.files, SidebarStrings.glyphFiles, SidebarStrings.navFiles),
-  _NavEntry(NavKey.calls, SidebarStrings.glyphCalls, SidebarStrings.navCalls,
+List<_NavEntry> _nav(AppStrings s) => [
+  _NavEntry(NavKey.home, Tokens.sidebarGlyphHome, s.sidebarNavHome),
+  _NavEntry(NavKey.rooms, Tokens.sidebarGlyphRooms, s.sidebarNavRooms),
+  _NavEntry(NavKey.agents, Tokens.sidebarGlyphAgents, s.sidebarNavAgents),
+  _NavEntry(NavKey.pipes, Tokens.sidebarGlyphPipes, s.sidebarNavPipes),
+  _NavEntry(NavKey.files, Tokens.sidebarGlyphFiles, s.sidebarNavFiles),
+  _NavEntry(NavKey.calls, Tokens.sidebarGlyphCalls, s.sidebarNavCalls,
       soon: true),
   _NavEntry(
-      NavKey.settings, SidebarStrings.glyphSettings, SidebarStrings.navSettings),
+      NavKey.settings, Tokens.sidebarGlyphSettings, s.sidebarNavSettings),
 ];
 
 class Sidebar extends StatelessWidget {
@@ -75,6 +75,7 @@ class Sidebar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final session = SessionScope.of(context);
+    final s = context.strings;
     final tokens = JeliyaTokens.of(context);
     return Container(
       decoration: BoxDecoration(
@@ -102,8 +103,8 @@ class Sidebar extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(
                 JeliyaSpacing.x10, JeliyaSpacing.x8, JeliyaSpacing.x10, 0),
             child: _AffordanceRow(
-              glyph: SidebarStrings.createRoomGlyph,
-              label: SidebarStrings.createRoom,
+              glyph: Tokens.sidebarCreateRoomGlyph,
+              label: s.modalCreateRoom,
               dashed: true,
               onTap: onCreateRoom,
             ),
@@ -113,8 +114,8 @@ class Sidebar extends StatelessWidget {
                 JeliyaSpacing.x10, JeliyaSpacing.x8, JeliyaSpacing.x10,
                 JeliyaSpacing.x8),
             child: _AffordanceRow(
-              glyph: SidebarStrings.joinRoomGlyph,
-              label: SidebarStrings.joinWithTicket,
+              glyph: Tokens.sidebarJoinRoomGlyph,
+              label: s.modalJoinRoomTitle,
               dashed: false,
               onTap: onJoinRoom,
             ),
@@ -157,22 +158,23 @@ class _ProfileCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = context.strings;
     final tokens = JeliyaTokens.of(context);
     final identityId = session.selfId;
     // Identity-derived (alias → short id), NOT displayName()'s 'You' — the
     // web profile card shows names.display(self); 'You'/'YO' is wrong here.
     final selfName = identityId != null
         ? (session.prefs.aliasFor(identityId) ?? shortId(identityId))
-        : SidebarStrings.profileFallbackName;
+        : s.commonYou;
     final handle = identityId != null
-        ? SidebarStrings.profileHandle(shortId(identityId).replaceAll('…', ''))
-        : SidebarStrings.profileHandleNone;
+        ? s.sidebarProfileHandle(shortId(identityId).replaceAll('…', ''))
+        : Tokens.sidebarProfileHandleNone;
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(
           JeliyaSpacing.x12, 0, JeliyaSpacing.x12, JeliyaSpacing.x6),
       child: Tooltip(
-        message: SidebarStrings.profileTitle,
+        message: s.sidebarProfileTitle,
         child: TextButton(
           onPressed: onTap,
           style: ButtonStyle(
@@ -213,7 +215,7 @@ class _ProfileCard extends StatelessWidget {
                 ),
               ),
               ExcludeSemantics(
-                child: Text(SidebarStrings.profileChevron,
+                child: Text(Tokens.sidebarProfileChevron,
                     style: TextStyle(fontSize: 14, color: tokens.textMute)),
               ),
             ],
@@ -241,7 +243,7 @@ class _ProfileAvatar extends StatelessWidget {
             selfName.substring(0, selfName.length < 2 ? selfName.length : 2)
                 .toUpperCase(),
           )
-        : (tokens.textDim, tokens.bgCard2, SidebarStrings.profileAvatarPlaceholder);
+        : (tokens.textDim, tokens.bgCard2, Tokens.sidebarProfileAvatarPlaceholder);
     return ExcludeSemantics(
       child: Container(
         width: 34,
@@ -269,6 +271,7 @@ class _NavList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = context.strings;
     final tokens = JeliyaTokens.of(context);
     return Container(
       padding: const EdgeInsets.fromLTRB(
@@ -277,11 +280,11 @@ class _NavList extends StatelessWidget {
           BoxDecoration(border: Border(bottom: BorderSide(color: tokens.border))),
       child: Semantics(
         container: true,
-        label: SidebarStrings.navPrimaryLabel,
+        label: s.sidebarNavPrimaryLabel,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            for (final entry in _nav)
+            for (final entry in _nav(s))
               Padding(
                 padding: const EdgeInsets.only(bottom: JeliyaSpacing.x2),
                 child: _NavItem(
@@ -308,6 +311,7 @@ class _NavItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = context.strings;
     final tokens = JeliyaTokens.of(context);
     // Disabled nav (Calls) recedes with 0.5 opacity like the reference.
     final disabled = onTap == null;
@@ -362,7 +366,7 @@ class _NavItem extends StatelessWidget {
                   border: Border.all(color: tokens.border),
                 ),
                 child: Text(
-                  SidebarStrings.navSoon.toUpperCase(),
+                  s.sidebarNavSoon.toUpperCase(),
                   style: TextStyle(
                       fontSize: 9.5,
                       letterSpacing: 0.76,
@@ -385,6 +389,7 @@ class _RoomsHead extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = context.strings;
     final tokens = JeliyaTokens.of(context);
     return Padding(
       padding: const EdgeInsets.fromLTRB(JeliyaSpacing.x18, JeliyaSpacing.x14,
@@ -393,7 +398,7 @@ class _RoomsHead extends StatelessWidget {
         children: [
           Expanded(
             child: Text(
-              SidebarStrings.yourRooms.toUpperCase(),
+              s.sidebarYourRooms.toUpperCase(),
               style: TextStyle(
                   fontSize: 11,
                   fontWeight: FontWeight.w700,
@@ -402,9 +407,9 @@ class _RoomsHead extends StatelessWidget {
             ),
           ),
           Tooltip(
-            message: SidebarStrings.createRoomIcon,
+            message: s.sidebarCreateRoomIcon,
             child: Semantics(
-              label: SidebarStrings.createRoomIcon,
+              label: s.sidebarCreateRoomIcon,
               button: true,
               child: TextButton(
                 onPressed: onCreateRoom,
@@ -431,7 +436,7 @@ class _RoomsHead extends StatelessWidget {
                   ),
                 ),
                 child: ExcludeSemantics(
-                  child: Text(SidebarStrings.createRoomIconGlyph,
+                  child: Text(Tokens.sidebarCreateRoomIconGlyph,
                       style: const TextStyle(fontSize: 14)),
                 ),
               ),
@@ -456,20 +461,21 @@ class _RoomsList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = context.strings;
     final tokens = JeliyaTokens.of(context);
     if (rooms.isEmpty) {
       return Padding(
         padding: const EdgeInsets.all(JeliyaSpacing.x14),
         child: Align(
           alignment: Alignment.topLeft,
-          child: Text(SidebarStrings.noRoomsYet,
+          child: Text(s.sidebarNoRoomsYet,
               style: TextStyle(fontSize: 13, color: tokens.textDim)),
         ),
       );
     }
     return Semantics(
       container: true,
-      label: SidebarStrings.roomsListLabel,
+      label: s.sidebarRoomsListLabel,
       child: ListView.separated(
         padding: const EdgeInsets.symmetric(horizontal: JeliyaSpacing.x10),
         itemCount: rooms.length,
@@ -497,16 +503,17 @@ class _RoomItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = context.strings;
     final tokens = JeliyaTokens.of(context);
     final tint = tokens.colorForId(room.roomId);
     final departed = room.status == 'left' || room.status == 'removed';
     final stateLabel = departed
         ? (room.status == 'left'
-            ? SidebarStrings.stateLeft
-            : SidebarStrings.stateRemoved)
+            ? s.sidebarStateLeft
+            : s.sidebarStateRemoved)
         : room.open
-            ? SidebarStrings.stateActive
-            : SidebarStrings.stateIdle;
+            ? s.sidebarStateActive
+            : s.sidebarStateIdle;
 
     Widget row = TextButton(
       onPressed: departed ? null : () => onSelectRoom(room.roomId),
@@ -538,7 +545,7 @@ class _RoomItem extends StatelessWidget {
                 color: tokens.tileBg(room.roomId),
                 borderRadius: BorderRadius.circular(JeliyaRadii.btn),
               ),
-              child: Text(SidebarStrings.roomHexGlyph,
+              child: Text(Tokens.sidebarRoomHexGlyph,
                   style: TextStyle(fontSize: 18, color: tint)),
             ),
           ),
@@ -547,11 +554,11 @@ class _RoomItem extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(room.name ?? ShellStrings.untitledRoom,
+                Text(room.name ?? s.shellUntitledRoom,
                     style: JeliyaText.name,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis),
-                Text(SidebarStrings.roomMeta(room.memberCount, stateLabel),
+                Text(s.sidebarRoomMeta(room.memberCount, stateLabel),
                     style: JeliyaText.meta,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis),
@@ -561,7 +568,7 @@ class _RoomItem extends StatelessWidget {
           if (room.open) ...[
             const SizedBox(width: JeliyaSpacing.x6),
             Tooltip(
-              message: SidebarStrings.sessionOpen,
+              message: s.sidebarSessionOpen,
               child: _Dot(color: tokens.accent, glow: true),
             ),
           ],
@@ -574,8 +581,8 @@ class _RoomItem extends StatelessWidget {
       // title explaining why the row is disabled.
       row = Tooltip(
         message: room.status == 'left'
-            ? SidebarStrings.leftRoomTitle
-            : SidebarStrings.removedRoomTitle,
+            ? s.sidebarLeftRoomTitle
+            : s.sidebarRemovedRoomTitle,
         child: Opacity(opacity: 0.62, child: row),
       );
     }
@@ -705,6 +712,7 @@ class _IdentityFooter extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = context.strings;
     final tokens = JeliyaTokens.of(context);
     final identityId = session.selfId;
     final endpointId = session.endpointId;
@@ -712,12 +720,13 @@ class _IdentityFooter extends StatelessWidget {
     final idLine = Text.rich(
       TextSpan(children: [
         TextSpan(
-          text: identityId != null ? shortId(identityId) : SidebarStrings.noIdentity,
+          text: identityId != null ? shortId(identityId) : Tokens.sidebarNoIdentity,
           style: JeliyaText.mono(fontSize: 12, color: tokens.textDim),
         ),
         if (endpointId != null)
           TextSpan(
-            text: SidebarStrings.endpointSuffix(shortId(endpointId)),
+            text: Tokens.metaSep +
+                s.sidebarEndpointShort(shortId(endpointId)),
             style: JeliyaText.mono(fontSize: 12, color: tokens.textMute),
           ),
       ]),
@@ -728,7 +737,7 @@ class _IdentityFooter extends StatelessWidget {
     // The web exposes the full ids as titles on the shortened line.
     final title = [
       ?identityId,
-      if (endpointId != null) SidebarStrings.endpointTitle(endpointId),
+      if (endpointId != null) s.sidebarEndpointTitle(endpointId),
     ].join('\n');
 
     return Container(
@@ -749,7 +758,7 @@ class _IdentityFooter extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(SidebarStrings.p2pIdentity.toUpperCase(),
+                    Text(s.sidebarP2pIdentity.toUpperCase(),
                         style: JeliyaText.microLabel),
                     if (title.isEmpty)
                       idLine
@@ -761,8 +770,8 @@ class _IdentityFooter extends StatelessWidget {
               if (identityId != null)
                 CopyButton(
                   text: identityId,
-                  label: SidebarStrings.copyIdentityGlyph,
-                  semanticLabel: SidebarStrings.copyIdentityId,
+                  label: Tokens.sidebarCopyIdentityGlyph,
+                  semanticLabel: s.commonCopyIdentityId,
                 ),
             ],
           ),
@@ -784,29 +793,30 @@ class _ConnBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = context.strings;
     final tokens = JeliyaTokens.of(context);
     final (String label, Color color, Color borderColor, bool pulse) =
         switch (conn) {
       ConnectionState.connected => (
-          ShellStrings.connConnected,
+          s.shellConnConnected,
           tokens.accent,
           tokens.accentLine,
           false
         ),
       ConnectionState.connecting => (
-          ShellStrings.connConnecting,
+          s.shellConnConnecting,
           tokens.amber,
           tokens.amberLine,
           true
         ),
       ConnectionState.reconnecting => (
-          ShellStrings.connReconnecting,
+          s.shellConnReconnecting,
           tokens.amber,
           tokens.amberLine,
           true
         ),
       ConnectionState.disconnected => (
-          ShellStrings.connDisconnected,
+          s.shellConnDisconnected,
           tokens.red,
           tokens.redLine,
           false

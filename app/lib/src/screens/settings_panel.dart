@@ -19,7 +19,9 @@ import 'package:flutter/services.dart';
 import 'package:jeliya_protocol/jeliya_protocol.dart' show DiagnosticEvent;
 import 'package:url_launcher/url_launcher.dart';
 
-import '../l10n/strings_settings.dart';
+import '../l10n/strings_context.dart';
+import '../l10n/tokens.dart';
+import '../l10n/wire_display.dart';
 import '../session/daemon_session.dart';
 import '../theme.dart';
 import '../widgets/buttons.dart';
@@ -67,7 +69,7 @@ class _SettingsPanelState extends State<SettingsPanel> {
     await _copyDiagnostics(session);
     try {
       await launchUrl(
-        Uri.parse(SettingsStrings.issueUrl),
+        Uri.parse(Tokens.issueUrl),
         mode: LaunchMode.externalApplication,
       );
     } catch (_) {
@@ -77,6 +79,7 @@ class _SettingsPanelState extends State<SettingsPanel> {
 
   @override
   Widget build(BuildContext context) {
+    final s = context.strings;
     final session = SessionScope.of(context);
     final tokens = JeliyaTokens.of(context);
     final status = session.status;
@@ -86,15 +89,15 @@ class _SettingsPanelState extends State<SettingsPanel> {
     final supervisorState = ready == null
         ? null
         : ready.adopted
-            ? SettingsStrings.supervisorAdopted
-            : SettingsStrings.supervisorOwned;
+            ? s.settingsSupervisorAdopted
+            : s.settingsSupervisorOwned;
     final transport = session.transportDescription;
 
     return ColoredBox(
       color: tokens.bg,
       child: Semantics(
         container: true,
-        label: SettingsStrings.title,
+        label: s.settingsTitle,
         child: Align(
           alignment: Alignment.topLeft,
           child: ConstrainedBox(
@@ -107,7 +110,7 @@ class _SettingsPanelState extends State<SettingsPanel> {
                 Semantics(
                   header: true,
                   child: Text(
-                    SettingsStrings.title,
+                    s.settingsTitle,
                     style: TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.w700,
@@ -118,48 +121,50 @@ class _SettingsPanelState extends State<SettingsPanel> {
                 const SizedBox(height: JeliyaSpacing.x12),
                 _SettingsCard(
                   children: [
-                    const _CardLabel(SettingsStrings.identityLabel),
+                    _CardLabel(s.settingsIdentityLabel),
                     _MonoValueRow(
                       value: identity?.identityId,
-                      copySemanticLabel: SettingsStrings.copyIdentityId,
+                      copySemanticLabel: s.commonCopyIdentityId,
                     ),
                     const SizedBox(height: JeliyaSpacing.x4),
-                    const _CardLabel(SettingsStrings.deviceLabel),
+                    _CardLabel(s.settingsDeviceLabel),
                     _MonoValueRow(
                       value: identity?.deviceId,
-                      copySemanticLabel: SettingsStrings.copyDeviceId,
+                      copySemanticLabel: s.settingsCopyDeviceId,
                     ),
                   ],
                 ),
                 // `.settings-note` tucks toward the identity card above it.
                 const SizedBox(height: JeliyaSpacing.x8),
                 Text(
-                  SettingsStrings.identityNote,
+                  s.settingsIdentityNote,
                   style: TextStyle(fontSize: 12.5, color: tokens.textMute),
                 ),
                 const SizedBox(height: JeliyaSpacing.x14),
                 _SettingsCard(
                   children: [
-                    const _CardLabel(SettingsStrings.endpointLabel),
+                    _CardLabel(s.settingsEndpointLabel),
                     _MonoValueRow(
                       value: endpoint?.endpointId,
-                      copySemanticLabel: SettingsStrings.copyEndpointId,
+                      copySemanticLabel: s.settingsCopyEndpointId,
                     ),
                     const SizedBox(height: JeliyaSpacing.x4),
-                    const _CardLabel(SettingsStrings.relayLabel),
+                    _CardLabel(s.settingsRelayLabel),
                     _MonoValueRow(value: endpoint?.relayUrl),
                   ],
                 ),
                 const SizedBox(height: JeliyaSpacing.x12),
                 _SettingsCard(
                   children: [
-                    const _CardLabel(SettingsStrings.daemonLabel),
+                    _CardLabel(s.settingsDaemonLabel),
                     Text(
-                      // '{mode} · {conn}' — conn is the raw connection state
-                      // name, exactly like the reference client.
-                      SettingsStrings.daemonSummary(
-                        status?.mode ?? SettingsStrings.missingValue,
-                        session.conn.name,
+                      // '{mode} · {conn}' — both halves display-mapped, never
+                      // the raw wire word / Dart enum name.
+                      s.settingsDaemonSummary(
+                        status != null
+                            ? s.daemonMode(status.mode)
+                            : Tokens.missingValue,
+                        s.connStateInline(session.conn),
                       ),
                       style: TextStyle(fontSize: 12.5, color: tokens.text),
                     ),
@@ -173,36 +178,60 @@ class _SettingsPanelState extends State<SettingsPanel> {
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
                           _DetailRow(
-                            label: SettingsStrings.versionLabel,
+                            label: s.settingsVersionLabel,
                             value: status?.version,
                           ),
                           _DetailRow(
-                            label: SettingsStrings.protocolLabel,
+                            label: s.settingsProtocolLabel,
                             value:
                                 status == null ? null : '${status.protocol}',
                           ),
                           _DetailRow(
-                            label: SettingsStrings.pidLabel,
+                            label: s.settingsPidLabel,
                             value: status == null ? null : '${status.pid}',
                           ),
                           _DetailRow(
-                            label: SettingsStrings.portLabel,
+                            label: s.settingsPortLabel,
                             value: status == null ? null : '${status.port}',
                           ),
                           _DetailRow(
-                            label: SettingsStrings.dataDirLabel,
+                            label: s.settingsDataDirLabel,
                             value: status?.dataDir,
                           ),
                           _DetailRow(
-                            label: SettingsStrings.transportLabel,
+                            label: s.settingsTransportLabel,
                             value: transport.isEmpty ? null : transport,
                           ),
                           _DetailRow(
-                            label: SettingsStrings.supervisorLabel,
+                            label: s.settingsSupervisorLabel,
                             value: supervisorState,
                           ),
                         ],
                       ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: JeliyaSpacing.x12),
+                _SettingsCard(
+                  children: [
+                    _CardLabel(s.settingsLanguageLabel),
+                    _LocaleDropdown(
+                      value: session.prefs.textLocale,
+                      options: [
+                        for (final locale in AppStrings.supportedLocales)
+                          locale.toLanguageTag(),
+                      ],
+                      onChanged: (tag) => session.prefs.textLocale = tag,
+                    ),
+                    const SizedBox(height: JeliyaSpacing.x8),
+                    _CardLabel(s.settingsFormattingLabel),
+                    // Curated intl-backed conventions (decision 4 pairs);
+                    // grows with the shipped catalogs.
+                    _LocaleDropdown(
+                      value: session.prefs.formattingLocale,
+                      options: const ['en', 'fr'],
+                      onChanged: (tag) =>
+                          session.prefs.formattingLocale = tag,
                     ),
                   ],
                 ),
@@ -215,7 +244,7 @@ class _SettingsPanelState extends State<SettingsPanel> {
                 ),
                 const SizedBox(height: JeliyaSpacing.x12),
                 JeliyaButton(
-                  label: SettingsStrings.createARoom,
+                  label: s.modalCreateRoomTitle,
                   variant: JeliyaButtonVariant.primary,
                   onPressed: widget.onCreateRoom,
                 ),
@@ -245,16 +274,17 @@ class _DiagnosticsCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = context.strings;
     final tokens = JeliyaTokens.of(context);
     final error = lastError;
     return _SettingsCard(
       children: [
-        const _CardLabel(SettingsStrings.supportLabel),
+        _CardLabel(s.settingsSupportLabel),
         const SizedBox(height: 3),
         Semantics(
           header: true,
           child: Text(
-            SettingsStrings.diagnosticsTitle,
+            s.settingsDiagnosticsTitle,
             style: TextStyle(
               fontSize: 18,
               height: 1.2,
@@ -265,14 +295,14 @@ class _DiagnosticsCard extends StatelessWidget {
         ),
         const SizedBox(height: JeliyaSpacing.x10),
         Text(
-          SettingsStrings.diagnosticsCopy,
+          s.settingsDiagnosticsCopy,
           style: TextStyle(fontSize: 14, height: 1.45, color: tokens.textDim),
         ),
         const SizedBox(height: JeliyaSpacing.x10),
-        const _Bullet(SettingsStrings.noMessageBodies),
-        const _Bullet(SettingsStrings.noInviteTickets),
-        const _Bullet(SettingsStrings.noFileNamesOrPaths),
-        const _Bullet(SettingsStrings.noFullIdentityIds),
+        _Bullet(s.settingsNoMessageBodies),
+        _Bullet(s.settingsNoInviteTickets),
+        _Bullet(s.settingsNoFileNamesOrPaths),
+        _Bullet(s.settingsNoFullIdentityIds),
         const SizedBox(height: JeliyaSpacing.x10),
         if (error != null)
           Container(
@@ -283,7 +313,7 @@ class _DiagnosticsCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const _CardLabel(SettingsStrings.lastCapturedError),
+                _CardLabel(s.settingsLastCapturedError),
                 const SizedBox(height: JeliyaSpacing.x4),
                 Row(
                   children: [
@@ -309,7 +339,7 @@ class _DiagnosticsCard extends StatelessWidget {
           )
         else
           Text(
-            SettingsStrings.noErrorCaptured,
+            s.settingsNoErrorCaptured,
             style: TextStyle(fontSize: 13, color: tokens.textMute),
           ),
         const SizedBox(height: JeliyaSpacing.x12),
@@ -317,14 +347,14 @@ class _DiagnosticsCard extends StatelessWidget {
           children: [
             JeliyaButton(
               label: copied
-                  ? SettingsStrings.copiedDiagnostics
-                  : SettingsStrings.copyDiagnostics,
+                  ? s.settingsCopiedDiagnostics
+                  : s.settingsCopyDiagnostics,
               variant: JeliyaButtonVariant.primary,
               onPressed: onCopy,
             ),
             const SizedBox(width: JeliyaSpacing.x8),
             JeliyaButton(
-              label: SettingsStrings.reportIssue,
+              label: s.settingsReportIssue,
               variant: JeliyaButtonVariant.ghost,
               onPressed: onReportIssue,
             ),
@@ -338,6 +368,54 @@ class _DiagnosticsCard extends StatelessWidget {
 // -- building blocks ---------------------------------------------------------------
 
 /// `.settings-card`: bg-card surface, hairline border, radius 12, pad 12/14.
+/// System default + fixed locale tags; a null [value] means follow-system.
+/// Language names are endonyms from [Tokens.langName] (never translated;
+/// locale_switch_test guards that every option has one). A persisted tag
+/// outside [options] (hand-edited prefs, a downgraded binary after a newer
+/// one stored a locale this build lacks) stays selectable and renders raw —
+/// the dropdown must never assert on it or silently drop the pref.
+class _LocaleDropdown extends StatelessWidget {
+  const _LocaleDropdown({
+    required this.value,
+    required this.options,
+    required this.onChanged,
+  });
+
+  final String? value;
+  final List<String> options;
+  final ValueChanged<String?> onChanged;
+
+  /// Stand-in for follow-system: a dropdown can't tell a null VALUE from
+  /// "nothing selected".
+  static const String _system = '';
+
+  @override
+  Widget build(BuildContext context) {
+    final s = context.strings;
+    final tokens = JeliyaTokens.of(context);
+    final value = this.value;
+    final tags = [
+      ...options,
+      if (value != null && !options.contains(value)) value,
+    ];
+    return DropdownButtonFormField<String>(
+      initialValue: value ?? _system,
+      items: [
+        DropdownMenuItem(
+          value: _system,
+          child: Text(s.settingsLocaleSystemDefault),
+        ),
+        for (final tag in tags)
+          DropdownMenuItem(
+              value: tag, child: Text(Tokens.langName(tag) ?? tag)),
+      ],
+      onChanged: (v) => onChanged(v == null || v == _system ? null : v),
+      style: TextStyle(fontSize: 14, color: tokens.text),
+      dropdownColor: tokens.bgCard,
+    );
+  }
+}
+
 class _SettingsCard extends StatelessWidget {
   const _SettingsCard({required this.children});
 
@@ -387,7 +465,7 @@ class _MonoValueRow extends StatelessWidget {
     final value = this.value;
     if (value == null || value.isEmpty) {
       return Text(
-        SettingsStrings.missingValue,
+        Tokens.missingValue,
         style: JeliyaText.mono(fontSize: 12.5, color: tokens.textDim),
       );
     }
@@ -430,7 +508,7 @@ class _DetailRow extends StatelessWidget {
           ),
           Expanded(
             child: Text(
-              present ? value : SettingsStrings.missingValue,
+              present ? value : Tokens.missingValue,
               style: JeliyaText.mono(
                 fontSize: 12.5,
                 color: present ? tokens.text : tokens.textDim,
@@ -458,7 +536,7 @@ class _Bullet extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          ExcludeSemantics(child: Text(SettingsStrings.bullet, style: style)),
+          ExcludeSemantics(child: Text(Tokens.bullet, style: style)),
           const SizedBox(width: JeliyaSpacing.x6),
           Expanded(child: Text(text, style: style)),
         ],

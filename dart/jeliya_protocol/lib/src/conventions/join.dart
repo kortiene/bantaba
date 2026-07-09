@@ -15,13 +15,15 @@ abstract final class JoinPhases {
   static const List<String> all = [connecting, retrying];
 }
 
-/// One progress callback payload (join.ts `JoinProgress`).
+/// One progress callback payload (join.ts `JoinProgress`), as structured
+/// facts only — the UI composes its own localized narration from them
+/// (user-facing copy never lives in this package).
 class JoinProgress {
   const JoinProgress({
     required this.phase,
     required this.attempt,
     required this.maxAttempts,
-    required this.message,
+    this.retryDelay,
     this.lastError,
   });
 
@@ -30,9 +32,9 @@ class JoinProgress {
   final int attempt;
   final int maxAttempts;
 
-  /// Reference UI copy, emitted verbatim so both clients narrate joins the
-  /// same way.
-  final String message;
+  /// The upcoming back-off before the next attempt; null except on
+  /// [JoinPhases.retrying].
+  final Duration? retryDelay;
 
   /// The shaped `peer_unreachable` error that triggered a retry; null on
   /// [JoinPhases.connecting].
@@ -67,9 +69,6 @@ Future<String> joinRoomWithRetry(
       phase: JoinPhases.connecting,
       attempt: attempt,
       maxAttempts: _joinAttempts,
-      message: attempt == 1
-          ? 'Finding the inviter and syncing the room invite...'
-          : 'Retrying join ($attempt/$_joinAttempts)...',
     ));
 
     try {
@@ -85,8 +84,7 @@ Future<String> joinRoomWithRetry(
         phase: JoinPhases.retrying,
         attempt: attempt,
         maxAttempts: _joinAttempts,
-        message: 'The first path did not answer. '
-            'Retrying in ${(delay.inMilliseconds / 1000).round()}s...',
+        retryDelay: delay,
         lastError: err,
       ));
       await wait(delay);

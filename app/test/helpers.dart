@@ -11,6 +11,7 @@ import 'dart:async';
 import 'package:flutter/material.dart' hide ConnectionState;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:jeliya_app/main.dart';
+import 'package:jeliya_app/src/l10n/strings_context.dart';
 import 'package:jeliya_app/src/session/daemon_session.dart';
 import 'package:jeliya_app/src/session/prefs_store.dart';
 import 'package:jeliya_protocol/jeliya_protocol.dart';
@@ -54,6 +55,13 @@ MockClient newMockClient({bool fresh = false}) =>
 
 /// A session over an injected [client]: the sidecar supervisor is skipped
 /// entirely and prefs stay in memory (no disk I/O). Disposed with the test.
+/// The en catalog for copy assertions — tests assert `find.text(en.<key>)`
+/// so translation work never breaks them (docs/i18n.md rule 6).
+final AppStrings en = lookupAppStrings(const Locale('en'));
+
+/// The fr catalog, for locale-resolution and French-contract assertions.
+final AppStrings fr = lookupAppStrings(const Locale('fr'));
+
 DaemonSession newSession(Client client, {PrefsStore? prefs}) {
   final session =
       DaemonSession(client: client, prefs: prefs ?? PrefsStore.inMemory());

@@ -4,25 +4,27 @@ library;
 
 import 'package:flutter/widgets.dart';
 
-import '../l10n/strings_widgets.dart';
+import '../format.dart';
+import '../l10n/strings_context.dart';
 import '../theme.dart';
 
 class ProgressBar extends StatelessWidget {
-  const ProgressBar({super.key, required this.value, this.label = WidgetStrings.taskProgress});
+  const ProgressBar({super.key, required this.value, this.label});
 
   /// Percent 0–100 (clamped).
   final double value;
 
-  /// Accessible label.
-  final String label;
+  /// Accessible label; defaults to the localized 'Task progress' (resolved
+  /// at build — defaults can't be locale-aware).
+  final String? label;
 
   @override
   Widget build(BuildContext context) {
     final tokens = JeliyaTokens.of(context);
     final v = value.clamp(0, 100).toDouble();
     return Semantics(
-      label: label,
-      value: '${v.round()}%',
+      label: label ?? context.strings.commonTaskProgress,
+      value: context.formats.percent(v.round()),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(JeliyaRadii.pill),
         child: Container(

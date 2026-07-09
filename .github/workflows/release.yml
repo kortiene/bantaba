@@ -27,8 +27,16 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # The same gates ci.yml runs on every push/PR. Both publish jobs `needs:`
+  # this so a failed gate blocks the WHOLE release — no binary asset ever
+  # publishes off a tree that fails verification.
+  verify:
+    name: verify
+    uses: ./.github/workflows/ci.yml
+
   build:
     name: ${{ matrix.target }}
+    needs: verify
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -188,6 +196,7 @@ jobs:
   # binaries above.
   macos-app:
     name: macos-app (Jeliya.app DMG)
+    needs: verify
     runs-on: macos-14
     env:
       HAS_SIGNING: ${{ secrets.MACOS_CERT_P12 != '' && secrets.MACOS_SIGN_IDENTITY != '' }}
@@ -214,7 +223,9 @@ jobs:
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          channel: stable
+          # Same pin as ci.yml: the DMG must ship the toolchain the verify
+          # job gated on.
+          flutter-version: 3.41.5
           cache: true
 
       - name: Import Developer ID certificate

@@ -7,12 +7,14 @@ library;
 import 'package:flutter/material.dart' hide ConnectionState;
 import 'package:jeliya_protocol/jeliya_protocol.dart';
 
-import '../l10n/strings_onboarding.dart';
+import '../l10n/strings_context.dart';
+import '../l10n/tokens.dart';
 import '../session/daemon_session.dart';
 import '../theme.dart';
 import '../widgets/buttons.dart';
 import '../widgets/copy_button.dart';
 import '../widgets/error_note.dart';
+import '../widgets/template_text.dart';
 import 'onboarding_identity.dart' show OnboardingBrand, OnboardingCard;
 
 class OnboardingRoomsScreen extends StatefulWidget {
@@ -138,6 +140,7 @@ class _OnboardingRoomsScreenState extends State<OnboardingRoomsScreen> {
   }
 
   Widget _buildCreateCard(BuildContext context) {
+    final s = context.strings;
     final tokens = JeliyaTokens.of(context);
     final canSubmit = !_creating && _name.text.trim().isNotEmpty;
     return OnboardingCard(
@@ -145,25 +148,25 @@ class _OnboardingRoomsScreenState extends State<OnboardingRoomsScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(OnboardingStrings.createRoomTitle,
+          Text(s.modalCreateRoomTitle,
               style: JeliyaText.onboardingCardTitle),
           const SizedBox(height: JeliyaSpacing.x8),
-          Text(OnboardingStrings.createRoomCopy,
+          Text(s.onboardingCreateRoomCopy,
               style: TextStyle(fontSize: 13, color: tokens.textDim)),
           const SizedBox(height: JeliyaSpacing.x12),
-          _FieldLabel(OnboardingStrings.roomNameLabel),
+          _FieldLabel(s.modalRoomNameLabel),
           TextField(
             controller: _name,
             autofocus: true,
-            decoration: const InputDecoration(
-                hintText: OnboardingStrings.roomNamePlaceholder),
+            decoration: InputDecoration(
+                hintText: s.modalRoomNamePlaceholder),
             onSubmitted: (_) => _create(),
           ),
           const SizedBox(height: JeliyaSpacing.x12),
           JeliyaButton(
             label: _creating
-                ? OnboardingStrings.creatingRoom
-                : OnboardingStrings.createRoom,
+                ? s.modalCreatingRoom
+                : s.modalCreateRoom,
             variant: JeliyaButtonVariant.primary,
             busy: _creating,
             onPressed: canSubmit ? _create : null,
@@ -175,6 +178,7 @@ class _OnboardingRoomsScreenState extends State<OnboardingRoomsScreen> {
   }
 
   Widget _buildJoinCard(BuildContext context) {
+    final s = context.strings;
     final tokens = JeliyaTokens.of(context);
     final canSubmit = !_joining && _ticket.text.trim().isNotEmpty;
     final progress = _joinProgress;
@@ -183,48 +187,47 @@ class _OnboardingRoomsScreenState extends State<OnboardingRoomsScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(OnboardingStrings.joinTitle,
+          Text(s.modalJoinRoomTitle,
               style: JeliyaText.onboardingCardTitle),
           const SizedBox(height: JeliyaSpacing.x8),
           // 'ticket#address' renders mono inside this copy.
-          Text.rich(
-            TextSpan(children: [
-              TextSpan(
-                  text: OnboardingStrings.joinCopyPrefix,
-                  style: TextStyle(fontSize: 13, color: tokens.textDim)),
-              TextSpan(
-                  text: OnboardingStrings.joinCopyMono,
+          templateText(
+            s.modalJoinCopy('{combined}'),
+            style: TextStyle(fontSize: 13, color: tokens.textDim),
+            slots: {
+              'combined': TextSpan(
+                  text: Tokens.modalJoinCopyMono,
                   style: JeliyaText.mono(fontSize: 12, color: tokens.textDim)),
-              TextSpan(
-                  text: OnboardingStrings.joinCopySuffix,
-                  style: TextStyle(fontSize: 13, color: tokens.textDim)),
-            ]),
+            },
           ),
           const SizedBox(height: JeliyaSpacing.x12),
-          _FieldLabel(OnboardingStrings.ticketLabel),
+          _FieldLabel(s.modalTicketLabel),
           TextField(
             controller: _ticket,
             minLines: 3,
             maxLines: 3,
             style: JeliyaText.mono(fontSize: 12.5),
-            decoration: const InputDecoration(
-                hintText: OnboardingStrings.ticketPlaceholder),
+            decoration: InputDecoration(
+                hintText: s.modalTicketPlaceholder),
           ),
           const SizedBox(height: JeliyaSpacing.x10),
-          _FieldLabel(
-              '${OnboardingStrings.peerAddrLabel} ${OnboardingStrings.peerAddrOptional}'),
+          _FieldLabel(fillTemplate(s.commonOptionalFieldLabel(
+              '{label}', '{optional}'), {
+            'label': s.modalPeerAddrLabel,
+            'optional': s.modalPeerAddrOptional,
+          })),
           TextField(
             controller: _peerAddr,
             style: JeliyaText.mono(fontSize: 12.5),
             decoration: const InputDecoration(
-                hintText: OnboardingStrings.peerAddrPlaceholder),
+                hintText: Tokens.modalPeerAddrPlaceholder),
             onSubmitted: (_) => _join(),
           ),
           const SizedBox(height: JeliyaSpacing.x12),
           JeliyaButton(
             label: _joining
-                ? OnboardingStrings.joiningRoom
-                : OnboardingStrings.joinRoom,
+                ? s.modalJoiningRoom
+                : s.modalJoinRoom,
             variant: JeliyaButtonVariant.primary,
             busy: _joining,
             onPressed: canSubmit ? _join : null,
@@ -248,6 +251,7 @@ class _IdentityCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = context.strings;
     final tokens = JeliyaTokens.of(context);
     return OnboardingCard(
       width: double.infinity,
@@ -257,13 +261,13 @@ class _IdentityCard extends StatelessWidget {
           Row(
             children: [
               Expanded(
-                child: Text(OnboardingStrings.yourIdentityId,
+                child: Text(s.onboardingYourIdentityId,
                     style: JeliyaText.microLabel),
               ),
               CopyButton(
                 text: identityId,
-                label: OnboardingStrings.copy,
-                semanticLabel: OnboardingStrings.copyIdentityId,
+                label: s.commonCopy,
+                semanticLabel: s.commonCopyIdentityId,
               ),
             ],
           ),
@@ -273,10 +277,10 @@ class _IdentityCard extends StatelessWidget {
             style: JeliyaText.mono(fontSize: 12.5, color: tokens.text),
           ),
           const SizedBox(height: JeliyaSpacing.x8),
-          Text(OnboardingStrings.identityCardCopy1,
+          Text(s.onboardingIdentityCardCopy1,
               style: TextStyle(fontSize: 12.5, color: tokens.textDim)),
           const SizedBox(height: JeliyaSpacing.x4),
-          Text(OnboardingStrings.identityCardCopy2,
+          Text(s.onboardingIdentityCardCopy2,
               style: TextStyle(fontSize: 12.5, color: tokens.textDim)),
         ],
       ),
@@ -291,8 +295,22 @@ class JoinProgressRow extends StatelessWidget {
 
   final JoinProgress progress;
 
+  /// Localized narration for the package's structured [JoinProgress] facts.
+  String _message(AppStrings s) {
+    final delay = progress.retryDelay;
+    if (progress.phase == JoinPhases.retrying && delay != null) {
+      return s.onboardingJoinRetryWait(
+          (delay.inMilliseconds / 1000).round());
+    }
+    return progress.attempt == 1
+        ? s.onboardingJoinFinding
+        : s.onboardingJoinRetryingAttempt(
+            progress.attempt, progress.maxAttempts);
+  }
+
   @override
   Widget build(BuildContext context) {
+    final s = context.strings;
     final tokens = JeliyaTokens.of(context);
     return Semantics(
       liveRegion: true, // role="status"
@@ -313,11 +331,11 @@ class JoinProgressRow extends StatelessWidget {
             ),
             const SizedBox(width: JeliyaSpacing.x8),
             Expanded(
-              child: Text(progress.message,
+              child: Text(_message(s),
                   style: TextStyle(fontSize: 12.5, color: tokens.text)),
             ),
             Text(
-              OnboardingStrings.joinAttempt(
+              s.onboardingJoinAttempt(
                   progress.attempt, progress.maxAttempts),
               style: TextStyle(
                   fontSize: 11.5,

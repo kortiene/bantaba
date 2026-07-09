@@ -51,15 +51,17 @@ Future<FileShareResult> stageAndShareFile(
   try {
     size = await source.length();
   } on FileSystemException catch (e) {
+    // Client-synthesized code: the UI keys translatable copy off it; this
+    // message/hint is the English technical detail.
     throw RequestError(
-      ErrorCodes.invalidParams,
+      ErrorCodes.fileUnreadable,
       'could not read $sourcePath: ${e.osError?.message ?? e.message}',
       hint: 'pick a readable file',
     );
   }
   if (size > maxSharedFileBytes) {
     throw RequestError(
-      ErrorCodes.invalidParams,
+      ErrorCodes.fileTooLarge,
       'file is $size bytes; the share limit is $maxSharedFileBytes bytes',
       hint: 'files over 100 MiB cannot be shared',
     );

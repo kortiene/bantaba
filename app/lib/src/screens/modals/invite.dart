@@ -8,15 +8,19 @@ library;
 
 import 'package:flutter/material.dart';
 import 'package:jeliya_protocol/jeliya_protocol.dart'
-    show ErrorCodes, JeliyaMethods, RequestError, errorShape;
+    show ErrorCodes, JeliyaMethods, RequestError, Roles, errorShape;
 
-import '../../l10n/strings_panel.dart';
+import '../../l10n/error_display.dart';
+import '../../l10n/strings_context.dart';
+import '../../l10n/tokens.dart';
+import '../../l10n/wire_display.dart';
 import '../../session/daemon_session.dart';
 import '../../theme.dart';
 import '../../widgets/buttons.dart';
 import '../../widgets/copy_button.dart';
 import '../../widgets/error_note.dart';
 import '../../widgets/modal_scaffold.dart';
+import '../../widgets/template_text.dart';
 
 class InviteModal extends StatefulWidget {
   const InviteModal({super.key, required this.roomId, required this.endpointAddr});
@@ -34,10 +38,19 @@ class InviteModal extends StatefulWidget {
 class _InviteModalState extends State<InviteModal> {
   final TextEditingController _identityId = TextEditingController();
   final TextEditingController _expiry = TextEditingController();
-  String _role = InviteStrings.roleMember;
+
+  /// Wire role value ([Roles]) — the dropdown DISPLAYS the mapped label but
+  /// stores and sends the protocol constant.
+  String _role = Roles.member;
   bool _busy = false;
   String? _ticket;
   RequestError? _error;
+
+  /// Marker for the client-local expiry validation failure — its copy is
+  /// built AT RENDER TIME (never cached in state, so a live locale switch
+  /// re-resolves it). A wire invalid_params must NOT set this: it keeps the
+  /// generic friendlyError mapping.
+  bool _expiryInvalid = false;
 
   @override
   void initState() {
@@ -59,6 +72,7 @@ class _InviteModalState extends State<InviteModal> {
     setState(() {
       _busy = true;
       _error = null;
+      _expiryInvalid = false;
       _ticket = null;
     });
     try {
@@ -67,13 +81,7 @@ class _InviteModalState extends State<InviteModal> {
       if (expiryText.isNotEmpty) {
         final value = int.tryParse(expiryText);
         if (value == null || value <= 0) {
-          setState(() {
-            _error = RequestError(
-              ErrorCodes.invalidParams,
-              InviteStrings.expiryErrorMessage,
-              hint: InviteStrings.expiryErrorHint,
-            );
-          });
+          setState(() => _expiryInvalid = true);
           return;
         }
         expirySecs = value;
@@ -94,6 +102,7 @@ class _InviteModalState extends State<InviteModal> {
 
   @override
   Widget build(BuildContext context) {
+    final s = context.strings;
     final ticket = _ticket;
     // Live address, not the value frozen at open: a reconnect re-open can
     // update RoomStore.endpointAddr while this modal is up, and the combined
@@ -101,7 +110,7 @@ class _InviteModalState extends State<InviteModal> {
     final store = SessionScope.of(context).room;
     final liveStore = store != null && store.roomId == widget.roomId ? store : null;
     return ModalScaffold(
-      title: InviteStrings.title,
+      title: s.inviteTitle,
       wide: true,
       child: ListenableBuilder(
         listenable: liveStore ?? Listenable.merge(const []),
@@ -120,27 +129,28 @@ class _InviteModalState extends State<InviteModal> {
   // -- form view -------------------------------------------------------------------
 
   Widget _buildForm(BuildContext context) {
+    final s = context.strings;
     final tokens = JeliyaTokens.of(context);
     final canSubmit = !_busy && _identityId.text.trim().isNotEmpty;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(InviteStrings.intro,
+        Text(s.inviteIntro,
             style: TextStyle(fontSize: 13, color: tokens.textDim)),
         const SizedBox(height: JeliyaSpacing.x12),
         _ReadinessBlock(
           tone: _ReadinessTone.neutral,
-          heading: InviteStrings.roomOpenForInviting,
-          copy: InviteStrings.roomOpenForInvitingCopy,
+          heading: s.inviteRoomOpenForInviting,
+          copy: s.inviteRoomOpenForInvitingCopy,
         ),
         const SizedBox(height: JeliyaSpacing.x12),
-        _FieldLabel(InviteStrings.inviteeIdentityId),
+        _FieldLabel(s.inviteInviteeIdentityId),
         TextField(
           controller: _identityId,
           autofocus: true,
           style: JeliyaText.mono(fontSize: 12.5, color: tokens.text),
           decoration:
-              const InputDecoration(hintText: InviteStrings.inviteePlaceholder),
+              InputDecoration(hintText: s.inviteInviteePlaceholder),
           onSubmitted: (_) => _generate(),
         ),
         const SizedBox(height: JeliyaSpacing.x10),
@@ -151,21 +161,21 @@ class _InviteModalState extends State<InviteModal> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _FieldLabel(InviteStrings.roleLabel),
+                  _FieldLabel(s.inviteRoleLabel),
                   DropdownButtonFormField<String>(
                     initialValue: _role,
-                    items: const [
+                    items: [
                       DropdownMenuItem(
-                        value: InviteStrings.roleMember,
-                        child: Text(InviteStrings.roleMember),
+                        value: Roles.member,
+                        child: Text(s.roleInline(Roles.member)),
                       ),
                       DropdownMenuItem(
-                        value: InviteStrings.roleAgent,
-                        child: Text(InviteStrings.roleAgent),
+                        value: Roles.agent,
+                        child: Text(s.roleInline(Roles.agent)),
                       ),
                     ],
-                    onChanged: (value) => setState(
-                        () => _role = value ?? InviteStrings.roleMember),
+                    onChanged: (value) =>
+                        setState(() => _role = value ?? Roles.member),
                     style: TextStyle(fontSize: 14, color: tokens.text),
                     dropdownColor: tokens.bgCard,
                   ),
@@ -177,13 +187,16 @@ class _InviteModalState extends State<InviteModal> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _FieldLabel(
-                      '${InviteStrings.expiryLabel} ${InviteStrings.expiryOptional}'),
+                  _FieldLabel(fillTemplate(
+                      s.commonOptionalFieldLabel('{label}', '{optional}'), {
+                    'label': s.inviteExpiryLabel,
+                    'optional': s.inviteExpiryOptional,
+                  })),
                   TextField(
                     controller: _expiry,
                     keyboardType: TextInputType.number,
                     decoration: const InputDecoration(
-                        hintText: InviteStrings.expiryPlaceholder),
+                        hintText: Tokens.expiryPlaceholderExample),
                     onSubmitted: (_) => _generate(),
                   ),
                 ],
@@ -193,12 +206,28 @@ class _InviteModalState extends State<InviteModal> {
         ),
         const SizedBox(height: JeliyaSpacing.x12),
         JeliyaButton(
-          label: _busy ? InviteStrings.generating : InviteStrings.generateTicket,
+          label: _busy ? s.inviteGenerating : s.inviteGenerateTicket,
           variant: JeliyaButtonVariant.primary,
           busy: _busy,
           onPressed: canSubmit ? _generate : null,
         ),
-        ErrorNote(error: _error),
+        // The client-local expiry error resolves its copy here, per build.
+        ErrorNote(
+          error: _expiryInvalid
+              ? RequestError(
+                  ErrorCodes.invalidParams,
+                  s.inviteExpiryErrorMessage,
+                  hint: s.inviteExpiryErrorHint,
+                )
+              : _error,
+          friendly: _expiryInvalid
+              ? FriendlyError(
+                  title: s.inviteExpiryErrorTitle,
+                  message: s.inviteExpiryErrorMessage,
+                  action: s.inviteExpiryErrorHint,
+                )
+              : null,
+        ),
       ],
     );
   }
@@ -207,6 +236,7 @@ class _InviteModalState extends State<InviteModal> {
 
   Widget _buildCombinedResult(
       BuildContext context, String ticket, String endpointAddr) {
+    final s = context.strings;
     final tokens = JeliyaTokens.of(context);
     final combined = '$ticket#$endpointAddr';
     return Column(
@@ -214,23 +244,23 @@ class _InviteModalState extends State<InviteModal> {
       children: [
         _ReadinessBlock(
           tone: _ReadinessTone.ready,
-          heading: InviteStrings.readyToSend,
-          copy: InviteStrings.readyToSendCopy,
+          heading: s.inviteReadyToSend,
+          copy: s.inviteReadyToSendCopy,
         ),
         const SizedBox(height: JeliyaSpacing.x10),
-        Text(InviteStrings.combinedCopy,
+        Text(s.inviteCombinedCopy,
             style: TextStyle(fontSize: 13, color: tokens.textDim)),
         const SizedBox(height: JeliyaSpacing.x10),
         _TicketBox(
           value: combined,
-          semanticLabel: InviteStrings.combinedInviteLabel,
-          copyLabel: InviteStrings.copyInvite,
+          semanticLabel: s.inviteCombinedInviteLabel,
+          copyLabel: s.inviteCopyInvite,
         ),
         const SizedBox(height: JeliyaSpacing.x10),
         _SeparatePartsDisclosure(ticket: ticket, endpointAddr: endpointAddr),
         const SizedBox(height: JeliyaSpacing.x14),
         JeliyaButton(
-          label: InviteStrings.newInvite,
+          label: s.inviteNewInvite,
           variant: JeliyaButtonVariant.ghost,
           onPressed: () => setState(() => _ticket = null),
         ),
@@ -241,30 +271,31 @@ class _InviteModalState extends State<InviteModal> {
   // -- result: ticket only (no dialable address) ----------------------------------------
 
   Widget _buildTicketOnlyResult(BuildContext context, String ticket) {
+    final s = context.strings;
     final tokens = JeliyaTokens.of(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _ReadinessBlock(
           tone: _ReadinessTone.caution,
-          heading: InviteStrings.noDialableAddress,
-          copy: InviteStrings.noDialableAddressCopy,
+          heading: s.inviteNoDialableAddress,
+          copy: s.inviteNoDialableAddressCopy,
         ),
         const SizedBox(height: JeliyaSpacing.x10),
-        Text(InviteStrings.ticketOnlyCopy,
+        Text(s.inviteTicketOnlyCopy,
             style: TextStyle(fontSize: 13, color: tokens.textDim)),
         const SizedBox(height: JeliyaSpacing.x10),
         _TicketBox(
           value: ticket,
-          semanticLabel: InviteStrings.inviteTicketLabel,
-          copyLabel: InviteStrings.copyTicket,
+          semanticLabel: s.inviteInviteTicketLabel,
+          copyLabel: s.inviteCopyTicket,
         ),
         const SizedBox(height: JeliyaSpacing.x10),
-        Text(InviteStrings.noDialableAddressNote,
+        Text(s.inviteNoDialableAddressNote,
             style: TextStyle(fontSize: 13, color: tokens.textDim)),
         const SizedBox(height: JeliyaSpacing.x14),
         JeliyaButton(
-          label: InviteStrings.newInvite,
+          label: s.inviteNewInvite,
           variant: JeliyaButtonVariant.ghost,
           onPressed: () => setState(() => _ticket = null),
         ),
@@ -455,6 +486,7 @@ class _SeparatePartsDisclosureState extends State<_SeparatePartsDisclosure> {
 
   @override
   Widget build(BuildContext context) {
+    final s = context.strings;
     final tokens = JeliyaTokens.of(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -462,7 +494,7 @@ class _SeparatePartsDisclosureState extends State<_SeparatePartsDisclosure> {
         InkWell(
           onTap: () => setState(() => _open = !_open),
           child: Text(
-            '${_open ? '▾' : '▸'} ${InviteStrings.separatelySummary}',
+            '${_open ? '▾' : '▸'} ${s.inviteSeparatelySummary}',
             style: TextStyle(fontSize: 12.5, color: tokens.textDim),
           ),
         ),
@@ -470,8 +502,8 @@ class _SeparatePartsDisclosureState extends State<_SeparatePartsDisclosure> {
           const SizedBox(height: JeliyaSpacing.x10),
           _TicketBox(
             value: widget.ticket,
-            semanticLabel: InviteStrings.inviteTicketLabel,
-            copyLabel: InviteStrings.copyTicket,
+            semanticLabel: s.inviteInviteTicketLabel,
+            copyLabel: s.inviteCopyTicket,
           ),
           const SizedBox(height: JeliyaSpacing.x10),
           Row(
@@ -494,7 +526,7 @@ class _SeparatePartsDisclosureState extends State<_SeparatePartsDisclosure> {
               ),
               const SizedBox(width: JeliyaSpacing.x10),
               CopyButton(
-                  text: widget.endpointAddr, label: InviteStrings.copyAddress),
+                  text: widget.endpointAddr, label: s.inviteCopyAddress),
             ],
           ),
         ],

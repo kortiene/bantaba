@@ -7,8 +7,9 @@ Senegal, Guinea, Côte d'Ivoire); Bambara (bm) is a community aspiration
 unlocked after French ships.
 
 This is a contract for translators and reviewers preparing a planned French
-release — it is not a live, end-user-facing glossary, and nothing here is
-wired into the UI yet (no i18n framework exists). Until French strings
+release — it is not a live, end-user-facing glossary. The i18n framework is
+wired (gen-l10n over `app/lib/src/l10n/arb/app_en.arb`; mechanics in
+`docs/i18n.md`), but no French strings exist yet. Until French strings
 ship, francophone users have no way to find or use this page. Once they
 ship, add a linked, user-facing pointer (a `README.fr.md`, or a "Voir aussi"
 link from the main README) so this glossary is actually discoverable.
@@ -63,23 +64,48 @@ wordmark (no badge, no animation):
    errors already reach the UI as structured `{code, message, hint}`, so the
    UI can translate the message around a frozen code token without the
    daemon ever localizing.
-2. **RTL is out of scope.** French and Bambara (standard Latin orthography)
-   are both LTR. Do not add speculative `[dir=rtl]` CSS.
+2. **RTL is out of scope for French/Bambara.** Both use LTR Latin
+   orthography — add no speculative RTL layout work. (N'Ko, if it ships
+   later, is RTL and gets its own groundwork phase.)
 3. **Status labels are an English-token contract.** `labelTone()` in
-   `ui/src/lib/format.ts` derives chip/dot tone from known English tokens;
+   `dart/jeliya_protocol/lib/src/conventions/format.dart` (normative in
+   `docs/PROTOCOL.md`) derives chip/dot tone from known English tokens;
    labels it can't read (any language) render neutral — green is earned,
    never a fallback. The long-term fix is a typed severity field on the
    agent-status protocol event so tone keys off protocol truth, not prose.
 4. **Text locale ≠ formatting locale.** Bambara users will run fr-locale
    systems; locale plumbing must let UI strings (bm) and date/number
-   formatting (fr) diverge from day one.
-5. **Rollout order.** Release 1: Onboarding + room shell (Sidebar,
-   RoomHeader, Composer, Timeline, shared widgets) + `format.ts` locale
-   plumbing — a francophone user can create, join, and work in a room
-   entirely in French. Release 2: RightPanel, InviteModal, FleetDashboard,
-   plus a `README.fr.md` quickstart. `docs/agent-guide.md` stays English
-   (an API contract, not an onboarding surface).
+   formatting (fr) diverge from day one. (The seam today is
+   `app/lib/src/format.dart` — every display formatter lives there.)
+5. **Rollout scope.** Superseded 2026-07-08: the desktop app's permanent
+   three-column layout shows RightPanel/Settings/Fleet beside the timeline,
+   so a partial (release-1) translation would ship a mixed-language window.
+   French ships **full-catalog** in one release, at desktop launch
+   (`app/lib/src/l10n/arb/app_en.arb` is the complete inventory — one key
+   per user-visible string, each with a translator `@description`).
+   `docs/agent-guide.md` stays English (an API contract, not an onboarding
+   surface); a `README.fr.md` quickstart follows the app release.
 6. **Bambara feasibility notes.** Standard orthography needs ɛ ɔ ɲ ŋ — the
    sans stack covers them on mainstream platforms; smoke-test the mono stack
    before shipping bm. CLDR bm has a single plural category, which an
    ICU-based catalog handles with no extra work.
+7. **Typographie française (settled 2026-07-09, before the first string —
+   the docs/i18n.md step-4 precondition).**
+   - **Espaces insécables** : espace fine insécable U+202F before `;` `!`
+     `?` and inside guillemets (« texte ») ; espace insécable U+00A0 before
+     `:`. Never a breaking space before high punctuation.
+   - **Apostrophe typographique** U+2019 (l’identité), **ellipse** U+2026
+     (…) — both already the EN catalog's norm.
+   - **Guillemets « »** (with the U+202F inner spaces) wherever EN uses
+     curly quotes “ ”.
+   - **Sentence case** (« Créer un salon », never Title Case), accents kept
+     on capitals (À propos, États). Traditional orthography (no 1990
+     rectifications).
+   - **Vouvoiement**, calm and concrete — the app's honest register
+     (green-is-earned) carries into French; no exclamatory marketing tone.
+   - **Octets** for byte units: o, Ko, Mo, Go (decision 4's accepted
+     deviation: unit WORDS follow the text locale). Percent renders
+     « 42 % » (U+202F before %).
+   - **Tier 3 placement**: the onboarding tagline slot (the one dim line
+     under the wordmark) carries the brand story in French —
+     « Jeliya — l’art du djéli, gardien de la mémoire vraie. »

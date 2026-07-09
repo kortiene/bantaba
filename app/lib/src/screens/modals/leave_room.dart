@@ -12,20 +12,23 @@ import 'package:flutter/material.dart';
 import 'package:jeliya_protocol/jeliya_protocol.dart'
     show JeliyaMethods, RequestError;
 
-import '../../l10n/strings_modals.dart';
+import '../../l10n/strings_context.dart';
 import '../../session/daemon_session.dart';
 import '../../theme.dart';
 import '../../widgets/buttons.dart';
 import '../../widgets/error_note.dart';
 import '../../widgets/modal_scaffold.dart';
+import '../../widgets/template_text.dart';
 
 class LeaveRoomModal extends StatefulWidget {
-  const LeaveRoomModal({super.key, required this.roomId, required this.roomName});
+  const LeaveRoomModal({super.key, required this.roomId, this.roomName});
 
   final String roomId;
 
   /// Display name ('Untitled room' fallback applied by the shell).
-  final String roomName;
+  /// Room display name; null falls back to the localized 'Untitled room'
+  /// AT RENDER TIME (never frozen at open — locale switches re-resolve it).
+  final String? roomName;
 
   @override
   State<LeaveRoomModal> createState() => _LeaveRoomModalState();
@@ -65,34 +68,31 @@ class _LeaveRoomModalState extends State<LeaveRoomModal> {
 
   @override
   Widget build(BuildContext context) {
+    final s = context.strings;
     final tokens = JeliyaTokens.of(context);
     return ModalScaffold(
-      title: ModalStrings.leaveRoomTitle,
+      title: s.modalLeaveRoomTitle,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 'Leaving {roomName} publishes…' with the room name bold.
-          Text.rich(
-            TextSpan(children: [
-              TextSpan(
-                  text: ModalStrings.leaveCopyPrefix,
-                  style: TextStyle(fontSize: 13, color: tokens.textDim)),
-              TextSpan(
-                  text: widget.roomName,
+          // 'Leaving {room} publishes…' with the room name bold.
+          templateText(
+            s.modalLeaveCopy('{room}'),
+            style: TextStyle(fontSize: 13, color: tokens.textDim),
+            slots: {
+              'room': TextSpan(
+                  text: widget.roomName ?? s.shellUntitledRoom,
                   style: TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.w700,
                       color: tokens.text)),
-              TextSpan(
-                  text: ModalStrings.leaveCopySuffix,
-                  style: TextStyle(fontSize: 13, color: tokens.textDim)),
-            ]),
+            },
           ),
           const SizedBox(height: JeliyaSpacing.x12),
           Row(
             children: [
               JeliyaButton(
-                label: _busy ? ModalStrings.leavingRoom : ModalStrings.leaveRoom,
+                label: _busy ? s.modalLeavingRoom : s.modalLeaveRoom,
                 variant: JeliyaButtonVariant.danger,
                 busy: _busy,
                 // The reference autofocuses the danger submit so Enter
@@ -102,7 +102,7 @@ class _LeaveRoomModalState extends State<LeaveRoomModal> {
               ),
               const SizedBox(width: JeliyaSpacing.x8),
               JeliyaButton(
-                label: ModalStrings.cancel,
+                label: s.modalCancel,
                 variant: JeliyaButtonVariant.ghost,
                 onPressed:
                     _busy ? null : () => Navigator.of(context).maybePop(),

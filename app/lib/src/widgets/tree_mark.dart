@@ -7,7 +7,7 @@ library;
 
 import 'package:flutter/widgets.dart';
 
-import '../l10n/strings_widgets.dart';
+import '../l10n/tokens.dart';
 import '../theme.dart';
 
 class TreeMark extends StatelessWidget {
@@ -82,7 +82,7 @@ class Wordmark extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final text =
-        Text(WidgetStrings.wordmark, style: JeliyaText.wordmark(fontSize));
+        Text(Tokens.wordmark, style: JeliyaText.wordmark(fontSize));
     return asHeading ? Semantics(header: true, child: text) : text;
   }
 }

@@ -13,13 +13,15 @@ import 'package:flutter/material.dart';
 import 'package:jeliya_protocol/jeliya_protocol.dart'
     show JeliyaMethods, RequestError, Roles, RoomSummary, errorShape, shortId;
 
-import '../../l10n/strings_fleet.dart';
+import '../../l10n/strings_context.dart';
+import '../../l10n/tokens.dart';
 import '../../session/daemon_session.dart';
 import '../../theme.dart';
 import '../../widgets/buttons.dart';
 import '../../widgets/copy_button.dart';
 import '../../widgets/error_note.dart';
 import '../../widgets/modal_scaffold.dart';
+import '../../widgets/template_text.dart';
 
 /// Worker choices for the launch command. `echo` is the safe default;
 /// `claude` executes real commands and gets the role='alert' warning.
@@ -97,7 +99,7 @@ class _AddAgentModalState extends State<AddAgentModal> {
       );
       if (!mounted) return;
       final result = (ticket: ticket, addr: opened.endpoint.addr);
-      _command.text = AddAgentStrings.launchCommand(
+      _command.text = Tokens.addAgentLaunchCommand(
         ticket: result.ticket,
         addr: result.addr,
         worker: _worker,
@@ -113,6 +115,7 @@ class _AddAgentModalState extends State<AddAgentModal> {
 
   @override
   Widget build(BuildContext context) {
+    final s = context.strings;
     final session = SessionScope.of(context);
     final ownedRooms = session.rooms
         .where((r) => r.role == Roles.owner)
@@ -123,40 +126,37 @@ class _AddAgentModalState extends State<AddAgentModal> {
     }
 
     return ModalScaffold(
-      title: AddAgentStrings.title,
+      title: s.addAgentTitle,
       wide: true,
       child: ownedRooms.isEmpty
           ? _NoOwnedRooms()
           : _result == null
-          ? _buildForm(ownedRooms)
-          : _buildResult(_result!),
+          ? _buildForm(s, ownedRooms)
+          : _buildResult(s, _result!),
     );
   }
 
   // -- form -------------------------------------------------------------------------
 
-  Widget _buildForm(List<RoomSummary> ownedRooms) {
+  Widget _buildForm(AppStrings s, List<RoomSummary> ownedRooms) {
     final tokens = JeliyaTokens.of(context);
     final canSubmit =
         !_busy && _identity.text.trim().isNotEmpty && _roomId != null;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text.rich(
-          TextSpan(
-            style: TextStyle(fontSize: 13, color: tokens.textDim, height: 1.5),
-            children: const [
-              TextSpan(text: AddAgentStrings.introBefore),
-              TextSpan(
-                text: AddAgentStrings.introBold,
-                style: TextStyle(fontWeight: FontWeight.w700),
-              ),
-              TextSpan(text: AddAgentStrings.introAfter),
-            ],
-          ),
+        templateText(
+          s.addAgentIntro('{emphasis}'),
+          style: TextStyle(fontSize: 13, color: tokens.textDim, height: 1.5),
+          slots: {
+            'emphasis': TextSpan(
+              text: s.addAgentIntroEmphasis,
+              style: TextStyle(fontWeight: FontWeight.w700),
+            ),
+          },
         ),
         _Field(
-          label: AddAgentStrings.roomLabel,
+          label: s.addAgentRoomLabel,
           child: DropdownButtonFormField<String>(
             // Re-create the field when the owned-room set changes so its
             // internal selection can never point at a removed room.
@@ -180,36 +180,36 @@ class _AddAgentModalState extends State<AddAgentModal> {
           ),
         ),
         _Field(
-          label: AddAgentStrings.identityLabel,
+          label: s.addAgentIdentityLabel,
           child: TextField(
             controller: _identity,
             autofocus: true,
             // Enter submits, like the web form.
             onSubmitted: (_) => _generate(),
             style: JeliyaText.mono(fontSize: 13, color: tokens.text),
-            decoration: const InputDecoration(
-              hintText: AddAgentStrings.identityPlaceholder,
+            decoration: InputDecoration(
+              hintText: s.addAgentIdentityPlaceholder,
             ),
           ),
         ),
         _Field(
-          label: AddAgentStrings.workerLabel,
+          label: s.addAgentWorkerLabel,
           child: DropdownButtonFormField<String>(
             initialValue: _worker,
-            items: const [
+            items: [
               DropdownMenuItem(
                 value: _workerEcho,
                 child: Text(
-                  AddAgentStrings.workerEchoOption,
-                  style: TextStyle(fontSize: 14),
+                  s.addAgentWorkerEchoOption,
+                  style: const TextStyle(fontSize: 14),
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
               DropdownMenuItem(
                 value: _workerClaude,
                 child: Text(
-                  AddAgentStrings.workerClaudeOption,
-                  style: TextStyle(fontSize: 14),
+                  s.addAgentWorkerClaudeOption,
+                  style: const TextStyle(fontSize: 14),
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
@@ -233,14 +233,14 @@ class _AddAgentModalState extends State<AddAgentModal> {
                 border: Border.all(color: tokens.errorNoteBorder),
               ),
               child: Text(
-                AddAgentStrings.claudeWarning,
+                s.addAgentClaudeWarning,
                 style: TextStyle(fontSize: 13, color: tokens.text),
               ),
             ),
           ),
         const SizedBox(height: JeliyaSpacing.x12),
         JeliyaButton(
-          label: _busy ? AddAgentStrings.minting : AddAgentStrings.mintInvite,
+          label: _busy ? s.addAgentMinting : s.addAgentMintInvite,
           variant: JeliyaButtonVariant.primary,
           busy: _busy,
           onPressed: canSubmit ? _generate : null,
@@ -252,21 +252,21 @@ class _AddAgentModalState extends State<AddAgentModal> {
 
   // -- result view ---------------------------------------------------------------------
 
-  Widget _buildResult(({String ticket, String? addr}) result) {
+  Widget _buildResult(AppStrings s, ({String ticket, String? addr}) result) {
     final tokens = JeliyaTokens.of(context);
     final muted = TextStyle(fontSize: 13, color: tokens.textDim, height: 1.5);
     final code = JeliyaText.mono(fontSize: 12, color: tokens.textDim);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(AddAgentStrings.resultIntro, style: muted),
+        Text(s.addAgentResultIntro, style: muted),
         const SizedBox(height: JeliyaSpacing.x10),
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Expanded(
               child: Semantics(
-                label: AddAgentStrings.launchCommandLabel,
+                label: s.addAgentLaunchCommandLabel,
                 child: TextField(
                   controller: _command,
                   focusNode: _commandFocus,
@@ -277,28 +277,25 @@ class _AddAgentModalState extends State<AddAgentModal> {
               ),
             ),
             const SizedBox(width: JeliyaSpacing.x10),
-            CopyButton(text: _command.text, label: AddAgentStrings.copyCommand),
+            CopyButton(text: _command.text, label: s.addAgentCopyCommand),
           ],
         ),
         const SizedBox(height: JeliyaSpacing.x10),
-        Text.rich(
-          TextSpan(
-            style: muted,
-            children: [
-              const TextSpan(text: AddAgentStrings.guidance1),
-              TextSpan(text: AddAgentStrings.guidanceCodeNpm, style: code),
-              const TextSpan(text: AddAgentStrings.guidance2),
-              TextSpan(text: AddAgentStrings.guidanceCodeJeliyad, style: code),
-              const TextSpan(text: AddAgentStrings.guidance3),
-              TextSpan(text: AddAgentStrings.guidanceCodePrefix, style: code),
-              const TextSpan(text: AddAgentStrings.guidance4),
-              TextSpan(text: AddAgentStrings.guidanceCodeGuide, style: code),
-              const TextSpan(text: AddAgentStrings.guidance5),
-            ],
-          ),
+        templateText(
+          s.addAgentGuidance('{npm}', '{jeliyad}', '{prefix}', '{guide}'),
+          style: muted,
+          slots: {
+            'npm': TextSpan(text: Tokens.addAgentGuidanceCodeNpm, style: code),
+            'jeliyad':
+                TextSpan(text: Tokens.addAgentGuidanceCodeJeliyad, style: code),
+            'prefix':
+                TextSpan(text: Tokens.addAgentGuidanceCodePrefix, style: code),
+            'guide':
+                TextSpan(text: Tokens.addAgentGuidanceCodeGuide, style: code),
+          },
         ),
         const SizedBox(height: JeliyaSpacing.x14),
-        Text(AddAgentStrings.ticketOnly, style: muted),
+        Text(s.addAgentTicketOnly, style: muted),
         const SizedBox(height: JeliyaSpacing.x6),
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -318,16 +315,16 @@ class _AddAgentModalState extends State<AddAgentModal> {
               ),
             ),
             const SizedBox(width: JeliyaSpacing.x10),
-            CopyButton(text: result.ticket, label: AddAgentStrings.copyTicket),
+            CopyButton(text: result.ticket, label: s.addAgentCopyTicket),
           ],
         ),
         if (result.addr == null) ...[
           const SizedBox(height: JeliyaSpacing.x10),
-          Text(AddAgentStrings.noDialableAddr, style: muted),
+          Text(s.addAgentNoDialableAddr, style: muted),
         ],
         const SizedBox(height: JeliyaSpacing.x14),
         JeliyaButton(
-          label: AddAgentStrings.newInvite,
+          label: s.addAgentNewInvite,
           variant: JeliyaButtonVariant.ghost,
           onPressed: () => setState(() => _result = null),
         ),
@@ -341,9 +338,10 @@ class _AddAgentModalState extends State<AddAgentModal> {
 class _NoOwnedRooms extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
+    final s = context.strings;
     final tokens = JeliyaTokens.of(context);
     return Text(
-      AddAgentStrings.noOwnedRooms,
+      s.addAgentNoOwnedRooms,
       style: TextStyle(fontSize: 13, color: tokens.textDim, height: 1.5),
     );
   }

@@ -10,7 +10,9 @@ import 'package:flutter/material.dart';
 import 'package:jeliya_protocol/jeliya_protocol.dart'
     show Member, PeerPaths, PeerStates, PeerStatus, Roles, shortId;
 
-import '../l10n/strings_room_header.dart';
+import '../l10n/strings_context.dart';
+import '../l10n/tokens.dart';
+import '../l10n/wire_display.dart';
 import '../session/daemon_session.dart';
 import '../theme.dart';
 import '../widgets/buttons.dart';
@@ -48,6 +50,7 @@ class RoomHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = JeliyaTokens.of(context);
+    final s = context.strings;
     final session = SessionScope.of(context);
     final room = session.room;
     final members = room?.members ?? const <Member>[];
@@ -95,20 +98,20 @@ class RoomHeader extends StatelessWidget {
               children: [
                 JeliyaButton(
                   label:
-                      '${RoomHeaderStrings.shareFileGlyph} ${RoomHeaderStrings.shareFile}',
-                  semanticLabel: RoomHeaderStrings.shareFile,
+                      '${Tokens.roomHeaderShareFileGlyph} ${s.roomHeaderShareFile}',
+                  semanticLabel: s.roomHeaderShareFile,
                   onPressed: onShareFile,
                 ),
                 JeliyaButton(
                   label:
-                      '${RoomHeaderStrings.openPipeGlyph} ${RoomHeaderStrings.openPipe}',
-                  semanticLabel: RoomHeaderStrings.openPipe,
+                      '${Tokens.roomHeaderOpenPipeGlyph} ${s.roomHeaderOpenPipe}',
+                  semanticLabel: s.roomHeaderOpenPipe,
                   onPressed: onOpenPipe,
                 ),
                 JeliyaButton(
                   label:
-                      '${RoomHeaderStrings.inviteGlyph} ${RoomHeaderStrings.invite}',
-                  semanticLabel: RoomHeaderStrings.invite,
+                      '${Tokens.roomHeaderInviteGlyph} ${s.roomHeaderInvite}',
+                  semanticLabel: s.roomHeaderInvite,
                   variant: JeliyaButtonVariant.primary,
                   onPressed: onInvite,
                 ),
@@ -141,7 +144,7 @@ class RoomHeader extends StatelessWidget {
               padding: const EdgeInsets.only(top: JeliyaSpacing.x10),
               child: Semantics(
                 container: true,
-                label: RoomHeaderStrings.peerConnections,
+                label: s.roomHeaderPeerConnections,
                 child: Wrap(
                   spacing: JeliyaSpacing.x6,
                   runSpacing: JeliyaSpacing.x6,
@@ -173,8 +176,9 @@ class _Subtitle extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = JeliyaTokens.of(context);
+    final s = context.strings;
     final base = TextStyle(fontSize: 12.5, color: tokens.textDim);
-    final sep = Text(RoomHeaderStrings.separator,
+    final sep = Text(Tokens.roomHeaderSeparator,
         style: TextStyle(fontSize: 12.5, color: tokens.textMute));
 
     return Wrap(
@@ -182,15 +186,15 @@ class _Subtitle extends StatelessWidget {
       runSpacing: JeliyaSpacing.x4,
       crossAxisAlignment: WrapCrossAlignment.center,
       children: [
-        Text(RoomHeaderStrings.activeCount(activeCount), style: base),
+        Text(s.roomHeaderActiveCount(activeCount), style: base),
         if (agentCount > 0) ...[
           sep,
-          Text(RoomHeaderStrings.agentCount(agentCount), style: base),
+          Text(s.roomHeaderAgentCount(agentCount), style: base),
         ],
         if (invitedCount > 0) ...[
           sep,
           Text(
-            RoomHeaderStrings.invitesPending(invitedCount),
+            s.roomHeaderInvitesPending(invitedCount),
             // pending-invites reads amber (a truthful "not yet" state).
             style: TextStyle(fontSize: 12.5, color: tokens.amber),
           ),
@@ -213,17 +217,18 @@ class _P2pBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = JeliyaTokens.of(context);
+    final s = context.strings;
     final connected =
         peers.where((p) => p.state == PeerStates.connected).toList();
     final hasDirect = connected.any((p) => p.path == PeerPaths.direct);
 
     final (Color dotColor, bool glow, String label) = peers.isEmpty
-        ? (tokens.textMute, false, RoomHeaderStrings.aloneInRoom)
+        ? (tokens.textMute, false, s.roomHeaderAloneInRoom)
         : hasDirect
-            ? (tokens.accent, true, RoomHeaderStrings.peerToPeer)
+            ? (tokens.accent, true, s.roomHeaderPeerToPeer)
             : connected.isNotEmpty
-                ? (tokens.amber, false, RoomHeaderStrings.relayOnly)
-                : (tokens.textMute, false, RoomHeaderStrings.aloneInRoom);
+                ? (tokens.amber, false, s.roomHeaderRelayOnly)
+                : (tokens.textMute, false, s.roomHeaderAloneInRoom);
 
     return Row(
       mainAxisSize: MainAxisSize.min,
@@ -248,6 +253,7 @@ class _PeerChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = JeliyaTokens.of(context);
+    final s = context.strings;
     final session = SessionScope.of(context);
 
     final connected = peer.state == PeerStates.connected;
@@ -264,17 +270,20 @@ class _PeerChip extends StatelessWidget {
             ? (tokens.blue, tokens.blueLine, tokens.textMute)
             : (tokens.textMute, tokens.borderStrong, tokens.textMute);
 
+    final path = peer.path;
     final stateLabel = connected
-        ? (peer.path ?? RoomHeaderStrings.peerStateConnected)
+        ? (path != null
+            ? s.peerPath(path)
+            : s.roomHeaderPeerStateConnected)
         : connecting
-            ? RoomHeaderStrings.peerStateConnecting
-            : RoomHeaderStrings.peerStateOffline;
+            ? s.roomHeaderPeerStateConnecting
+            : s.roomHeaderPeerStateOffline;
 
     // identity_id is only known once the SDK has bound the device (on admit);
     // fall back to the raw endpoint id until then. Full hex in the tooltip.
     final identityId = peer.identityId;
     final display = identityId != null
-        ? session.displayName(identityId)
+        ? session.displayName(s, identityId)
         : shortId(peer.endpointId);
 
     final offline = !connected && !connecting;

@@ -14,12 +14,14 @@ import 'package:flutter/material.dart';
 import 'package:jeliya_protocol/jeliya_protocol.dart'
     show JoinProgress, RequestError, joinRoomWithRetry, splitInvite;
 
-import '../../l10n/strings_modals.dart';
+import '../../l10n/strings_context.dart';
+import '../../l10n/tokens.dart';
 import '../../session/daemon_session.dart';
 import '../../theme.dart';
 import '../../widgets/buttons.dart';
 import '../../widgets/error_note.dart';
 import '../../widgets/modal_scaffold.dart';
+import '../../widgets/template_text.dart';
 import '../onboarding_rooms.dart' show JoinProgressRow;
 
 class JoinRoomModal extends StatefulWidget {
@@ -91,31 +93,28 @@ class _JoinRoomModalState extends State<JoinRoomModal> {
 
   @override
   Widget build(BuildContext context) {
+    final s = context.strings;
     final tokens = JeliyaTokens.of(context);
     final canSubmit = !_busy && _ticket.text.trim().isNotEmpty;
     final progress = _progress;
     return ModalScaffold(
-      title: ModalStrings.joinRoomTitle,
+      title: s.modalJoinRoomTitle,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // 'ticket#address' renders mono inside this copy.
-          Text.rich(
-            TextSpan(children: [
-              TextSpan(
-                  text: ModalStrings.joinCopyPrefix,
-                  style: TextStyle(fontSize: 13, color: tokens.textDim)),
-              TextSpan(
-                  text: ModalStrings.joinCopyMono,
+          templateText(
+            s.modalJoinCopy('{combined}'),
+            style: TextStyle(fontSize: 13, color: tokens.textDim),
+            slots: {
+              'combined': TextSpan(
+                  text: Tokens.modalJoinCopyMono,
                   style: JeliyaText.mono(fontSize: 12, color: tokens.textDim)),
-              TextSpan(
-                  text: ModalStrings.joinCopySuffix,
-                  style: TextStyle(fontSize: 13, color: tokens.textDim)),
-            ]),
+            },
           ),
           const SizedBox(height: JeliyaSpacing.x12),
           _FieldLabel(
-            Text(ModalStrings.ticketLabel,
+            Text(s.modalTicketLabel,
                 style: TextStyle(fontSize: 12.5, color: tokens.textDim)),
           ),
           TextField(
@@ -125,34 +124,34 @@ class _JoinRoomModalState extends State<JoinRoomModal> {
             maxLines: 3,
             style: JeliyaText.mono(fontSize: 12.5),
             decoration:
-                const InputDecoration(hintText: ModalStrings.ticketPlaceholder),
+                InputDecoration(hintText: s.modalTicketPlaceholder),
           ),
           const SizedBox(height: JeliyaSpacing.x10),
           _FieldLabel(
-            Text.rich(
-              TextSpan(children: [
-                TextSpan(
-                    text: '${ModalStrings.peerAddrLabel} ',
-                    style: TextStyle(fontSize: 12.5, color: tokens.textDim)),
-                TextSpan(
-                    text: ModalStrings.peerAddrOptional,
+            templateText(
+              s.commonOptionalFieldLabel('{label}', '{optional}'),
+              style: TextStyle(fontSize: 12.5, color: tokens.textDim),
+              slots: {
+                'label': TextSpan(text: s.modalPeerAddrLabel),
+                'optional': TextSpan(
+                    text: s.modalPeerAddrOptional,
                     style: TextStyle(
                         fontSize: 12.5,
                         fontStyle: FontStyle.italic,
                         color: tokens.textMute)),
-              ]),
+              },
             ),
           ),
           TextField(
             controller: _peerAddr,
             style: JeliyaText.mono(fontSize: 12.5),
             decoration: const InputDecoration(
-                hintText: ModalStrings.peerAddrPlaceholder),
+                hintText: Tokens.modalPeerAddrPlaceholder),
             onSubmitted: (_) => _join(),
           ),
           const SizedBox(height: JeliyaSpacing.x12),
           JeliyaButton(
-            label: _busy ? ModalStrings.joiningRoom : ModalStrings.joinRoom,
+            label: _busy ? s.modalJoiningRoom : s.modalJoinRoom,
             variant: JeliyaButtonVariant.primary,
             busy: _busy,
             onPressed: canSubmit ? _join : null,

@@ -5,7 +5,11 @@ library;
 
 // Hide Flutter's own ConnectionState (async.dart) — we use the protocol's.
 import 'package:flutter/material.dart' hide ConnectionState;
+import 'package:intl/date_symbol_data_local.dart';
 
+import 'src/format.dart';
+import 'src/l10n/tokens.dart';
+import 'src/l10n/strings_context.dart';
 import 'src/screens/boot_screen.dart';
 import 'src/screens/onboarding_identity.dart';
 import 'src/screens/onboarding_rooms.dart';
@@ -13,7 +17,11 @@ import 'src/screens/shell.dart';
 import 'src/session/daemon_session.dart';
 import 'src/theme.dart';
 
-void main() {
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  // intl date symbols (docs/i18n.md decision 4) — with bundled data ONE call
+  // loads every locale, so a live formatting-locale switch never re-inits.
+  await initializeDateFormatting();
   runApp(const JeliyaApp());
 }
 
@@ -29,7 +37,7 @@ class JeliyaApp extends StatefulWidget {
   State<JeliyaApp> createState() => _JeliyaAppState();
 }
 
-class _JeliyaAppState extends State<JeliyaApp> {
+class _JeliyaAppState extends State<JeliyaApp> with WidgetsBindingObserver {
   late final DaemonSession _session = widget.session ?? DaemonSession();
   late final bool _ownsSession = widget.session == null;
 
@@ -37,23 +45,74 @@ class _JeliyaAppState extends State<JeliyaApp> {
   void initState() {
     super.initState();
     _session.start();
+    // Locale prefs drive MaterialApp.locale and FormatsScope below; the
+    // observer catches OS-level locale changes for the system-follow paths.
+    _session.prefs.addListener(_onPrefsChanged);
+    WidgetsBinding.instance.addObserver(this);
   }
+
+  void _onPrefsChanged() => setState(() {});
+
+  @override
+  void didChangeLocales(List<Locale>? locales) => setState(() {});
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _session.prefs.removeListener(_onPrefsChanged);
     if (_ownsSession) _session.dispose();
     super.dispose();
   }
 
+  /// A stored BCP-47/underscore tag → [Locale]; null means follow-system
+  /// (MaterialApp resolves PlatformDispatcher.locales against
+  /// supportedLocales via basicLocaleListResolution).
+  static Locale? _parseTag(String? tag) {
+    if (tag == null) return null;
+    // Drop empty segments: hand-edited prefs like 'fr-CA-' or '_' must not
+    // reach the Locale constructors (they assert non-empty subtags).
+    final parts = tag
+        .replaceAll('-', '_')
+        .split('_')
+        .where((p) => p.isNotEmpty)
+        .toList();
+    if (parts.isEmpty) return null;
+    return switch (parts.length) {
+      1 => Locale(parts[0]),
+      2 => parts[1].length == 4
+          ? Locale.fromSubtags(languageCode: parts[0], scriptCode: parts[1])
+          : Locale(parts[0], parts[1]),
+      _ => Locale.fromSubtags(
+          languageCode: parts[0],
+          scriptCode: parts[1].length == 4 ? parts[1] : null,
+          countryCode: parts.last,
+        ),
+    };
+  }
+
   @override
   Widget build(BuildContext context) {
+    final prefs = _session.prefs;
+    // Formatting convention: the pref, else the system locale — clamped to
+    // what intl has data for. Read through the binding so widget tests'
+    // platformDispatcher overrides apply.
+    final formattingLocale = JeliyaFormats.verify(prefs.formattingLocale ??
+        WidgetsBinding.instance.platformDispatcher.locale.toLanguageTag());
     return SessionScope(
       session: _session,
-      child: MaterialApp(
-        title: 'Jeliya',
-        debugShowCheckedModeBanner: false,
-        theme: buildJeliyaTheme(),
-        home: const _PhaseRouter(),
+      child: FormatsScope(
+        locale: formattingLocale,
+        child: MaterialApp(
+          // The brand wordmark (non-migrating) — but sourced from the strings
+          // layer like every other user-visible string.
+          title: Tokens.wordmark,
+          debugShowCheckedModeBanner: false,
+          theme: buildJeliyaTheme(),
+          locale: _parseTag(prefs.textLocale),
+          localizationsDelegates: AppStrings.localizationsDelegates,
+          supportedLocales: AppStrings.supportedLocales,
+          home: const _PhaseRouter(),
+        ),
       ),
     );
   }

@@ -28,7 +28,9 @@ import 'package:jeliya_protocol/jeliya_protocol.dart'
         labelTone,
         shortId;
 
-import '../l10n/strings_fleet.dart';
+import '../format.dart';
+import '../l10n/strings_context.dart';
+import '../l10n/tokens.dart';
 import '../session/daemon_session.dart';
 import '../session/fleet_store.dart';
 import '../theme.dart';
@@ -43,25 +45,9 @@ import '../widgets/tree_mark.dart';
 import 'modals/add_agent.dart';
 
 // -- display helpers (format.ts ports that live app-side) -----------------------
+// prettyLabel lives in ../format.dart — the shared single home.
 
-/// format.ts `prettyLabel`: `[_-]+` → spaces, first letter capitalized.
-String _prettyLabel(String label) {
-  final s = label.replaceAll(RegExp('[_-]+'), ' ').trim();
-  return s.isEmpty ? label : s[0].toUpperCase() + s.substring(1);
-}
-
-/// format.ts `relTime` — display only, never a liveness claim. Future
-/// timestamps clamp to 'just now' (clock skew must not render "-2m ago").
-String _relTime(int ts) {
-  var delta = DateTime.now().millisecondsSinceEpoch - ts;
-  if (delta < 0) delta = 0;
-  if (delta < 45000) return FleetStrings.relJustNow;
-  final mins = (delta / 60000).round();
-  if (mins < 60) return FleetStrings.relMinutesAgo(mins);
-  final hours = (mins / 60).round();
-  if (hours < 24) return FleetStrings.relHoursAgo(hours);
-  return FleetStrings.relDaysAgo((hours / 24).round());
-}
+// relTime lives in ../format.dart — the shared single home.
 
 // -- liveness presentation (the four §1.2 states, truthful) ----------------------
 
@@ -74,11 +60,11 @@ _LivenessTone _livenessTone(String liveness) => switch (liveness) {
   _ => _LivenessTone.off,
 };
 
-String _livenessLabel(String liveness) => switch (liveness) {
-  LivenessValues.working => FleetStrings.livenessWorking,
-  LivenessValues.onlineIdle => FleetStrings.livenessOnline,
-  LivenessValues.stale => FleetStrings.livenessStale,
-  _ => FleetStrings.livenessOffline,
+String _livenessLabel(AppStrings s, String liveness) => switch (liveness) {
+  LivenessValues.working => s.fleetLivenessWorking,
+  LivenessValues.onlineIdle => s.fleetLivenessOnline,
+  LivenessValues.stale => s.fleetLivenessStale,
+  _ => s.fleetLivenessOffline,
 };
 
 // -- filters ---------------------------------------------------------------------
@@ -97,12 +83,12 @@ bool _matchesFilter(FleetAgent a, _FleetFilter f) => switch (f) {
   _FleetFilter.all => true,
 };
 
-String _filterLabel(_FleetFilter f) => switch (f) {
-  _FleetFilter.all => FleetStrings.filterAll,
-  _FleetFilter.active => FleetStrings.filterActive,
-  _FleetFilter.needsAttention => FleetStrings.filterNeedsAttention,
-  _FleetFilter.working => FleetStrings.filterWorking,
-  _FleetFilter.offline => FleetStrings.filterOffline,
+String _filterLabel(AppStrings s, _FleetFilter f) => switch (f) {
+  _FleetFilter.all => s.fleetFilterAll,
+  _FleetFilter.active => s.fleetFilterActive,
+  _FleetFilter.needsAttention => s.fleetFilterNeedsAttention,
+  _FleetFilter.working => s.fleetFilterWorking,
+  _FleetFilter.offline => s.fleetFilterOffline,
 };
 
 // -- dashboard ---------------------------------------------------------------------
@@ -147,6 +133,7 @@ class _FleetDashboardState extends State<FleetDashboard> {
   @override
   Widget build(BuildContext context) {
     final tokens = JeliyaTokens.of(context);
+    final s = context.strings;
     final store = _store;
     if (store == null) {
       return ColoredBox(color: tokens.bg, child: const SizedBox.expand());
@@ -158,8 +145,8 @@ class _FleetDashboardState extends State<FleetDashboard> {
         builder: (context, _) => Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            _buildHeader(tokens, store),
-            Expanded(child: _buildBody(tokens, store)),
+            _buildHeader(s, tokens, store),
+            Expanded(child: _buildBody(s, tokens, store)),
           ],
         ),
       ),
@@ -168,7 +155,7 @@ class _FleetDashboardState extends State<FleetDashboard> {
 
   // -- header (brand + search + Add Agent + filter pills) --------------------------
 
-  Widget _buildHeader(JeliyaTokens tokens, FleetStore store) {
+  Widget _buildHeader(AppStrings s, JeliyaTokens tokens, FleetStore store) {
     final agents = store.fleet?.agents ?? const <FleetAgent>[];
     return Container(
       padding: const EdgeInsets.fromLTRB(
@@ -191,7 +178,7 @@ class _FleetDashboardState extends State<FleetDashboard> {
               Semantics(
                 header: true,
                 child: Text(
-                  FleetStrings.agentsTitle,
+                  s.fleetAgentsTitle,
                   style: const TextStyle(
                     fontSize: 22,
                     fontWeight: FontWeight.w700,
@@ -202,20 +189,20 @@ class _FleetDashboardState extends State<FleetDashboard> {
               SizedBox(
                 width: 200,
                 child: Semantics(
-                  label: FleetStrings.searchAgents,
+                  label: s.fleetSearchAgents,
                   child: TextField(
                     controller: _search,
                     onChanged: (_) => setState(() {}),
                     style: const TextStyle(fontSize: 13.5),
-                    decoration: const InputDecoration(
-                      hintText: FleetStrings.searchPlaceholder,
+                    decoration: InputDecoration(
+                      hintText: s.fleetSearchPlaceholder,
                     ),
                   ),
                 ),
               ),
               const SizedBox(width: JeliyaSpacing.x10),
               JeliyaButton(
-                label: FleetStrings.addAgent,
+                label: s.fleetAddAgent,
                 variant: JeliyaButtonVariant.primary,
                 onPressed: _openAddAgent,
               ),
@@ -226,7 +213,7 @@ class _FleetDashboardState extends State<FleetDashboard> {
           // tabs (no tabpanels, no roving tabindex behind that contract).
           Semantics(
             container: true,
-            label: FleetStrings.filterAgents,
+            label: s.fleetFilterAgents,
             child: Padding(
               padding: const EdgeInsets.only(bottom: JeliyaSpacing.x12),
               // The web's .fleet-filters scrolls horizontally when narrow.
@@ -236,7 +223,7 @@ class _FleetDashboardState extends State<FleetDashboard> {
                   children: [
                     for (final f in _FleetFilter.values) ...[
                       _FilterPill(
-                        label: _filterLabel(f),
+                        label: _filterLabel(s, f),
                         count: f == _FleetFilter.all
                             ? agents.length
                             : agents.where((a) => _matchesFilter(a, f)).length,
@@ -258,14 +245,14 @@ class _FleetDashboardState extends State<FleetDashboard> {
 
   // -- body (error / stat tiles / skeleton / empty / grid) ---------------------------
 
-  Widget _buildBody(JeliyaTokens tokens, FleetStore store) {
+  Widget _buildBody(AppStrings s, JeliyaTokens tokens, FleetStore store) {
     final session = SessionScope.of(context);
     final fleet = store.fleet;
     final q = _search.text.trim().toLowerCase();
     final visible = (fleet?.agents ?? const <FleetAgent>[]).where((a) {
       if (!_matchesFilter(a, _filter)) return false;
       if (q.isEmpty) return true;
-      return session.displayName(a.identityId).toLowerCase().contains(q) ||
+      return session.displayName(s, a.identityId).toLowerCase().contains(q) ||
           a.identityId.toLowerCase().contains(q);
     }).toList();
 
@@ -286,8 +273,8 @@ class _FleetDashboardState extends State<FleetDashboard> {
             padding: const EdgeInsets.symmetric(vertical: 48, horizontal: 20),
             child: Text(
               fleet != null && fleet.total == 0
-                  ? FleetStrings.emptyNoAgents
-                  : FleetStrings.emptyNoMatch,
+                  ? s.fleetEmptyNoAgents
+                  : s.fleetEmptyNoMatch,
               textAlign: TextAlign.center,
               style: TextStyle(fontSize: 13.5, color: tokens.textDim),
             ),
@@ -384,6 +371,8 @@ class _StatTiles extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = JeliyaTokens.of(context);
+    final s = context.strings;
+    final fmt = context.formats;
     final coverage = fleet.roomsTotal > 0
         ? ((fleet.roomsCovered / fleet.roomsTotal) * 100).round()
         : 0;
@@ -397,34 +386,34 @@ class _StatTiles extends StatelessWidget {
           children: [
             Expanded(
               child: _StatTile(
-                icon: FleetStrings.statActiveIcon,
+                icon: Tokens.fleetStatActiveIcon,
                 iconColor: tokens.accent,
                 iconBg: tokens.accentDim,
-                label: FleetStrings.statActiveAgents,
+                label: s.fleetStatActiveAgents,
                 value: '${fleet.active}',
-                sub: FleetStrings.statOfTotal(fleet.total),
+                sub: s.fleetStatOfTotal(fleet.total),
               ),
             ),
             const SizedBox(width: JeliyaSpacing.x12),
             Expanded(
               child: _StatTile(
-                icon: FleetStrings.statTasksIcon,
+                icon: Tokens.fleetStatTasksIcon,
                 iconColor: tokens.amber,
                 iconBg: tokens.amberDim,
-                label: FleetStrings.statRunningTasks,
+                label: s.fleetStatRunningTasks,
                 value: '${fleet.working}',
-                sub: FleetStrings.statOneTaskPerAgent,
+                sub: s.fleetStatOneTaskPerAgent,
               ),
             ),
             const SizedBox(width: JeliyaSpacing.x12),
             Expanded(
               child: _StatTile(
-                icon: FleetStrings.statCoverageIcon,
+                icon: Tokens.fleetStatCoverageIcon,
                 iconColor: tokens.blue,
                 iconBg: tokens.blue.withValues(alpha: 0.12),
-                label: FleetStrings.statRoomCoverage,
-                value: FleetStrings.statCoverageValue(coverage),
-                sub: FleetStrings.statRoomsCovered(
+                label: s.fleetStatRoomCoverage,
+                value: fmt.percent(coverage),
+                sub: s.fleetStatRoomsCovered(
                   fleet.roomsCovered,
                   fleet.roomsTotal,
                 ),
@@ -529,13 +518,14 @@ class _FleetSkeleton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = context.strings;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         // The web's visually-hidden role='status' "Loading agents" node.
         Semantics(
           liveRegion: true,
-          label: FleetStrings.loadingAgents,
+          label: s.fleetLoadingAgents,
           child: const SizedBox(width: 1, height: 1),
         ),
         ExcludeSemantics(
@@ -714,6 +704,8 @@ class _AgentCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = JeliyaTokens.of(context);
+    final s = context.strings;
+    final fmt = context.formats;
     final tone = _livenessTone(agent.liveness);
     final tint = tokens.colorForId(agent.identityId);
     final latest = agent.latest;
@@ -773,7 +765,7 @@ class _AgentCard extends StatelessWidget {
                         ),
                         _LivePill(
                           tone: tone,
-                          label: _livenessLabel(agent.liveness),
+                          label: _livenessLabel(s, agent.liveness),
                         ),
                       ],
                     ),
@@ -794,8 +786,8 @@ class _AgentCard extends StatelessWidget {
               ),
               CopyButton(
                 text: agent.identityId,
-                label: FleetStrings.copyGlyph,
-                semanticLabel: FleetStrings.copyIdentityId,
+                label: Tokens.fleetCopyGlyph,
+                semanticLabel: s.commonCopyIdentityId,
               ),
             ],
           ),
@@ -822,7 +814,7 @@ class _AgentCard extends StatelessWidget {
                         ],
                       )
                     : Text(
-                        FleetStrings.noStatusPosted,
+                        s.fleetNoStatusPosted,
                         style: TextStyle(fontSize: 13, color: tokens.textDim),
                       ),
               ),
@@ -842,9 +834,7 @@ class _AgentCard extends StatelessWidget {
                 ),
                 const SizedBox(width: JeliyaSpacing.x8),
                 Text(
-                  FleetStrings.progressPercent(
-                    latest.progress!.clamp(0, 100).round(),
-                  ),
+                  fmt.percent(latest.progress!.clamp(0, 100).round()),
                   style: JeliyaText.mono(fontSize: 11.5, color: tokens.textDim),
                 ),
               ],
@@ -871,15 +861,15 @@ class _AgentCard extends StatelessWidget {
               Expanded(
                 child: Text(
                   agent.lastSeenTs != null
-                      ? FleetStrings.lastUpdate(_relTime(agent.lastSeenTs!))
-                      : FleetStrings.neverSeen,
+                      ? s.fleetLastUpdate(fmt.relTime(agent.lastSeenTs!))
+                      : s.fleetNeverSeen,
                   style: TextStyle(fontSize: 11.5, color: tokens.textDim),
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
               if (openRoom != null)
                 JeliyaButton(
-                  label: FleetStrings.openRoom,
+                  label: s.fleetOpenRoom,
                   size: JeliyaButtonSize.sm,
                   onPressed: () => onOpenRoom(openRoom),
                 ),
@@ -985,7 +975,7 @@ class _LabelChip extends StatelessWidget {
         border: Border.all(color: tokens.toneBorder(tone)),
       ),
       child: Text(
-        _prettyLabel(label),
+        prettyLabel(label),
         style: TextStyle(
           fontSize: 11,
           letterSpacing: 0.22,
@@ -1034,7 +1024,7 @@ class _RoomChip extends StatelessWidget {
           children: [
             ExcludeSemantics(
               child: Text(
-                FleetStrings.roomChipGlyph,
+                Tokens.fleetRoomChipGlyph,
                 style: TextStyle(fontSize: 11.5, color: tokens.textDim),
               ),
             ),
@@ -1092,12 +1082,13 @@ class _Sparkline extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = JeliyaTokens.of(context);
+    final s = context.strings;
     final pts = points;
     final label = pts == null
-        ? FleetStrings.sparkLoading
+        ? s.fleetSparkLoading
         : pts.isEmpty
-        ? FleetStrings.sparkEmpty
-        : FleetStrings.sparkEvents(pts.length);
+        ? s.fleetSparkEmpty
+        : s.fleetSparkEvents(pts.length);
     return Semantics(
       image: true, // role="img"
       label: label,

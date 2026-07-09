@@ -159,7 +159,9 @@ These bind the agent the same way the daemon's honesty rules bind the UI:
    status message 4 KiB, message body 16 KiB) instead of erroring.
 6. **Status labels are an English-token contract for display tone.** The UI
    colors a status chip/dot from known English tokens only (`done`, `working`,
-   `failed`, `awaiting_review`, …; see `labelTone` in `ui/src/lib/format.ts`).
+   `failed`, `awaiting_review`, …; see `labelTone` in
+   `dart/jeliya_protocol/lib/src/conventions/format.dart`, normative in
+   `docs/PROTOCOL.md`).
    A label it can't read — including any non-English label — renders in a
    neutral tone, never green: the healthy color is earned, not a fallback.
    Idle-class labels (`idle`, `offline`, `claiming`) also render neutral by

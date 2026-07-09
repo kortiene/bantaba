@@ -48,6 +48,16 @@ abstract final class Roles {
   static const List<String> all = [owner, member, agent];
 }
 
+/// `active | invited | left | removed` (`Member.status`, PROTOCOL.md
+/// room.open view-model).
+abstract final class MemberStatuses {
+  static const String active = 'active';
+  static const String invited = 'invited';
+  static const String left = 'left';
+  static const String removed = 'removed';
+  static const List<String> all = [active, invited, left, removed];
+}
+
 /// The nine v1 `TimelineEvent.kind` values (protocol.ts `TimelineKind`).
 abstract final class TimelineKinds {
   static const String roomCreated = 'room_created';
@@ -138,6 +148,13 @@ abstract final class ErrorCodes {
   /// The request may or may not have executed (at-least-once). Reserved.
   static const String connectionLost = 'connection_lost';
 
+  /// Client-synthesized only (share staging, before any wire call): the
+  /// picked file exceeds [maxSharedFileBytes] / could not be read. Distinct
+  /// codes so the UI can key specific translatable copy instead of parsing
+  /// English message text.
+  static const String fileTooLarge = 'file_too_large';
+  static const String fileUnreadable = 'file_unreadable';
+
   /// The 14 codes the daemon can put on the wire.
   static const List<String> wire = [
     invalidParams,
@@ -157,7 +174,12 @@ abstract final class ErrorCodes {
   ];
 
   /// Codes minted client-side, never sent by the daemon.
-  static const List<String> clientSynthesized = [connectionLost, internal];
+  static const List<String> clientSynthesized = [
+    connectionLost,
+    internal,
+    fileTooLarge,
+    fileUnreadable,
+  ];
 }
 
 /// Coerce any thrown object into a [RequestError] — the Dart port of

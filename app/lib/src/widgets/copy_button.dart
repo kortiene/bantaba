@@ -9,22 +9,23 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import '../l10n/strings_widgets.dart';
+import '../l10n/strings_context.dart';
 import '../theme.dart';
 
 class CopyButton extends StatefulWidget {
   const CopyButton({
     super.key,
     required this.text,
-    this.label = WidgetStrings.copy,
+    this.label,
     this.semanticLabel,
   });
 
   /// What gets copied.
   final String text;
 
-  /// Visible idle label (e.g. 'Copy', 'Copy ticket', '⧉').
-  final String label;
+  /// Visible idle label (e.g. 'Copy', 'Copy ticket', '⧉'); defaults to the
+  /// localized 'Copy' (resolved at build — defaults can't be locale-aware).
+  final String? label;
 
   /// Accessible name while idle (e.g. 'Copy identity ID').
   final String? semanticLabel;
@@ -68,7 +69,9 @@ class _CopyButtonState extends State<CopyButton> {
           borderRadius: BorderRadius.circular(JeliyaRadii.btnSm),
         ),
       ),
-      child: Text(_done ? WidgetStrings.copied : widget.label),
+      child: Text(_done
+          ? context.strings.commonCopied
+          : widget.label ?? context.strings.commonCopy),
     );
     final semanticLabel = widget.semanticLabel;
     if (semanticLabel == null || _done) return button;

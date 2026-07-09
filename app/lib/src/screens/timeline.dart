@@ -31,8 +31,10 @@ import 'package:jeliya_protocol/jeliya_protocol.dart'
         labelTone,
         shortId;
 
-import '../l10n/strings_timeline.dart';
-import '../l10n/strings_widgets.dart';
+import '../format.dart';
+import '../l10n/strings_context.dart';
+import '../l10n/tokens.dart';
+import '../l10n/wire_display.dart';
 import '../session/daemon_session.dart';
 import '../session/room_store.dart';
 import '../theme.dart';
@@ -41,54 +43,11 @@ import '../widgets/buttons.dart';
 import '../widgets/fetch_control.dart';
 import '../widgets/progress_bar.dart';
 import '../widgets/sender_name.dart';
+import '../widgets/template_text.dart';
 
-// -- display formatting (format.ts ports; shared, copy lives in strings) ---------
-
-/// format.ts `formatBytes`: B / KB rounded / MB 1dp / GB 1dp, '?' for
-/// negative or non-finite input.
-String formatBytes(num n) {
-  if (!n.isFinite || n < 0) return TimelineStrings.bytesUnknown;
-  if (n < 1024) return TimelineStrings.bytesB(n.toInt());
-  if (n < 1024 * 1024) return TimelineStrings.bytesKb((n / 1024).round());
-  if (n < 1024 * 1024 * 1024) {
-    return TimelineStrings.bytesMb((n / (1024 * 1024)).toStringAsFixed(1));
-  }
-  return TimelineStrings.bytesGb((n / (1024 * 1024 * 1024)).toStringAsFixed(1));
-}
-
-/// format.ts `formatTime`: locale h:mm with AM/PM, local timezone.
-String formatTimelineTime(int ts) {
-  final d = DateTime.fromMillisecondsSinceEpoch(ts);
-  final hour12 = d.hour % 12 == 0 ? 12 : d.hour % 12;
-  final minutes = d.minute.toString().padLeft(2, '0');
-  final period = d.hour < 12 ? TimelineStrings.am : TimelineStrings.pm;
-  return TimelineStrings.clockTime(hour12, minutes, period);
-}
-
-/// format.ts `dayLabel`: 'Today' / 'Yesterday' / 'MMM d, yyyy', local tz.
-String timelineDayLabel(int ts, {DateTime? now}) {
-  final d = DateTime.fromMillisecondsSinceEpoch(ts);
-  final today = now ?? DateTime.now();
-  final yesterday = DateTime(today.year, today.month, today.day - 1);
-  bool sameDay(DateTime a, DateTime b) =>
-      a.year == b.year && a.month == b.month && a.day == b.day;
-  if (sameDay(d, today)) return TimelineStrings.today;
-  if (sameDay(d, yesterday)) return TimelineStrings.yesterday;
-  return TimelineStrings.monthDayYear(
-      TimelineStrings.monthsShort[d.month - 1], d.day, d.year);
-}
-
-/// format.ts `prettyLabel`: `[_-]+` → spaces, first letter capitalized.
-String prettyLabel(String label) {
-  final s = label.replaceAll(RegExp('[_-]+'), ' ').trim();
-  return s.isEmpty ? label : s[0].toUpperCase() + s.substring(1);
-}
-
-/// format.ts `extOf`: lowercased extension, '' when none.
-String extOf(String name) {
-  final i = name.lastIndexOf('.');
-  return i >= 0 ? name.substring(i + 1).toLowerCase() : '';
-}
+// Display formatting (context.formats: bytes / clock / dayLabel / percent,
+// plus top-level prettyLabel / extOf) lives in ../format.dart — the shared
+// single home.
 
 // -- item / row models -------------------------------------------------------------
 
@@ -261,6 +220,8 @@ class _TimelineViewState extends State<TimelineView> {
     final store = session.room;
     if (store == null) return const SizedBox.expand();
 
+    final s = context.strings;
+    final fmt = context.formats;
     final selfId = session.selfId;
     final loading = store.loading;
 
@@ -296,13 +257,13 @@ class _TimelineViewState extends State<TimelineView> {
           .addPostFrameCallback((_) => _afterItemsChanged(appended ? delta : 0));
     }
 
-    final rows = _buildRows(items, selfId);
+    final rows = _buildRows(fmt, items, selfId);
 
     Widget scroller;
     if (!loading && items.isEmpty) {
       scroller = Center(
         child: Text(
-          TimelineStrings.emptyState,
+          s.timelineEmptyState,
           style: TextStyle(fontSize: 13.5, color: tokens.textDim),
         ),
       );
@@ -335,7 +296,7 @@ class _TimelineViewState extends State<TimelineView> {
     return Semantics(
       container: true,
       liveRegion: true, // role="log"
-      label: TimelineStrings.roomTimeline,
+      label: s.timelineRoomTimeline,
       child: Stack(
         children: [
           Positioned.fill(child: SelectionArea(child: scroller)),
@@ -344,21 +305,21 @@ class _TimelineViewState extends State<TimelineView> {
               left: 0,
               right: 0,
               bottom: JeliyaSpacing.x14,
-              child: Center(child: _newMessagesPill(tokens)),
+              child: Center(child: _newMessagesPill(s, tokens)),
             ),
         ],
       ),
     );
   }
 
-  List<_Row> _buildRows(List<_Item> items, String? selfId) {
+  List<_Row> _buildRows(JeliyaFormats fmt, List<_Item> items, String? selfId) {
     final rows = <_Row>[];
     var lastDay = '';
     _Item? prevItem;
     _Side? prevSide;
     var afterDivider = false;
     for (final item in items) {
-      final day = timelineDayLabel(item.ts);
+      final day = fmt.dayLabel(item.ts);
       if (day != lastDay) {
         lastDay = day;
         rows.add(_Row.divider(day,
@@ -392,6 +353,8 @@ class _TimelineViewState extends State<TimelineView> {
 
   Widget _buildRow(BuildContext context, _Row row, RoomStore store,
       String? selfId, double rowCap) {
+    final s = context.strings;
+    final fmt = context.formats;
     final divider = row.dividerLabel;
     if (divider != null) return _DayDivider(label: divider);
     final item = row.item!;
@@ -424,53 +387,60 @@ class _TimelineViewState extends State<TimelineView> {
             avatarId: event.sender.identityId,
             main: _pipeCardMain(context, event));
       case TimelineKinds.roomCreated:
-        return _sysline(context, [
-          _syslineName(context, event.sender.identityId),
-          _syslineText(
-              context, TimelineStrings.createdTheRoom(formatTimelineTime(event.ts))),
-        ]);
+        return _sysline(
+          context,
+          s.timelineSyslineRoomCreated('{sender}', fmt.clock(event.ts)),
+          {'sender': _nameSlot(context, event.sender.identityId)},
+        );
       case TimelineKinds.memberInvited:
         final invitee = event.member?.identityId;
-        return _sysline(context, [
-          _syslineName(context, event.sender.identityId),
-          _syslineText(context, TimelineStrings.invitedConnector),
-          if (invitee != null)
-            _syslineName(context, invitee)
-          else
-            _syslineText(context, TimelineStrings.someone),
-          _syslineText(
-              context,
-              TimelineStrings.invitedAs(
-                  event.member?.role ?? TimelineStrings.memberRoleFallback,
-                  formatTimelineTime(event.ts))),
-        ]);
+        return _sysline(
+          context,
+          s.timelineSyslineInvited(
+              '{sender}',
+              '{invitee}',
+              s.roleInline(event.member?.role ?? Roles.member),
+              fmt.clock(event.ts)),
+          {
+            'sender': _nameSlot(context, event.sender.identityId),
+            'invitee': invitee != null
+                ? _nameSlot(context, invitee)
+                : TextSpan(text: s.timelineSomeone),
+          },
+        );
       case TimelineKinds.memberJoined:
-        final who = event.member?.identityId ?? event.sender.identityId;
-        return _sysline(context, [
-          _syslineName(context, who),
-          _syslineText(
-              context,
-              TimelineStrings.joinedAs(
-                  event.member?.role ?? event.sender.role,
-                  formatTimelineTime(event.ts))),
-        ]);
+        return _sysline(
+          context,
+          s.timelineSyslineJoined(
+              '{who}',
+              s.roleInline(event.member?.role ?? event.sender.role),
+              fmt.clock(event.ts)),
+          {
+            'who': _nameSlot(
+                context, event.member?.identityId ?? event.sender.identityId),
+          },
+        );
       case TimelineKinds.memberLeft:
-        final who = event.member?.identityId ?? event.sender.identityId;
-        return _sysline(context, [
-          _syslineName(context, who),
-          _syslineText(
-              context, TimelineStrings.leftTheRoom(formatTimelineTime(event.ts))),
-        ]);
+        return _sysline(
+          context,
+          s.timelineSyslineLeft('{who}', fmt.clock(event.ts)),
+          {
+            'who': _nameSlot(
+                context, event.member?.identityId ?? event.sender.identityId),
+          },
+        );
       case TimelineKinds.pipeClosed:
         final tokens = JeliyaTokens.of(context);
-        return _sysline(context, [
-          _syslineName(context, event.sender.identityId),
-          _syslineText(context, TimelineStrings.closedPipeConnector),
-          Text(event.pipe?.target ?? '',
-              style: JeliyaText.mono(fontSize: 12, color: tokens.textDim)),
-          _syslineText(
-              context, TimelineStrings.timeSuffix(formatTimelineTime(event.ts))),
-        ]);
+        return _sysline(
+          context,
+          s.timelineSyslinePipeClosed('{sender}', '{target}', fmt.clock(event.ts)),
+          {
+            'sender': _nameSlot(context, event.sender.identityId),
+            'target': TextSpan(
+                text: event.pipe?.target ?? '',
+                style: JeliyaText.mono(fontSize: 12, color: tokens.textDim)),
+          },
+        );
       default:
         // Unknown event kinds render nothing (forward compat).
         return const SizedBox.shrink();
@@ -664,12 +634,13 @@ class _TimelineViewState extends State<TimelineView> {
   Widget _pendingCard(BuildContext context, RoomStore store,
       PendingMessage message, bool compact) {
     final tokens = JeliyaTokens.of(context);
+    final s = context.strings;
     final failed = message.phase == PendingPhases.failed;
     final label = failed
-        ? TimelineStrings.pendingFailed
+        ? s.timelinePendingFailed
         : message.phase == PendingPhases.syncing
-            ? TimelineStrings.pendingSyncing
-            : TimelineStrings.pendingSending;
+            ? s.timelinePendingSyncing
+            : s.timelinePendingSending;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.end,
       children: [
@@ -677,7 +648,7 @@ class _TimelineViewState extends State<TimelineView> {
           Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(WidgetStrings.you,
+              Text(s.commonYou,
                   style: JeliyaText.name.copyWith(fontSize: 12)),
               const SizedBox(width: JeliyaSpacing.x8),
               _time(context, message.ts),
@@ -699,7 +670,7 @@ class _TimelineViewState extends State<TimelineView> {
             if (failed) ...[
               const SizedBox(width: JeliyaSpacing.x6),
               _TextButton(
-                label: TimelineStrings.retry,
+                label: s.commonRetry,
                 onTap: () => store.retryPendingMessage(message.clientId),
               ),
             ],
@@ -714,7 +685,9 @@ class _TimelineViewState extends State<TimelineView> {
   Widget _agentCardMain(
       BuildContext context, RoomStore store, TimelineEvent event) {
     final tokens = JeliyaTokens.of(context);
-    final label = event.label ?? TimelineStrings.statusFallback;
+    final s = context.strings;
+    final fmt = context.formats;
+    final label = event.label ?? s.timelineStatusFallback;
     final tone = labelTone(label);
     final pretty = prettyLabel(label);
     final progress = event.progress;
@@ -751,7 +724,7 @@ class _TimelineViewState extends State<TimelineView> {
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(TimelineStrings.agentWorkGlyph,
+              Text(Tokens.agentWorkGlyph,
                   style: TextStyle(fontSize: 13.5, color: tokens.blue)),
               const SizedBox(width: JeliyaSpacing.x8),
               Flexible(
@@ -779,7 +752,7 @@ class _TimelineViewState extends State<TimelineView> {
                   Expanded(child: ProgressBar(value: progress.toDouble())),
                   const SizedBox(width: JeliyaSpacing.x10),
                   Text(
-                    TimelineStrings.progressPercent(_progressNum(progress)),
+                    fmt.percent(progress.clamp(0, 100)),
                     style: JeliyaText.mono(fontSize: 11.5, color: tokens.textDim),
                   ),
                 ],
@@ -802,11 +775,6 @@ class _TimelineViewState extends State<TimelineView> {
     );
   }
 
-  String _progressNum(num progress) {
-    final v = progress.clamp(0, 100);
-    return v % 1 == 0 ? v.toInt().toString() : v.toString();
-  }
-
   Widget _artifactChip(BuildContext context, RoomStore store, String fileId) {
     final tokens = JeliyaTokens.of(context);
     final file = _fileById(store.files, fileId);
@@ -820,7 +788,7 @@ class _TimelineViewState extends State<TimelineView> {
           borderRadius: BorderRadius.circular(JeliyaRadii.pill),
         ),
         child: Text(
-          '${TimelineStrings.artifactGlyph} ${file?.name ?? shortId(fileId)}',
+          '${Tokens.artifactGlyph} ${file?.name ?? shortId(fileId)}',
           style: TextStyle(fontSize: 11, color: tokens.textDim),
         ),
       ),
@@ -831,13 +799,14 @@ class _TimelineViewState extends State<TimelineView> {
 
   Widget _fileCardMain(BuildContext context, RoomStore store,
       TimelineEvent event, String? selfId) {
+    final s = context.strings;
     final file = event.file!;
     final own = selfId != null && event.sender.identityId == selfId;
     return Column(
       crossAxisAlignment:
           own ? CrossAxisAlignment.end : CrossAxisAlignment.start,
       children: [
-        _eventHead(context, event, TimelineStrings.sharedAFile),
+        _eventHead(context, event, s.timelineSharedAFile),
         const SizedBox(height: JeliyaSpacing.x8),
         _fileTile(context, store, file, own: own),
       ],
@@ -865,10 +834,12 @@ class _TimelineViewState extends State<TimelineView> {
   Widget _fileTile(BuildContext context, RoomStore store, FileRef file,
       {required bool own}) {
     final tokens = JeliyaTokens.of(context);
+    final s = context.strings;
+    final fmt = context.formats;
     final tint = tokens.fileTint(file.name);
     final ext = extOf(file.name).toUpperCase();
     final extLabel = ext.isEmpty
-        ? TimelineStrings.fileExtFallback
+        ? s.commonFileExtFallback
         : ext.substring(0, math.min(4, ext.length));
     final entry = _fileById(store.files, file.fileId);
     final state = store.fetches[file.fileId];
@@ -917,8 +888,8 @@ class _TimelineViewState extends State<TimelineView> {
                       color: tokens.text),
                 ),
                 Text(
-                  TimelineStrings.fileMeta(
-                      formatBytes(file.size), ext.isEmpty ? extLabel : ext),
+                  s.timelineFileMeta(
+                      fmt.bytes(file.size), ext.isEmpty ? extLabel : ext),
                   style: TextStyle(fontSize: 12, color: tokens.textDim),
                 ),
               ],
@@ -963,12 +934,13 @@ class _TimelineViewState extends State<TimelineView> {
   // -- pipe_opened card ------------------------------------------------------------------------
 
   Widget _pipeCardMain(BuildContext context, TimelineEvent event) {
+    final s = context.strings;
     final own = SessionScope.of(context).isSelf(event.sender.identityId);
     return Column(
       crossAxisAlignment:
           own ? CrossAxisAlignment.end : CrossAxisAlignment.start,
       children: [
-        _eventHead(context, event, TimelineStrings.openedAPipe),
+        _eventHead(context, event, s.timelineOpenedAPipe),
         const SizedBox(height: JeliyaSpacing.x8),
         _pipeTile(context, event.pipe!, own: own),
       ],
@@ -977,6 +949,7 @@ class _TimelineViewState extends State<TimelineView> {
 
   Widget _pipeTile(BuildContext context, PipeRef pipe, {required bool own}) {
     final tokens = JeliyaTokens.of(context);
+    final s = context.strings;
     final authorized = pipe.authorizedPeer;
     return Container(
       padding: const EdgeInsets.symmetric(
@@ -997,7 +970,7 @@ class _TimelineViewState extends State<TimelineView> {
               color: tokens.accentDim,
               borderRadius: BorderRadius.circular(JeliyaRadii.btn),
             ),
-            child: Text(TimelineStrings.pipeGlyph,
+            child: Text(Tokens.pipeGlyph,
                 style: TextStyle(fontSize: 17, color: tokens.accent)),
           ),
           const SizedBox(width: JeliyaSpacing.x12),
@@ -1006,7 +979,7 @@ class _TimelineViewState extends State<TimelineView> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  pipe.target ?? TimelineStrings.emDash,
+                  pipe.target ?? Tokens.emDash,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: JeliyaText.mono(
@@ -1016,26 +989,33 @@ class _TimelineViewState extends State<TimelineView> {
                 ),
                 Row(
                   children: [
-                    // Both halves flexible: at the 960px minimum window this
-                    // row gets too little width for an inflexible prefix next
-                    // to the fixed icon and button.
-                    Flexible(
-                      child: Text(TimelineStrings.authorizedPeerPrefix,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(fontSize: 12, color: tokens.textDim)),
-                    ),
-                    if (authorized != null)
-                      Flexible(
-                        child: SenderName(
-                          id: authorized,
-                          style: JeliyaText.name.copyWith(fontSize: 12),
+                    // Every segment flexible: at the 960px minimum window this
+                    // row gets too little width for inflexible text next to
+                    // the fixed icon and button. The sentence stays ONE
+                    // translatable template; segments come from its parts.
+                    for (final part
+                        in templateParts(s.timelineAuthorizedPeer('{peer}')))
+                      if (part.slot == 'peer')
+                        Flexible(
+                          child: authorized != null
+                              ? SenderName(
+                                  id: authorized,
+                                  style: JeliyaText.name.copyWith(fontSize: 12),
+                                )
+                              : Text(Tokens.emDash,
+                                  style: TextStyle(
+                                      fontSize: 12, color: tokens.textDim)),
+                        )
+                      else
+                        Flexible(
+                          // An unmatched slot renders its literal marker
+                          // (fail-visible, matching templateSpans' contract).
+                          child: Text(part.text ?? '{${part.slot}}',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                  fontSize: 12, color: tokens.textDim)),
                         ),
-                      )
-                    else
-                      Text(TimelineStrings.emDash,
-                          style:
-                              TextStyle(fontSize: 12, color: tokens.textDim)),
                   ],
                 ),
               ],
@@ -1043,7 +1023,7 @@ class _TimelineViewState extends State<TimelineView> {
           ),
           const SizedBox(width: JeliyaSpacing.x12),
           JeliyaButton(
-            label: TimelineStrings.openInPipes,
+            label: s.timelineOpenInPipes,
             size: JeliyaButtonSize.sm,
             onPressed: widget.onShowPipes,
           ),
@@ -1054,35 +1034,36 @@ class _TimelineViewState extends State<TimelineView> {
 
   // -- syslines ------------------------------------------------------------------------------------
 
-  Widget _sysline(BuildContext context, List<Widget> children) {
+  /// One full-sentence template per sysline; names/targets are injected as
+  /// spans so translations can reorder them freely.
+  Widget _sysline(
+      BuildContext context, String template, Map<String, InlineSpan> slots) {
     return SizedBox(
       width: double.infinity,
-      child: Wrap(
-        alignment: WrapAlignment.center,
-        crossAxisAlignment: WrapCrossAlignment.center,
-        children: children,
+      child: templateText(
+        template,
+        slots: slots,
+        style: JeliyaText.sysline,
+        textAlign: TextAlign.center,
       ),
     );
   }
 
-  Widget _syslineText(BuildContext context, String text) =>
-      Text(text, style: JeliyaText.sysline);
-
-  Widget _syslineName(BuildContext context, String id) {
+  InlineSpan _nameSlot(BuildContext context, String id) {
     final tokens = JeliyaTokens.of(context);
-    return SenderName(
+    return widgetSlot(SenderName(
       id: id,
       style: TextStyle(
           fontSize: 12, fontWeight: FontWeight.w600, color: tokens.textDim),
-    );
+    ));
   }
 
   // -- small pieces ------------------------------------------------------------------------------------
 
   Widget _time(BuildContext context, int ts) =>
-      Text(formatTimelineTime(ts), style: JeliyaText.meta);
+      Text(context.formats.clock(ts), style: JeliyaText.meta);
 
-  Widget _newMessagesPill(JeliyaTokens tokens) {
+  Widget _newMessagesPill(AppStrings s, JeliyaTokens tokens) {
     return DecoratedBox(
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(JeliyaRadii.pill),
@@ -1105,7 +1086,7 @@ class _TimelineViewState extends State<TimelineView> {
           textStyle: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700),
           shape: StadiumBorder(side: BorderSide(color: tokens.accentLine)),
         ),
-        child: Text(TimelineStrings.newMessages(_newItemCount)),
+        child: Text(s.timelineNewMessages(_newItemCount)),
       ),
     );
   }
@@ -1119,6 +1100,7 @@ class _AgentChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = JeliyaTokens.of(context);
+    final s = context.strings;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
       decoration: BoxDecoration(
@@ -1126,7 +1108,7 @@ class _AgentChip extends StatelessWidget {
         borderRadius: BorderRadius.circular(JeliyaRadii.pill),
       ),
       child: Text(
-        TimelineStrings.agentChip,
+        s.timelineAgentChip,
         style: TextStyle(
           fontSize: 9.5,
           fontWeight: FontWeight.w700,
@@ -1179,8 +1161,9 @@ class _ServingNote extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = JeliyaTokens.of(context);
+    final s = context.strings;
     return Tooltip(
-      message: TimelineStrings.servingTooltip,
+      message: s.commonServingTooltip,
       child: Container(
         constraints: const BoxConstraints(minHeight: 28),
         padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
@@ -1190,7 +1173,7 @@ class _ServingNote extends StatelessWidget {
           border: Border.all(color: tokens.borderStrong),
           borderRadius: BorderRadius.circular(JeliyaRadii.pill),
         ),
-        child: Text(TimelineStrings.serving,
+        child: Text(s.commonServing,
             style: TextStyle(fontSize: 12, color: tokens.textDim)),
       ),
     );

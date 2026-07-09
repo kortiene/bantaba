@@ -7,7 +7,8 @@ library;
 
 import 'package:flutter/material.dart';
 
-import '../l10n/strings_widgets.dart';
+import '../l10n/strings_context.dart';
+import '../l10n/tokens.dart';
 import '../theme.dart';
 
 /// Open a modal. The [builder] should return a [ModalScaffold] (a stub modal
@@ -70,8 +71,8 @@ class ModalScaffold extends StatelessWidget {
                   ),
                   IconButton(
                     onPressed: close,
-                    tooltip: WidgetStrings.close,
-                    icon: Text(WidgetStrings.closeGlyph,
+                    tooltip: context.strings.commonClose,
+                    icon: Text(Tokens.closeGlyph,
                         style: TextStyle(fontSize: 14, color: tokens.textDim)),
                     constraints:
                         const BoxConstraints(minWidth: 26, minHeight: 26),

@@ -7,7 +7,7 @@ library;
 import 'package:flutter/material.dart';
 import 'package:jeliya_protocol/jeliya_protocol.dart' show LabelTone;
 
-import '../l10n/strings_widgets.dart';
+import '../l10n/strings_context.dart';
 import '../screens/modals/rename_peer.dart';
 import '../session/daemon_session.dart';
 import '../theme.dart';
@@ -36,11 +36,13 @@ class SenderName extends StatelessWidget {
 
     if (session.isSelf(id)) {
       // "You" is not renameable — plain text, not a dead button.
-      return Tooltip(message: id, child: Text(WidgetStrings.you, style: resolved));
+      return Tooltip(
+          message: id,
+          child: Text(context.strings.commonYou, style: resolved));
     }
 
     return Tooltip(
-      message: '$id\n${WidgetStrings.clickToSetLocalName}',
+      message: '$id\n${context.strings.commonClickToSetLocalName}',
       child: MouseRegion(
         cursor: SystemMouseCursors.click,
         child: GestureDetector(
@@ -50,7 +52,8 @@ class SenderName extends StatelessWidget {
           ),
           child: Semantics(
             button: true,
-            child: Text(session.displayName(id), style: resolved),
+            child: Text(session.displayName(context.strings, id),
+                style: resolved),
           ),
         ),
       ),

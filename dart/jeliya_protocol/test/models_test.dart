@@ -493,7 +493,8 @@ void main() {
           'internal',
         ]),
       );
-      expect(ErrorCodes.clientSynthesized, ['connection_lost', 'internal']);
+      expect(ErrorCodes.clientSynthesized,
+          ['connection_lost', 'internal', 'file_too_large', 'file_unreadable']);
       expect(ErrorCodes.connectionLost, isNot(isIn(ErrorCodes.wire)),
           reason: 'connection_lost never crosses the wire');
     });

@@ -13,6 +13,12 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+
+  # Pinned by flutter_localizations; used directly for DateFormat/NumberFormat
+  # under the separate FORMATTING locale (docs/i18n.md, decision 4).
+  intl: any
 
   cupertino_icons: ^1.0.8
 
@@ -34,3 +40,4 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  generate: true

@@ -28,7 +28,7 @@ void main() {
     await pumpReadyApp(tester, newMockClient());
 
     await tester.tap(find.descendant(
-        of: find.byType(Sidebar), matching: find.text('Agents')));
+        of: find.byType(Sidebar), matching: find.text(en.sidebarNavAgents)));
     await pumpSteps(tester, steps: 10);
     expect(find.byType(FleetDashboard), findsOneWidget);
 
@@ -36,12 +36,16 @@ void main() {
     // peer + fresh working label), frontend = online-idle, research = stale
     // (working label but no live peer — never shown active), qa = offline.
     // 4 agents across 5 rooms, every room has at least one agent.
-    expectStatTile(tester, 'Active agents', '2', 'of 4 total');
-    expectStatTile(tester, 'Running tasks', '1', 'one task per agent');
-    expectStatTile(tester, 'Room coverage', '100%', '5 of 5 rooms');
+    expectStatTile(
+        tester, en.fleetStatActiveAgents, '2', en.fleetStatOfTotal(4));
+    expectStatTile(
+        tester, en.fleetStatRunningTasks, '1', en.fleetStatOneTaskPerAgent);
+    expectStatTile(tester, en.fleetStatRoomCoverage, en.commonPercent('100'),
+        en.fleetStatRoomsCovered(5, 5));
 
-    // One card per fixture agent (each shows its last-update footer).
-    expect(find.textContaining('Last update'), findsNWidgets(4));
-    expect(find.text('⇱ Open Room'), findsNWidgets(4));
+    // One card per fixture agent (each shows its last-update footer). The
+    // needle is the catalog message's static prefix (rel varies per card).
+    expect(find.textContaining(en.fleetLastUpdate('').trim()), findsNWidgets(4));
+    expect(find.text(en.fleetOpenRoom), findsNWidgets(4));
   });
 }

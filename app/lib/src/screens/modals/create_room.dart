@@ -11,7 +11,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:jeliya_protocol/jeliya_protocol.dart' show JeliyaMethods, RequestError;
 
-import '../../l10n/strings_modals.dart';
+import '../../l10n/strings_context.dart';
 import '../../session/daemon_session.dart';
 import '../../theme.dart';
 import '../../widgets/buttons.dart';
@@ -75,28 +75,29 @@ class _CreateRoomModalState extends State<CreateRoomModal> {
 
   @override
   Widget build(BuildContext context) {
+    final s = context.strings;
     final tokens = JeliyaTokens.of(context);
     final canSubmit = !_busy && _name.text.trim().isNotEmpty;
     return ModalScaffold(
-      title: ModalStrings.createRoomTitle,
+      title: s.modalCreateRoomTitle,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Padding(
             padding: const EdgeInsets.only(bottom: 5),
-            child: Text(ModalStrings.roomNameLabel,
+            child: Text(s.modalRoomNameLabel,
                 style: TextStyle(fontSize: 12.5, color: tokens.textDim)),
           ),
           TextField(
             controller: _name,
             autofocus: true,
-            decoration: const InputDecoration(
-                hintText: ModalStrings.roomNamePlaceholder),
+            decoration: InputDecoration(
+                hintText: s.modalRoomNamePlaceholder),
             onSubmitted: (_) => _create(),
           ),
           const SizedBox(height: JeliyaSpacing.x12),
           JeliyaButton(
-            label: _busy ? ModalStrings.creatingRoom : ModalStrings.createRoom,
+            label: _busy ? s.modalCreatingRoom : s.modalCreateRoom,
             variant: JeliyaButtonVariant.primary,
             busy: _busy,
             onPressed: canSubmit ? _create : null,

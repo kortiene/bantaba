@@ -18,8 +18,8 @@ import 'package:flutter/services.dart';
 import 'package:jeliya_protocol/jeliya_protocol.dart'
     show ConnectionState, RequestError, errorShape;
 
-import '../l10n/strings_composer.dart';
-import '../l10n/strings_shell.dart';
+import '../l10n/strings_context.dart';
+import '../l10n/tokens.dart';
 import '../session/daemon_session.dart';
 import '../theme.dart';
 import '../widgets/buttons.dart';
@@ -168,19 +168,20 @@ class _ComposerState extends State<Composer> {
   @override
   Widget build(BuildContext context) {
     final session = SessionScope.of(context);
+    final s = context.strings;
     final tokens = JeliyaTokens.of(context);
     final disabled = session.conn != ConnectionState.connected;
     final draftBlank = _controller.text.trim().isEmpty;
 
-    String roomName = ShellStrings.untitledRoom;
+    String roomName = s.shellUntitledRoom;
     final roomId = session.currentRoomId;
     for (final r in session.rooms) {
       if (r.roomId == roomId) {
-        roomName = r.name ?? ShellStrings.untitledRoom;
+        roomName = r.name ?? s.shellUntitledRoom;
         break;
       }
     }
-    final placeholder = ComposerStrings.messagePlaceholder(roomName);
+    final placeholder = s.composerMessagePlaceholder(roomName);
 
     return Container(
       padding: const EdgeInsets.fromLTRB(
@@ -249,9 +250,9 @@ class _ComposerState extends State<Composer> {
                 const SizedBox(width: JeliyaSpacing.x10),
                 JeliyaButton(
                   label: _sending
-                      ? ComposerStrings.sendingGlyph
-                      : ComposerStrings.sendGlyph,
-                  semanticLabel: ComposerStrings.sendMessage,
+                      ? Tokens.composerSendingGlyph
+                      : Tokens.composerSendGlyph,
+                  semanticLabel: s.composerSendMessage,
                   variant: JeliyaButtonVariant.primary,
                   onPressed:
                       (disabled || _sending || draftBlank) ? null : _send,
@@ -263,7 +264,7 @@ class _ComposerState extends State<Composer> {
           Align(
             alignment: Alignment.centerRight,
             child: Text(
-              _sharing ? ComposerStrings.sharingFile : ComposerStrings.hint,
+              _sharing ? s.composerSharingFile : s.composerHint,
               style: TextStyle(fontSize: 11.5, color: tokens.textDim),
             ),
           ),
@@ -283,11 +284,12 @@ class _ShareFileButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = context.strings;
     final tokens = JeliyaTokens.of(context);
     return Tooltip(
-      message: ComposerStrings.shareAFile,
+      message: s.composerShareAFile,
       child: Semantics(
-        label: ComposerStrings.shareAFile,
+        label: s.composerShareAFile,
         button: true,
         child: TextButton(
           onPressed: onPressed,
@@ -309,7 +311,7 @@ class _ShareFileButton extends StatelessWidget {
                   child: CircularProgressIndicator(
                       strokeWidth: 2, color: tokens.textDim),
                 )
-              : const Text(ComposerStrings.shareGlyph,
+              : const Text(Tokens.composerShareGlyph,
                   style: TextStyle(fontSize: 15)),
         ),
       ),

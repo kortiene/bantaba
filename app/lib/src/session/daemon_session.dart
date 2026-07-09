@@ -24,7 +24,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart' hide ConnectionState;
 import 'package:jeliya_protocol/jeliya_protocol.dart';
 
-import '../l10n/strings_boot.dart';
+import '../l10n/gen/app_strings.dart' show AppStrings;
 import 'prefs_store.dart';
 import 'room_store.dart';
 
@@ -35,6 +35,22 @@ const String kAppVersion = '1.0.0';
 /// process/transport lifecycle, distinct from the protocol-level
 /// [BootstrapPhase].
 enum Boot { starting, spawning, connecting, ready, failed }
+
+/// WHAT is happening / WHY it failed — structured facts the boot screen
+/// composes localized copy from at render time (the session never holds
+/// user-facing strings, so a live locale switch re-renders everything).
+enum BootStage {
+  none,
+  spawning,
+  evicting,
+  adopted,
+  daemonUp,
+  failedBinaryMissing,
+  failedMismatch,
+  failedStart,
+  failedTimeout,
+  failedGeneric,
+}
 
 /// Protocol bootstrap phases (App.tsx `Phase`): what the UI routes on.
 enum BootstrapPhase { boot, noIdentity, noRooms, ready }
@@ -129,7 +145,12 @@ class DaemonSession extends ChangeNotifier {
   AppLifecycleListener? _lifecycle;
 
   Boot _boot = Boot.starting;
-  String _bootDetail = '';
+  BootStage _bootStage = BootStage.none;
+  int? _bootPid;
+  int? _bootPort;
+  int? _bootMismatchActual;
+  int? _bootMismatchExpected;
+  String _bootTechnical = '';
   BootstrapPhase _phase = BootstrapPhase.boot;
   ConnectionState _conn = ConnectionState.disconnected;
   DaemonStatus? _status;
@@ -155,8 +176,16 @@ class DaemonSession extends ChangeNotifier {
 
   Boot get boot => _boot;
 
-  /// Human-readable bring-up detail / failure text for the boot screen.
-  String get bootDetail => _bootDetail;
+  /// Structured boot progress/failure facts (composed into copy at render).
+  BootStage get bootStage => _bootStage;
+  int? get bootPid => _bootPid;
+  int? get bootPort => _bootPort;
+  int? get bootMismatchActual => _bootMismatchActual;
+  int? get bootMismatchExpected => _bootMismatchExpected;
+
+  /// Raw exception text behind a [Boot.failed] summary ('' otherwise) —
+  /// deliberately untranslated, like ErrorNote's technical details.
+  String get bootTechnical => _bootTechnical;
 
   BootstrapPhase get phase => _phase;
   ConnectionState get conn => _conn;
@@ -196,10 +225,14 @@ class DaemonSession extends ChangeNotifier {
       if (injected != null) {
         client = injected;
       } else {
-        _setBoot(Boot.spawning, BootStrings.startingDaemon);
+        _setBoot(Boot.spawning, BootStage.spawning);
         final binary = _binaryPathOverride ?? resolveJeliyadBinary();
         if (binary == null) {
-          throw SidecarError(BootStrings.binaryNotFound);
+          // Classified directly: the boot screen composes the translatable
+          // guidance from this stage. Boot.failed keeps the Retry path alive
+          // (see the guard in [start]).
+          _setBoot(Boot.failed, BootStage.failedBinaryMissing);
+          return;
         }
         final supervisor = _supervisor ??
             SidecarSupervisor(binaryPath: binary, dataDir: dataDir, loopback: true);
@@ -212,7 +245,7 @@ class DaemonSession extends ChangeNotifier {
           // evict it and respawn our bundled binary. One retry only: if the
           // fresh spawn also mismatches, OUR binary is the skewed one and
           // the failure surfaces on the boot screen.
-          _setBoot(Boot.spawning, BootStrings.evictingIncumbent);
+          _setBoot(Boot.spawning, BootStage.evicting);
           await supervisor.evictIncumbent();
           ready = await supervisor.start(port: 0);
         }
@@ -226,9 +259,9 @@ class DaemonSession extends ChangeNotifier {
         }
         _setBoot(
           Boot.connecting,
-          ready.adopted
-              ? BootStrings.adoptedDaemon(ready.pid, ready.port)
-              : BootStrings.daemonUp(ready.pid, ready.port),
+          ready.adopted ? BootStage.adopted : BootStage.daemonUp,
+          pid: ready.pid,
+          port: ready.port,
         );
         // The method itself, so reconnects re-read the portfile (token/port
         // changes heal) — the Phase 0 supervision seam.
@@ -252,7 +285,7 @@ class DaemonSession extends ChangeNotifier {
         unawaited(_supervisor?.shutdown());
         return;
       }
-      _setBoot(Boot.ready, '');
+      _setBoot(Boot.ready, BootStage.none);
       // If the connected transition has not been delivered through the states
       // stream yet, synthesize it so the bootstrap runs exactly once (the
       // wasConnected check in _onConnectionState dedupes the stream's copy).
@@ -262,14 +295,41 @@ class DaemonSession extends ChangeNotifier {
       }
     } catch (e) {
       if (_disposed) return;
-      _setBoot(Boot.failed, '$e');
+      // Classified stage; the boot screen composes translatable copy and
+      // '$e' renders as the mono technical line (ProtocolMismatchError
+      // before SidecarError — it is a subtype).
+      switch (e) {
+        case ProtocolMismatchError(:final actual, :final expected):
+          _setBoot(Boot.failed, BootStage.failedMismatch,
+              mismatchActual: actual, mismatchExpected: expected,
+              technical: '$e');
+        case SidecarError _:
+          _setBoot(Boot.failed, BootStage.failedStart, technical: '$e');
+        case TimeoutException _:
+          _setBoot(Boot.failed, BootStage.failedTimeout, technical: '$e');
+        default:
+          _setBoot(Boot.failed, BootStage.failedGeneric, technical: '$e');
+      }
     }
   }
 
-  void _setBoot(Boot boot, String detail) {
+  void _setBoot(
+    Boot boot,
+    BootStage stage, {
+    int? pid,
+    int? port,
+    int? mismatchActual,
+    int? mismatchExpected,
+    String technical = '',
+  }) {
     if (_disposed) return;
     _boot = boot;
-    _bootDetail = detail;
+    _bootStage = stage;
+    _bootPid = pid;
+    _bootPort = port;
+    _bootMismatchActual = mismatchActual;
+    _bootMismatchExpected = mismatchExpected;
+    _bootTechnical = technical;
     notifyListeners();
   }
 
@@ -335,7 +395,9 @@ class DaemonSession extends ChangeNotifier {
       // to the boot screen's failed state (Retry re-checks the daemon).
       if (_disposed || epoch != _bootstrapEpoch) return;
       recordError('daemon.status', e);
-      _setBoot(Boot.failed, BootStrings.protocolMismatch(e.actual, e.expected));
+      _setBoot(Boot.failed, BootStage.failedMismatch,
+          mismatchActual: e.actual, mismatchExpected: e.expected,
+          technical: '$e');
       _phase = BootstrapPhase.boot;
       notifyListeners();
     } catch (_) {
@@ -458,10 +520,11 @@ class DaemonSession extends ChangeNotifier {
 
   // -- names (local aliases; NEVER wire data) --------------------------------------------
 
-  /// Display-name resolution order: 'You' → local alias → shortId (against a
-  /// real daemon there are no seeded suggestions).
-  String displayName(String identityId) {
-    if (isSelf(identityId)) return 'You';
+  /// Display-name resolution order: localized 'You' → local alias → shortId
+  /// (against a real daemon there are no seeded suggestions). Takes the
+  /// ambient catalog so the self-name follows the text locale.
+  String displayName(AppStrings s, String identityId) {
+    if (isSelf(identityId)) return s.commonYou;
     return prefs.aliasFor(identityId) ?? shortId(identityId);
   }
 

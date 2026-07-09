@@ -170,6 +170,10 @@ conditions so error handling is portable:
 - `internal` — a client-side fallback when a failure has no better code (e.g.
   a malformed frame). This overlaps the daemon's own `internal`, which is
   intended.
+- `file_too_large` / `file_unreadable` — share-staging failures a client
+  detects locally before any wire call (picked file exceeds the 100 MiB share
+  cap / cannot be read from disk). Distinct codes exist so UI copy keys off
+  the code, never off parsing English message text. Never sent by the daemon.
 
 Per-method error notes (which *distinctive* wire codes a method can return) are
 inline with each method below. On top of those, several codes are
@@ -511,9 +515,11 @@ cross-client parity. The reference implementations are cited.
 
 `agent_status.label` is free-form wire data; its color is derived, and **green
 must be earned** (honesty rule 4) — a label this contract cannot read renders
-neutral, never a reassuring green. Algorithm (`ui/src/lib/format.ts`
-`labelTone`), applied to the label lowercased with `_`/`-` collapsed to spaces,
-in this precedence:
+neutral, never a reassuring green. Algorithm
+(`dart/jeliya_protocol/lib/src/conventions/format.dart` `labelTone`; the
+retiring web client's `ui/src/lib/format.ts` is the historical source),
+applied to the label lowercased with `_`/`-` collapsed to spaces, in this
+precedence:
 
 1. **red** if it *contains the substring* `fail`, `error`, or `block` (substring
    on purpose — a false alarm is the honest direction to over-match);

@@ -1,0 +1,2220 @@
+{
+  "@@locale": "en",
+  "bootSyncing": "Syncing…",
+  "@bootSyncing": {
+    "description": "Boot-screen status line while the app is connected to the local daemon and syncing state. Ellipsis (…) signals ongoing activity — keep an equivalent ongoing-progress cue."
+  },
+  "bootNotConnected": "Not connected.",
+  "@bootNotConnected": {
+    "description": "Boot-screen status line when the connection to the local daemon is down. Short declarative sentence with trailing period."
+  },
+  "bootContactingDaemon": "Contacting daemon…",
+  "@bootContactingDaemon": {
+    "description": "Boot-screen status line while connecting or reconnecting to the local background daemon. 'daemon' is the technical term for the background process (jeliyad); translate it only if your locale has an established equivalent for this software term, otherwise keep 'daemon'. Ellipsis signals ongoing activity."
+  },
+  "bootRetryingHint": "Retrying with backoff — start jeliyad or pass ?daemon=<port>.",
+  "@bootRetryingHint": {
+    "description": "Hint shown under the boot status only while the app is reconnecting with retries. 'jeliyad' (the daemon binary name) and '?daemon=<port>' (a literal URL query parameter, <port> included) are never-translate protocol tokens — copy them verbatim, unchanged. The em dash (—) separates the status from the suggested fix."
+  },
+  "bootCouldNotStart": "Could not start",
+  "@bootCouldNotStart": {
+    "description": "Headline of the desktop boot-failure screen. No trailing punctuation; a failure summary and a monospace technical detail line render below it."
+  },
+  "bootStartingDaemon": "starting the daemon…",
+  "@bootStartingDaemon": {
+    "description": "Desktop boot progress line while the app launches its bundled background daemon. Intentionally lowercase (renders mid-screen as a quiet status); keep lowercase where the locale allows. Ellipsis signals ongoing activity. 'daemon' is the technical term for the background process."
+  },
+  "bootAdoptedDaemon": "adopted a running daemon (pid {pid}) on :{port}",
+  "@bootAdoptedDaemon": {
+    "description": "Desktop boot progress line when the app attaches to an already-running daemon instead of starting a new one. Intentionally lowercase quiet status. {pid} is the daemon's numeric process id; {port} is the local TCP port — the colon before {port} is host:port notation and must stay directly attached to the number.",
+    "placeholders": {
+      "pid": {
+        "type": "int",
+        "example": "8412"
+      },
+      "port": {
+        "type": "int",
+        "example": "4242"
+      }
+    }
+  },
+  "bootDaemonUp": "daemon up (pid {pid}) on :{port}, connecting…",
+  "@bootDaemonUp": {
+    "description": "Desktop boot progress line once the bundled daemon has started and the app begins connecting to it. Intentionally lowercase quiet status; ellipsis signals ongoing activity. {pid} is the daemon's numeric process id; {port} is the local TCP port — the colon before {port} is host:port notation and must stay directly attached to the number.",
+    "placeholders": {
+      "pid": {
+        "type": "int",
+        "example": "8412"
+      },
+      "port": {
+        "type": "int",
+        "example": "4242"
+      }
+    }
+  },
+  "bootBinaryNotFound": "jeliyad binary not found — set JELIYAD_BIN or run `cargo build` in the repo.",
+  "@bootBinaryNotFound": {
+    "description": "Desktop boot failure when the daemon executable is missing (developer-facing fix hint). 'jeliyad' (binary name), 'JELIYAD_BIN' (environment variable) and '`cargo build`' (shell command, backticks included) are never-translate tokens — copy them verbatim. The em dash (—) separates the problem from the fix."
+  },
+  "bootEvictingIncumbent": "replacing an incompatible daemon with the bundled one…",
+  "@bootEvictingIncumbent": {
+    "description": "Desktop boot progress line while the version-skew rule stops an incompatible already-running daemon and starts the app's bundled one in its place. Intentionally lowercase quiet status; ellipsis signals ongoing activity."
+  },
+  "bootProtocolMismatch": "The daemon speaks protocol v{actual} but this app requires v{expected} — update the app or the daemon, then retry.",
+  "@bootProtocolMismatch": {
+    "description": "Hard boot-failure message when the running daemon's protocol version is incompatible with this app. {actual} is the daemon's protocol version number, {expected} the version this app requires; both render after a literal lowercase 'v' (e.g. 'v3') — keep the v-number pattern attached. The em dash (—) separates the diagnosis from the remedy. 'daemon' is the technical term for the background process.",
+    "placeholders": {
+      "actual": {
+        "type": "int",
+        "example": "2"
+      },
+      "expected": {
+        "type": "int",
+        "example": "3"
+      }
+    }
+  },
+  "bootDaemonStartFailed": "The bundled daemon could not be started on this machine.",
+  "@bootDaemonStartFailed": {
+    "description": "Boot-failure summary (classified bring-up failure) when launching the bundled daemon failed. The raw exception text renders separately below as a monospace technical detail line, so keep this line a plain-language summary."
+  },
+  "bootDaemonConnectTimeout": "The daemon started but did not accept a connection in time.",
+  "@bootDaemonConnectTimeout": {
+    "description": "Boot-failure summary (classified bring-up failure) when the daemon launched but the app's connection attempt timed out. The raw exception text renders separately below as a monospace technical detail line, so keep this line a plain-language summary."
+  },
+  "bootFailedGeneric": "An unexpected failure interrupted start-up.",
+  "@bootFailedGeneric": {
+    "description": "Fallback boot-failure summary for unclassified start-up errors. The raw exception text renders separately below as a monospace technical detail line, so keep this line a plain-language summary."
+  },
+  "composerMessagePlaceholder": "Message {roomName}",
+  "@composerMessagePlaceholder": {
+    "description": "Placeholder text AND accessible label of the message input in the composer bar at the bottom of a room. {roomName} is the room's display name, inserted verbatim (e.g. a room called 'Build Iroh Rooms MVP' reads 'Message Build Iroh Rooms MVP').",
+    "placeholders": {
+      "roomName": {
+        "type": "String",
+        "example": "Build Iroh Rooms MVP"
+      }
+    }
+  },
+  "composerSendMessage": "Send message",
+  "@composerSendMessage": {
+    "description": "Accessible label (screen-reader name) of the send button in the composer bar. The button itself visually shows only an arrow glyph (➤), so this text is what assistive tech announces."
+  },
+  "composerShareAFile": "Share a file",
+  "@composerShareAFile": {
+    "description": "Tooltip and accessible label of the file-share button in the composer bar, which opens the desktop file picker. The button itself visually shows only the ⎘ glyph."
+  },
+  "composerHint": "Enter to send · Shift+Enter for a new line · ⎘ to share a file",
+  "@composerHint": {
+    "description": "Keyboard-hint line shown under the composer bar. 'Enter' and 'Shift+Enter' are keyboard key names — translate them the way keys are conventionally named in your locale. '⎘' is the literal glyph shown on the file-share button and must be kept as-is. The '·' middle dots are separators between the three hints; keep them (with the surrounding spaces) unless your locale uses a different list separator."
+  },
+  "composerSharingFile": "Sharing file…",
+  "@composerSharingFile": {
+    "description": "Replaces the keyboard-hint line under the composer bar while a file share is in flight (progress state). Ends with a single ellipsis character (…), not three periods."
+  },
+  "errPeerUnreachableTitle": "Couldn't reach the inviter",
+  "@errPeerUnreachableTitle": {
+    "description": "Error card headline: joining via an invite failed because the inviter (the room admin) could not be reached over the network in time. Short, plain-language, no blame."
+  },
+  "errPeerUnreachableMessage": "The invite is readable, but this device could not reach the room admin in time.",
+  "@errPeerUnreachableMessage": {
+    "description": "Error card explanation under 'Couldn't reach the inviter'. Clarifies the invite itself parsed fine; the network hop to the room admin timed out."
+  },
+  "errPeerUnreachableAction": "Ask the inviter to keep the room open, then retry. A fresh combined invite can help if the address changed.",
+  "@errPeerUnreachableAction": {
+    "description": "Suggested next step for the unreachable-inviter error. 'Combined invite' is a product term: an invite that bundles the ticket with fresh network address info."
+  },
+  "errBadTicketTitle": "This invite can't be used",
+  "@errBadTicketTitle": {
+    "description": "Error card headline: the invite's ticket is invalid for this user. 'Invite' is the user-facing word; the underlying credential is called a ticket."
+  },
+  "errBadTicketMessage": "The ticket is invalid for this identity, malformed, or no longer matches the room invite.",
+  "@errBadTicketMessage": {
+    "description": "Error card explanation for an unusable invite. 'Ticket' is the product term for the credential inside an invite; 'identity' is the user's cryptographic identity on this device."
+  },
+  "errBadTicketAction": "Ask for a new invite generated for your current identity ID.",
+  "@errBadTicketAction": {
+    "description": "Suggested next step for an unusable invite. 'Identity ID' is the user's cryptographic identity identifier shown in the app; keep the term consistent with Settings."
+  },
+  "errTicketExpiredTitle": "This invite expired",
+  "@errTicketExpiredTitle": {
+    "description": "Error card headline: the invite's ticket passed its expiry time and was rejected by the room."
+  },
+  "errTicketExpiredMessage": "The room rejected the ticket because its expiry time has passed.",
+  "@errTicketExpiredMessage": {
+    "description": "Error card explanation for an expired invite. 'Ticket' is the product term for the credential inside an invite."
+  },
+  "errTicketExpiredAction": "Ask the inviter to generate a fresh ticket.",
+  "@errTicketExpiredAction": {
+    "description": "Suggested next step for an expired invite: request a newly generated ticket from the person who invited you."
+  },
+  "errRoomNotOpenTitle": "Open the room first",
+  "@errRoomNotOpenTitle": {
+    "description": "Error card headline: the attempted action requires the room to be open (a live session) before it can run. Imperative, instructional tone."
+  },
+  "errRoomNotOpenMessage": "This action needs a live room session on your daemon.",
+  "@errRoomNotOpenMessage": {
+    "description": "Error card explanation for acting on a room that is not open. 'Daemon' is a never-translate protocol/product term (the local background process, jeliyad)."
+  },
+  "errRoomNotOpenAction": "Open the room, wait for it to sync, then try again.",
+  "@errRoomNotOpenAction": {
+    "description": "Suggested next step when the room is not open: three sequential instructions the user performs in order."
+  },
+  "errNotAMemberTitle": "You're not an active member",
+  "@errNotAMemberTitle": {
+    "description": "Error card headline: the room's records do not list this user as an active member, so the action was refused."
+  },
+  "errNotAMemberMessage": "The signed room history does not currently admit this identity as an active member.",
+  "@errNotAMemberMessage": {
+    "description": "Error card explanation for the not-a-member error. 'Signed room history' is a protocol concept: the cryptographically signed membership log; 'identity' is the user's cryptographic identity."
+  },
+  "errNotAMemberAction": "Use a valid invite for this identity or ask the room owner to re-add you.",
+  "@errNotAMemberAction": {
+    "description": "Suggested next step for the not-a-member error: two alternatives, joined with 'or'."
+  },
+  "errRoomUnknownTitle": "This room isn't local yet",
+  "@errRoomUnknownTitle": {
+    "description": "Error card headline: this device has no local copy of the room's history, so it cannot open the room. 'Local' means stored on this device."
+  },
+  "errRoomUnknownMessage": "The daemon does not have enough room history to open this room.",
+  "@errRoomUnknownMessage": {
+    "description": "Error card explanation for an unknown room. 'Daemon' is a never-translate protocol/product term (the local background process)."
+  },
+  "errRoomUnknownAction": "Join with an invite, or open the room with a reachable peer hint.",
+  "@errRoomUnknownAction": {
+    "description": "Suggested next step for an unknown room. 'Peer hint' is a product term: address information for a reachable member that helps the device find the room."
+  },
+  "errFileUnauthorizedTitle": "Not authorized for this file",
+  "@errFileUnauthorizedTitle": {
+    "description": "Error card headline: a file download was refused because this user is not authorized for the file."
+  },
+  "errFileUnauthorizedMessage": "Every reachable provider refused the transfer because the signed history does not admit this identity for it.",
+  "@errFileUnauthorizedMessage": {
+    "description": "Error card explanation for an unauthorized file fetch. 'Provider' is a product term: a device that can serve the file; 'signed history' is the cryptographically signed room record; 'identity' is the user's cryptographic identity."
+  },
+  "errFileUnauthorizedAction": "Ask the sender to re-share the file or re-invite you, then retry.",
+  "@errFileUnauthorizedAction": {
+    "description": "Suggested next step for an unauthorized file fetch: two alternatives from the sender, then retry."
+  },
+  "errHashMismatchTitle": "Security check failed",
+  "@errHashMismatchTitle": {
+    "description": "Error card headline: downloaded file bytes failed the cryptographic hash check. Serious security tone; not retryable with the same copy."
+  },
+  "errHashMismatchMessage": "The fetched bytes did not match the file hash. This is a hard stop — the copy is discarded, never shown.",
+  "@errHashMismatchMessage": {
+    "description": "Error card explanation for a failed file integrity check. 'Hard stop' means the app refuses to proceed at all; the downloaded copy is deleted and never displayed. Contains an em dash (—); keep the firm, security-conscious tone."
+  },
+  "errHashMismatchAction": "Ask the sender to re-share the file. Do not retry the same copy.",
+  "@errHashMismatchAction": {
+    "description": "Suggested next step after a failed integrity check. The second sentence is a firm prohibition — retrying the same copy would fail again and could be unsafe."
+  },
+  "errConnectionLostTitle": "Daemon connection lost",
+  "@errConnectionLostTitle": {
+    "description": "Error card headline: the app lost its connection to the local background process. 'Daemon' is a never-translate protocol/product term."
+  },
+  "errConnectionLostMessage": "The local UI is not connected to jeliyad right now.",
+  "@errConnectionLostMessage": {
+    "description": "Error card explanation for a lost daemon connection. 'jeliyad' is the daemon binary's name — never translate, keep exact lowercase spelling."
+  },
+  "errConnectionLostAction": "Wait for reconnect, then retry the action.",
+  "@errConnectionLostAction": {
+    "description": "Suggested next step for a lost daemon connection: the app reconnects automatically; the user just waits and retries."
+  },
+  "errInvalidParamsTitle": "This request wasn't valid",
+  "@errInvalidParamsTitle": {
+    "description": "Error card headline: the daemon rejected the request because one of its input values was invalid (usually something the user typed)."
+  },
+  "errInvalidParamsMessage": "The daemon rejected one of the values in this request.",
+  "@errInvalidParamsMessage": {
+    "description": "Error card explanation for an invalid request. 'Daemon' is a never-translate protocol/product term (the local background process)."
+  },
+  "errInvalidParamsAction": "Check what you entered, then try again.",
+  "@errInvalidParamsAction": {
+    "description": "Suggested next step for an invalid request: re-check the entered values and retry."
+  },
+  "errIdentityMissingTitle": "No identity on this daemon yet",
+  "@errIdentityMissingTitle": {
+    "description": "Error card headline: the action needs a user identity but none has been created on this device yet. 'Identity' is the user's cryptographic identity; 'daemon' is a never-translate protocol/product term."
+  },
+  "errIdentityMissingMessage": "This action needs your identity, and one has not been created here.",
+  "@errIdentityMissingMessage": {
+    "description": "Error card explanation when no identity exists yet. 'Here' means on this device/daemon."
+  },
+  "errIdentityMissingAction": "Create your identity first, then retry.",
+  "@errIdentityMissingAction": {
+    "description": "Suggested next step when no identity exists: create the identity (via onboarding/Settings) before retrying."
+  },
+  "errIdentityExistsTitle": "An identity already exists",
+  "@errIdentityExistsTitle": {
+    "description": "Error card headline: identity creation was refused because this device's daemon already holds one identity (only one is allowed)."
+  },
+  "errIdentityExistsMessage": "This daemon already holds an identity — a second one cannot be created.",
+  "@errIdentityExistsMessage": {
+    "description": "Error card explanation for the duplicate-identity error. 'Daemon' is a never-translate protocol/product term. Contains an em dash (—)."
+  },
+  "errIdentityExistsAction": "Use the existing identity shown in Settings.",
+  "@errIdentityExistsAction": {
+    "description": "Suggested next step for the duplicate-identity error. 'Settings' names the app's Settings screen — keep consistent with that screen's title."
+  },
+  "errFileUnavailableTitle": "File not available right now",
+  "@errFileUnavailableTitle": {
+    "description": "Error card headline: the file cannot be downloaded at the moment because no device that has it is online. Temporary condition, calm tone."
+  },
+  "errFileUnavailableMessage": "No provider is online for this file yet.",
+  "@errFileUnavailableMessage": {
+    "description": "Error card explanation for an unavailable file. 'Provider' is a product term: a device that can serve the file's bytes."
+  },
+  "errFileUnavailableAction": "Recheck when the sender is back online.",
+  "@errFileUnavailableAction": {
+    "description": "Suggested next step for an unavailable file: try again later once the sender's device is online."
+  },
+  "errFileTooLargeTitle": "This file is too large to share",
+  "@errFileTooLargeTitle": {
+    "description": "Error card headline: the user tried to share a file above the size limit."
+  },
+  "errFileTooLargeMessage": "Shares are capped at 100 MiB per file.",
+  "@errFileTooLargeMessage": {
+    "description": "Error card explanation for an oversized file. '100 MiB' is the fixed limit — keep the number and the mebibyte unit 'MiB' exactly as-is."
+  },
+  "errFileTooLargeAction": "Pick a smaller file, or split the content.",
+  "@errFileTooLargeAction": {
+    "description": "Suggested next step for an oversized file: two alternatives, joined with 'or'."
+  },
+  "errFileUnreadableTitle": "This file couldn't be read",
+  "@errFileUnreadableTitle": {
+    "description": "Error card headline: the file the user picked to share could not be read from local disk."
+  },
+  "errFileUnreadableMessage": "The picked file could not be opened from disk.",
+  "@errFileUnreadableMessage": {
+    "description": "Error card explanation for an unreadable picked file. 'Picked' refers to the file chosen in the file picker."
+  },
+  "errFileUnreadableAction": "Check the file still exists and is readable, then retry.",
+  "@errFileUnreadableAction": {
+    "description": "Suggested next step for an unreadable picked file: verify it exists on disk with read permission, then retry."
+  },
+  "errPipeDeniedTitle": "Pipe access denied",
+  "@errPipeDeniedTitle": {
+    "description": "Error card headline: access to a pipe was refused. 'Pipe' is a never-translate protocol/product term (a named byte-stream endpoint shared between peers)."
+  },
+  "errPipeDeniedMessage": "This pipe does not authorize your identity.",
+  "@errPipeDeniedMessage": {
+    "description": "Error card explanation for denied pipe access. 'Pipe' is a never-translate protocol term; 'identity' is the user's cryptographic identity."
+  },
+  "errPipeDeniedAction": "Ask the pipe owner to expose it to your identity.",
+  "@errPipeDeniedAction": {
+    "description": "Suggested next step for denied pipe access. 'Expose' is the product verb for granting a pipe to an identity; 'pipe' is a never-translate protocol term."
+  },
+  "errInternalTitle": "The daemon hit an unexpected failure",
+  "@errInternalTitle": {
+    "description": "Error card headline for an internal (unclassified) daemon error. 'Daemon' is a never-translate protocol/product term."
+  },
+  "errInternalMessage": "This request failed for a reason the daemon could not classify.",
+  "@errInternalMessage": {
+    "description": "Error card explanation for an internal daemon error: even the daemon does not know a more specific cause."
+  },
+  "errInternalAction": "Retry; if it keeps failing, copy diagnostics from Settings and report it.",
+  "@errInternalAction": {
+    "description": "Suggested next step for an internal daemon error. 'Settings' names the app's Settings screen (which has a copy-diagnostics feature) — keep consistent with that screen's title."
+  },
+  "errUnknownTitle": "Something went wrong",
+  "@errUnknownTitle": {
+    "description": "Fallback error card headline used for any error code this app version has no specific copy for (unknown or future codes)."
+  },
+  "errUnknownMessage": "The daemon reported an error this app has no specific copy for.",
+  "@errUnknownMessage": {
+    "description": "Fallback error card explanation for unrecognized error codes. 'Daemon' is a never-translate protocol/product term. The raw error stays visible in the card's collapsed 'Technical details' section."
+  },
+  "errUnknownAction": "Open Technical details for the exact error, then retry.",
+  "@errUnknownAction": {
+    "description": "Fallback suggested next step for unrecognized errors. 'Technical details' names the collapsed section on the same error card — must match that section's label exactly."
+  },
+  "fetchErrFileUnavailable": "No provider is online for this file yet. Recheck when the sender is back online.",
+  "@fetchErrFileUnavailable": {
+    "description": "Fetch-specific error copy shown in a file row's fetch detail when no provider is online; overrides the generic errFileUnavailable* card copy. Two short sentences: explanation, then next step. 'Provider' is a product term: a device that can serve the file."
+  },
+  "fetchErrFileUnauthorized": "Every provider refused this fetch — your identity is not authorized for it. Ask the sender to re-share or re-invite you.",
+  "@fetchErrFileUnauthorized": {
+    "description": "Fetch-specific error copy shown in a file row's fetch detail when the download was refused as unauthorized; overrides the generic errFileUnauthorized* card copy. Contains an em dash (—). 'Fetch' is the product term for a file download; 'identity' is the user's cryptographic identity."
+  },
+  "fetchErrHashMismatch": "This file failed a security check and wasn't saved — it may have been corrupted or tampered with in transit.",
+  "@fetchErrHashMismatch": {
+    "description": "Fetch-specific error copy shown in a file row's fetch detail when the downloaded bytes failed the integrity (hash) check; overrides the generic errHashMismatch* card copy. Contains an em dash (—). Serious security tone: the file was discarded, not saved."
+  },
+  "fleetAgentsTitle": "Agents",
+  "@fleetAgentsTitle": {
+    "description": "Fleet dashboard page title (the top-level view listing all agents across rooms)."
+  },
+  "fleetSearchPlaceholder": "Search agents…",
+  "@fleetSearchPlaceholder": {
+    "description": "Placeholder text inside the fleet dashboard search field. Keep the trailing ellipsis character (…)."
+  },
+  "fleetSearchAgents": "Search agents",
+  "@fleetSearchAgents": {
+    "description": "Accessibility label for the fleet dashboard search field (announced by screen readers). Same wording as the placeholder but without the ellipsis."
+  },
+  "fleetAddAgent": "＋ Add agent",
+  "@fleetAddAgent": {
+    "description": "Button in the fleet dashboard header that opens the Add Agent modal. The leading '＋' (fullwidth plus) and the following space are decorative — keep them exactly and translate only 'Add agent'. The empty state fleetEmptyNoAgents quotes this label as “Add agent” — keep the two consistent."
+  },
+  "fleetFilterAgents": "Filter agents",
+  "@fleetFilterAgents": {
+    "description": "Accessibility label for the row of liveness filter buttons on the fleet dashboard (they behave as toggle buttons, not tabs)."
+  },
+  "fleetFilterAll": "All",
+  "@fleetFilterAll": {
+    "description": "Filter button on the fleet dashboard: show all agents regardless of state."
+  },
+  "fleetFilterActive": "Active",
+  "@fleetFilterActive": {
+    "description": "Filter button on the fleet dashboard: show only active agents (working or online)."
+  },
+  "fleetFilterNeedsAttention": "Needs attention",
+  "@fleetFilterNeedsAttention": {
+    "description": "Filter button on the fleet dashboard: show agents needing attention (stale or offline)."
+  },
+  "fleetFilterWorking": "Working",
+  "@fleetFilterWorking": {
+    "description": "Filter button on the fleet dashboard: show only agents currently working on a task. Uses the same word as the 'Working' liveness pill (fleetLivenessWorking) — translate both identically."
+  },
+  "fleetFilterOffline": "Offline",
+  "@fleetFilterOffline": {
+    "description": "Filter button on the fleet dashboard: show only offline agents. Uses the same word as the 'Offline' liveness pill (fleetLivenessOffline) — translate both identically."
+  },
+  "fleetStatActiveAgents": "Active agents",
+  "@fleetStatActiveAgents": {
+    "description": "Title of the stat tile counting agents currently active (working or online)."
+  },
+  "fleetStatOfTotal": "of {total} total",
+  "@fleetStatOfTotal": {
+    "description": "Sub-caption under the active-agents stat tile; follows the big count, reading e.g. '5' / 'of 8 total'. {total} is the total number of agents in the fleet. Deliberately lowercase.",
+    "placeholders": {
+      "total": {
+        "type": "num"
+      }
+    }
+  },
+  "fleetStatRunningTasks": "Running tasks",
+  "@fleetStatRunningTasks": {
+    "description": "Title of the stat tile counting tasks currently running across the fleet."
+  },
+  "fleetStatOneTaskPerAgent": "one task per agent",
+  "@fleetStatOneTaskPerAgent": {
+    "description": "Sub-caption under the running-tasks stat tile, explaining that each agent runs at most one task at a time. Deliberately lowercase."
+  },
+  "fleetStatRoomCoverage": "Room coverage",
+  "@fleetStatRoomCoverage": {
+    "description": "Title of the stat tile showing how many rooms have at least one agent in them."
+  },
+  "fleetStatRoomsCovered": "{covered} of {total} rooms",
+  "@fleetStatRoomsCovered": {
+    "description": "Sub-caption under the room-coverage stat tile, e.g. '3 of 5 rooms'. {covered} is the number of rooms that have an agent; {total} is the number of all rooms. English keeps 'rooms' plural even when a count is 1 (matches the source app).",
+    "placeholders": {
+      "covered": {
+        "type": "num"
+      },
+      "total": {
+        "type": "num"
+      }
+    }
+  },
+  "fleetLoadingAgents": "Loading agents",
+  "@fleetLoadingAgents": {
+    "description": "Loading-state text and accessibility label shown while the fleet agent list is being fetched."
+  },
+  "fleetEmptyNoAgents": "No agents in any room yet. Use “Add agent” to mint an invite.",
+  "@fleetEmptyNoAgents": {
+    "description": "Fleet dashboard empty state when no agent exists in any room. “Add agent” (in curly quotes) quotes the fleetAddAgent button label — translate it the same way and keep the curly quotes. 'Mint' means create/issue an invite ticket."
+  },
+  "fleetEmptyNoMatch": "No agents match this filter.",
+  "@fleetEmptyNoMatch": {
+    "description": "Fleet dashboard empty state when the selected filter matches no agents."
+  },
+  "fleetLivenessWorking": "Working",
+  "@fleetLivenessWorking": {
+    "description": "Liveness pill on an agent card: the agent is actively working on a task right now. One of four truthful, derived states (Working/Online/Stale/Offline)."
+  },
+  "fleetLivenessOnline": "Online",
+  "@fleetLivenessOnline": {
+    "description": "Liveness pill on an agent card: the agent is connected but idle."
+  },
+  "fleetLivenessStale": "Stale",
+  "@fleetLivenessStale": {
+    "description": "Liveness pill on an agent card: the agent's last update is old, so its real state is uncertain (it may have silently stopped)."
+  },
+  "fleetLivenessOffline": "Offline",
+  "@fleetLivenessOffline": {
+    "description": "Liveness pill on an agent card: the agent is not connected."
+  },
+  "fleetNoStatusPosted": "No status posted yet.",
+  "@fleetNoStatusPosted": {
+    "description": "Agent-card body text when the agent has never posted a status message."
+  },
+  "fleetLastUpdate": "Last update {rel}",
+  "@fleetLastUpdate": {
+    "description": "Timestamp line on an agent card. {rel} is an already-localized relative time such as '5m ago' or 'just now' (from fleetRelJustNow / fleetRel*Ago).",
+    "placeholders": {
+      "rel": {
+        "type": "String",
+        "example": "5m ago"
+      }
+    }
+  },
+  "fleetNeverSeen": "Never seen",
+  "@fleetNeverSeen": {
+    "description": "Timestamp line on an agent card when the agent has never been seen online (replaces the 'Last update …' line)."
+  },
+  "fleetOpenRoom": "⇱ Open room",
+  "@fleetOpenRoom": {
+    "description": "Link on an agent card that navigates to the room the agent is in. The leading '⇱' and the following space are decorative — keep them exactly and translate only 'Open room'."
+  },
+  "fleetSparkLoading": "Loading status history",
+  "@fleetSparkLoading": {
+    "description": "Accessibility label for the agent-card sparkline chart while its status history is loading (a flat baseline is shown)."
+  },
+  "fleetSparkEmpty": "No status history yet",
+  "@fleetSparkEmpty": {
+    "description": "Accessibility label for the agent-card sparkline chart when the agent has no status history (shown as a dashed line)."
+  },
+  "fleetSparkEvents": "{n, plural, one{{n} status event} other{{n} status events}}",
+  "@fleetSparkEvents": {
+    "description": "Accessibility label for the agent-card sparkline chart: how many status events it plots.",
+    "placeholders": {
+      "n": {
+        "type": "num"
+      }
+    }
+  },
+  "fleetRelJustNow": "just now",
+  "@fleetRelJustNow": {
+    "description": "Relative timestamp for something under a minute old, used in 'Last update {rel}'. Deliberately lowercase. Display only — never a liveness claim."
+  },
+  "fleetRelMinutesAgo": "{m}m ago",
+  "@fleetRelMinutesAgo": {
+    "description": "Compact relative timestamp, e.g. '5m ago'; 'm' abbreviates minutes and {m} is the minute count. Used in 'Last update {rel}'. Keep it short — it must fit on an agent card.",
+    "placeholders": {
+      "m": {
+        "type": "num"
+      }
+    }
+  },
+  "fleetRelHoursAgo": "{h}h ago",
+  "@fleetRelHoursAgo": {
+    "description": "Compact relative timestamp, e.g. '3h ago'; 'h' abbreviates hours and {h} is the hour count. Used in 'Last update {rel}'. Keep it short.",
+    "placeholders": {
+      "h": {
+        "type": "num"
+      }
+    }
+  },
+  "fleetRelDaysAgo": "{d}d ago",
+  "@fleetRelDaysAgo": {
+    "description": "Compact relative timestamp, e.g. '2d ago'; 'd' abbreviates days and {d} is the day count. Used in 'Last update {rel}'. Keep it short.",
+    "placeholders": {
+      "d": {
+        "type": "num"
+      }
+    }
+  },
+  "addAgentTitle": "Add an agent",
+  "@addAgentTitle": {
+    "description": "Title of the Add Agent modal, where the user mints an agent-role invite ticket for a room they own."
+  },
+  "addAgentNoOwnedRooms": "You don’t own any rooms yet. Create a room first — agent invites can only be minted for a room you own.",
+  "@addAgentNoOwnedRooms": {
+    "description": "Add Agent modal body shown when the user owns no rooms, so no agent invite can be minted. 'Mint' means create/issue an invite ticket."
+  },
+  "addAgentIntro": "Mint an agent-role ticket for a room you own. This {emphasis} — running the command below on the agent’s machine is a deliberate, human step (the security boundary).",
+  "@addAgentIntro": {
+    "description": "Intro paragraph of the Add Agent modal. {emphasis} is a styled bold span filled with the addAgentIntroEmphasis text ('does not start anything'); place it where the bold phrase belongs so the combined sentence reads naturally, e.g. 'This does not start anything — running the command…'.",
+    "placeholders": {
+      "emphasis": {
+        "type": "String",
+        "example": "does not start anything"
+      }
+    }
+  },
+  "addAgentIntroEmphasis": "does not start anything",
+  "@addAgentIntroEmphasis": {
+    "description": "The bold phrase inserted into the {emphasis} slot of addAgentIntro. Translate it so the combined sentence 'This {emphasis} — running the command below…' works in your language. Deliberately lowercase mid-sentence."
+  },
+  "addAgentRoomLabel": "Room",
+  "@addAgentRoomLabel": {
+    "description": "Form label for the room selector in the Add Agent modal (which room the invite is minted for)."
+  },
+  "addAgentIdentityLabel": "Agent identity ID",
+  "@addAgentIdentityLabel": {
+    "description": "Form label for the text field where the user pastes the agent's identity ID."
+  },
+  "addAgentIdentityPlaceholder": "64-hex identity ID (from jeliya-agent.mjs --identity-only)",
+  "@addAgentIdentityPlaceholder": {
+    "description": "Placeholder inside the agent identity field. '64-hex' means 64 hexadecimal characters. 'jeliya-agent.mjs --identity-only' is a literal command invocation — never translate it."
+  },
+  "addAgentWorkerLabel": "Worker",
+  "@addAgentWorkerLabel": {
+    "description": "Form label for the worker selector (which worker program the agent will run)."
+  },
+  "addAgentWorkerEchoOption": "echo (safe — no real execution, for trying the flow)",
+  "@addAgentWorkerEchoOption": {
+    "description": "Worker dropdown option. 'echo' is the literal worker value passed on the command line — never translate it; translate only the parenthetical explanation."
+  },
+  "addAgentWorkerClaudeOption": "claude (runs real commands — arbitrary code/file execution for this room’s allowlisted senders)",
+  "@addAgentWorkerClaudeOption": {
+    "description": "Worker dropdown option. 'claude' is the literal worker value passed on the command line — never translate it; translate only the parenthetical explanation. 'Allowlisted senders' are room members permitted to trigger the agent."
+  },
+  "addAgentClaudeWarning": "WARNING — --worker claude runs the claude CLI with --permission-mode acceptEdits on every triggered message from an allowlisted sender. That is arbitrary code / file execution on this host. Only enable it for a room and senders you trust.",
+  "@addAgentClaudeWarning": {
+    "description": "Security warning shown when the claude worker is selected. Keep the emphatic 'WARNING'. '--worker claude', 'claude CLI', and '--permission-mode acceptEdits' are literal command-line tokens — never translate them."
+  },
+  "addAgentMintInvite": "Mint agent invite",
+  "@addAgentMintInvite": {
+    "description": "Submit button of the Add Agent form; mints (creates) the agent invite ticket."
+  },
+  "addAgentMinting": "Minting…",
+  "@addAgentMinting": {
+    "description": "Submit button label while the invite is being minted (in-progress state of addAgentMintInvite). Keep the trailing ellipsis character (…)."
+  },
+  "addAgentResultIntro": "Run this on the agent’s machine to bring it into the room. The daemon has no “spawn agent” call — this is copied and run by a human on purpose.",
+  "@addAgentResultIntro": {
+    "description": "Intro of the result view after an invite is minted, above the launch command. 'The daemon' is the background jeliyad process — 'daemon' is product terminology, keep or transliterate consistently. “spawn agent” (in curly quotes) names a hypothetical API call that deliberately does not exist — keep the quotes; the point is a human must copy and run the command on purpose."
+  },
+  "addAgentLaunchCommandLabel": "Agent launch command",
+  "@addAgentLaunchCommandLabel": {
+    "description": "Label above the read-only shell command box in the result view."
+  },
+  "addAgentCopyCommand": "Copy command",
+  "@addAgentCopyCommand": {
+    "description": "Button that copies the full agent launch command to the clipboard."
+  },
+  "addAgentGuidance": "The runner lives in the repo — clone it and run this from the checkout (no {npm} needed; Node 22+ required). Installed {jeliyad} via brew/script instead of building? Prefix the command with {prefix} so the runner finds it. Full guide: {guide}.",
+  "@addAgentGuidance": {
+    "description": "Guidance paragraph under the launch command in the result view. All four placeholders are rendered as monospace code spans whose content is technical notation and is never translated: {npm} = 'npm install', {jeliyad} = 'jeliyad' (the daemon binary), {prefix} = the shell prefix JELIYAD=\"$(command -v jeliyad)\", {guide} = the file path 'docs/agent-guide.md'. Reorder them as your grammar requires. 'Node 22+', 'brew' and 'repo/checkout' are developer terms.",
+    "placeholders": {
+      "npm": {
+        "type": "String",
+        "example": "npm install"
+      },
+      "jeliyad": {
+        "type": "String",
+        "example": "jeliyad"
+      },
+      "prefix": {
+        "type": "String",
+        "example": "JELIYAD=\"$(command -v jeliyad)\""
+      },
+      "guide": {
+        "type": "String",
+        "example": "docs/agent-guide.md"
+      }
+    }
+  },
+  "addAgentTicketOnly": "Ticket only (if you assemble the command yourself):",
+  "@addAgentTicketOnly": {
+    "description": "Label above the raw invite-ticket string in the result view, for users who build the launch command manually. Keep the trailing colon."
+  },
+  "addAgentCopyTicket": "Copy ticket",
+  "@addAgentCopyTicket": {
+    "description": "Button that copies only the raw invite ticket to the clipboard."
+  },
+  "addAgentNoDialableAddr": "This daemon reported no dialable address — the agent may connect via relay or discovery.",
+  "@addAgentNoDialableAddr": {
+    "description": "Note in the result view when the daemon reports no directly dialable network address. 'daemon' is the background jeliyad process (product terminology); 'relay' and 'discovery' are networking mechanisms. 'Dialable' means directly reachable."
+  },
+  "addAgentNewInvite": "← New invite",
+  "@addAgentNewInvite": {
+    "description": "Back link in the result view that returns to a fresh invite form. The leading '←' arrow and the following space are decorative — keep them exactly and translate only 'New invite'."
+  },
+  "modalCreateRoomTitle": "Create a room",
+  "@modalCreateRoomTitle": {
+    "description": "Reused on three surfaces: the Create Room modal title, the onboarding create-card heading, and the primary button at the bottom of the Settings panel that opens the modal. Keep it short enough to work as a button label."
+  },
+  "modalRoomNameLabel": "Room name",
+  "@modalRoomNameLabel": {
+    "description": "Field label for the room-name text input in the Create Room modal."
+  },
+  "modalRoomNamePlaceholder": "Build Iroh Rooms MVP",
+  "@modalRoomNamePlaceholder": {
+    "description": "Ghost/placeholder text inside the room-name input of the Create Room modal — an example room name. Translate as a natural-sounding example project name; 'Iroh Rooms' is a product/protocol name and may stay untranslated."
+  },
+  "modalCreateRoom": "Create room",
+  "@modalCreateRoom": {
+    "description": "Imperative button action, not a title. Appears on three surfaces: the Create Room modal confirm button, the onboarding create-card submit button, and a compact sidebar entry-point row."
+  },
+  "modalCreatingRoom": "Creating…",
+  "@modalCreatingRoom": {
+    "description": "Create Room modal confirm button label while creation is in progress (temporarily replaces 'Create room'). Keep the trailing ellipsis character (…)."
+  },
+  "modalJoinRoomTitle": "Join with a ticket",
+  "@modalJoinRoomTitle": {
+    "description": "Reused on three surfaces: the Join Room modal title, the onboarding join-card heading, and a compact sidebar entry-point row. Keep it short enough for a one-line sidebar row."
+  },
+  "modalJoinCopy": "Paste the invite you received. A combined invite ({combined}) fills in the peer address automatically.",
+  "@modalJoinCopy": {
+    "description": "Explanatory body text of the Join Room modal. {combined} is a styled monospace span that the app fills with the untranslatable wire notation 'ticket#address' — reposition it freely to read naturally, but do not translate its content.",
+    "placeholders": {
+      "combined": {
+        "type": "String",
+        "example": "ticket#address"
+      }
+    }
+  },
+  "modalTicketLabel": "Ticket",
+  "@modalTicketLabel": {
+    "description": "Field label for the ticket (invite credential) input in the Join Room modal."
+  },
+  "modalTicketPlaceholder": "roomtkt1… or roomtkt1…#<endpoint_id>@host:port",
+  "@modalTicketPlaceholder": {
+    "description": "Ghost/placeholder text in the ticket input of the Join Room modal, showing the two accepted invite wire formats. ONLY the word 'or' is translatable; 'roomtkt1…', '#', and '<endpoint_id>@host:port' are literal wire syntax and must be kept byte-for-byte (including the … ellipses)."
+  },
+  "modalPeerAddrLabel": "Peer address",
+  "@modalPeerAddrLabel": {
+    "description": "Field label for the optional peer-address input in the Join Room modal."
+  },
+  "modalPeerAddrOptional": "(optional)",
+  "@modalPeerAddrOptional": {
+    "description": "Suffix rendered after the 'Peer address' field label in the Join Room modal, marking the field as optional. Keep the parentheses."
+  },
+  "modalJoinRoom": "Join room",
+  "@modalJoinRoom": {
+    "description": "Confirm button of the Join Room modal. Imperative button action."
+  },
+  "modalJoiningRoom": "Joining…",
+  "@modalJoiningRoom": {
+    "description": "Join Room modal confirm button label while joining is in progress (temporarily replaces 'Join room'). Keep the trailing ellipsis character (…)."
+  },
+  "modalLeaveRoomTitle": "Leave room",
+  "@modalLeaveRoomTitle": {
+    "description": "Title of the Leave Room confirmation modal. Same English text as the confirm button (modalLeaveRoom) but this one is a dialog title."
+  },
+  "modalLeaveCopy": "Leaving {room} publishes a signed membership departure. This is different from closing the local session; you’ll need a new invite to join again.",
+  "@modalLeaveCopy": {
+    "description": "Warning body text of the Leave Room modal explaining that leaving is permanent and announced to the room. {room} is the room's name, rendered as a bold styled span. Keep the tone factual, not alarming.",
+    "placeholders": {
+      "room": {
+        "type": "String",
+        "example": "Build Iroh Rooms MVP"
+      }
+    }
+  },
+  "modalLeaveRoom": "Leave room",
+  "@modalLeaveRoom": {
+    "description": "Destructive confirm button of the Leave Room modal. Same English text as the title (modalLeaveRoomTitle) but translate as an imperative button action."
+  },
+  "modalLeavingRoom": "Leaving…",
+  "@modalLeavingRoom": {
+    "description": "Leave Room modal confirm button label while the leave operation is in progress (temporarily replaces 'Leave room'). Keep the trailing ellipsis character (…)."
+  },
+  "modalCancel": "Cancel",
+  "@modalCancel": {
+    "description": "Back-out button on the Leave Room confirmation modal; sits beside the destructive 'Leave room' confirm and declines leaving."
+  },
+  "onboardingTagline": "Your rooms, your data. Private by default — built for humans & agents.",
+  "@onboardingTagline": {
+    "description": "Product tagline shown on the onboarding welcome screen, under the Jeliya wordmark. 'agents' means AI/software agents (as opposed to human users); keep the privacy-first, confident tone."
+  },
+  "onboardingIdentityTitle": "Create your identity",
+  "@onboardingIdentityTitle": {
+    "description": "Heading of the first onboarding step, where the user generates their local cryptographic identity (keypair)."
+  },
+  "onboardingIdentityCopy1": "A keypair generated and stored by your local daemon. No account, no server — the private key never leaves this machine.",
+  "@onboardingIdentityCopy1": {
+    "description": "First explanatory paragraph on the onboarding identity step: explains that the identity is a cryptographic keypair created and kept locally. 'daemon' refers to the local jeliyad background process — a protocol term used consistently across the app; do not translate it."
+  },
+  "onboardingIdentityCopy2": "There's no password reset and no recovery — if you lose this device or its data folder, this identity is gone for good.",
+  "@onboardingIdentityCopy2": {
+    "description": "Second explanatory paragraph on the onboarding identity step: a serious warning that the identity is unrecoverable if the device or its data folder is lost. Keep the cautionary tone."
+  },
+  "onboardingCreateIdentity": "Create identity",
+  "@onboardingCreateIdentity": {
+    "description": "Primary button on the onboarding identity step that generates the user's identity keypair."
+  },
+  "onboardingCreatingIdentity": "Creating…",
+  "@onboardingCreatingIdentity": {
+    "description": "In-progress label shown on the Create identity button while the keypair is being generated. Ends with an ellipsis character (…)."
+  },
+  "onboardingYourIdentityId": "Your identity ID",
+  "@onboardingYourIdentityId": {
+    "description": "Label above the user's own hex identity ID on the identity card of the onboarding rooms step."
+  },
+  "onboardingIdentityCardCopy1": "Being invited to a room? Send this ID to the inviter first — tickets are bound to it.",
+  "@onboardingIdentityCardCopy1": {
+    "description": "Helper paragraph on the onboarding identity card: tells a user who expects a room invite to send this identity ID to the inviter first, because invite tickets are cryptographically bound to it."
+  },
+  "onboardingIdentityCardCopy2": "Peers show up by this same hex ID at first — click any name in a room to set a local nickname for them (only visible to you).",
+  "@onboardingIdentityCardCopy2": {
+    "description": "Helper paragraph on the onboarding identity card: explains that other peers initially appear as hex IDs and that clicking a name in a room lets the user assign a private local nickname."
+  },
+  "onboardingCreateRoomCopy": "Start a space and invite people or agents with tickets.",
+  "@onboardingCreateRoomCopy": {
+    "description": "Description on the create-room card of the onboarding rooms step, under the shared 'Create a room' heading. 'tickets' are room invite tickets; 'agents' means AI/software agents."
+  },
+  "onboardingJoinAttempt": "Attempt {attempt}/{maxAttempts}",
+  "@onboardingJoinAttempt": {
+    "description": "Progress counter shown while joining a room from onboarding, e.g. 'Attempt 2/5'. {attempt} is the current 1-based try, {maxAttempts} the maximum number of tries. The '/' separates the two numbers.",
+    "placeholders": {
+      "attempt": {
+        "type": "num",
+        "example": "2"
+      },
+      "maxAttempts": {
+        "type": "num",
+        "example": "5"
+      }
+    }
+  },
+  "onboardingJoinFinding": "Finding the inviter and syncing the room invite…",
+  "@onboardingJoinFinding": {
+    "description": "Join-progress status line shown while the app locates the inviting peer and syncs the room invite. Ends with an ellipsis character (…)."
+  },
+  "onboardingJoinRetryingAttempt": "Retrying join ({attempt}/{maxAttempts})…",
+  "@onboardingJoinRetryingAttempt": {
+    "description": "Join-progress status line shown while a room join is being retried, e.g. 'Retrying join (2/5)…'. {attempt} is the current 1-based try, {maxAttempts} the maximum. Ends with an ellipsis character (…).",
+    "placeholders": {
+      "attempt": {
+        "type": "num",
+        "example": "2"
+      },
+      "maxAttempts": {
+        "type": "num",
+        "example": "5"
+      }
+    }
+  },
+  "onboardingJoinRetryWait": "The first path did not answer. Retrying in {seconds}s…",
+  "@onboardingJoinRetryWait": {
+    "description": "Join-progress status line shown after the first connection path failed. {seconds} is the wait in seconds before the next retry; the lowercase 's' directly after it is the seconds abbreviation (e.g. '5s') — adapt the abbreviation to the locale. Ends with an ellipsis character (…).",
+    "placeholders": {
+      "seconds": {
+        "type": "num",
+        "example": "5"
+      }
+    }
+  },
+  "panelRoomPanel": "Room panel",
+  "@panelRoomPanel": {
+    "description": "Accessibility label (tablist) for the right panel's tab strip holding the Members / Agents / Files / Pipes tabs."
+  },
+  "panelTabMembers": "Members",
+  "@panelTabMembers": {
+    "description": "Tab label in the right room panel; opens the member roster."
+  },
+  "panelTabAgents": "Agents",
+  "@panelTabAgents": {
+    "description": "Tab label in the right room panel; opens the list of agent members. Same English word as the 'Agents' stat tile (panelStatAgents) but a separate key — translate for a tab context."
+  },
+  "panelTabFiles": "Files",
+  "@panelTabFiles": {
+    "description": "Tab label in the right room panel; opens the shared-files view."
+  },
+  "panelTabPipes": "Pipes",
+  "@panelTabPipes": {
+    "description": "Tab label in the right room panel; opens the port-forwarding pipes view. 'Pipe' is the product term for a forwarded local port."
+  },
+  "panelMembersEmpty": "No members have synced for this room yet.",
+  "@panelMembersEmpty": {
+    "description": "Empty state of the Members tab, shown before any membership events have synced from the room history."
+  },
+  "panelMembersSummaryLabel": "Room members summary",
+  "@panelMembersSummaryLabel": {
+    "description": "Accessibility label for the summary card at the top of the Members tab."
+  },
+  "panelRoomMemberCount": "{n, plural, one{{n} room member} other{{n} room members}}",
+  "@panelRoomMemberCount": {
+    "description": "Headline count on the Members tab summary card.",
+    "placeholders": {
+      "n": {
+        "type": "num"
+      }
+    }
+  },
+  "panelRosterCopy": "Roster from the signed room history. Statuses reflect membership events, not live peer reachability.",
+  "@panelRosterCopy": {
+    "description": "Explanatory copy on the Members tab summary card: the roster comes from cryptographically signed history, so statuses do not indicate whether a peer is currently online."
+  },
+  "panelMemberCountsLabel": "Member counts",
+  "@panelMemberCountsLabel": {
+    "description": "Accessibility label for the Active / Agents / Invited stat row on the Members tab."
+  },
+  "panelStatActive": "Active",
+  "@panelStatActive": {
+    "description": "Stat tile label on the Members tab: number of active members. Separate key from the 'Active' pipe state (panelPipeStateActive)."
+  },
+  "panelStatAgents": "Agents",
+  "@panelStatAgents": {
+    "description": "Stat tile label on the Members tab: number of agent members. Separate key from the Agents tab label."
+  },
+  "panelStatInvited": "Invited",
+  "@panelStatInvited": {
+    "description": "Stat tile label on the Members tab: number of invited members who have not joined yet."
+  },
+  "panelRoomRoster": "Room roster",
+  "@panelRoomRoster": {
+    "description": "Heading above the member list on the Members tab."
+  },
+  "panelNActive": "{n} active",
+  "@panelNActive": {
+    "description": "Short counter beside the 'Room roster' heading; {n} is the number of active members.",
+    "placeholders": {
+      "n": {
+        "type": "num"
+      }
+    }
+  },
+  "panelThisDevice": "this device",
+  "@panelThisDevice": {
+    "description": "Badge on the roster row belonging to the local device. Deliberately lowercase in English."
+  },
+  "panelRoleOwner": "Owner",
+  "@panelRoleOwner": {
+    "description": "Display label for the room-owner role on roster rows and pickers. Translating it does not affect the wire role value."
+  },
+  "panelRoleAgent": "Agent",
+  "@panelRoleAgent": {
+    "description": "Display label for the agent role (an automated member) on roster rows and pickers. Translating it does not affect the wire role value."
+  },
+  "panelRoleMember": "Member",
+  "@panelRoleMember": {
+    "description": "Display label for the ordinary member role on roster rows and pickers. Translating it does not affect the wire role value."
+  },
+  "panelStatusUnknown": "Unknown",
+  "@panelStatusUnknown": {
+    "description": "Fallback membership-status label on a roster row when the status is unrecognized."
+  },
+  "panelLeave": "Leave",
+  "@panelLeave": {
+    "description": "Button on your own roster row to leave the room."
+  },
+  "panelOwnerStays": "Owner stays",
+  "@panelOwnerStays": {
+    "description": "Disabled-button label replacing 'Leave' on the owner's own roster row. Keep it short — it sits in a button."
+  },
+  "panelOwnerStaysTitle": "Owners cannot leave until ownership transfer exists.",
+  "@panelOwnerStaysTitle": {
+    "description": "Tooltip on the disabled 'Owner stays' button explaining why the owner cannot leave (the ownership-transfer feature does not exist yet)."
+  },
+  "panelAgentsEmpty": "No agent members in this room yet. Invite one with role “agent”.",
+  "@panelAgentsEmpty": {
+    "description": "Empty state of the Agents tab. The quoted “agent” is the literal wire role value — keep the word inside the quotation marks untranslated; the surrounding sentence translates normally."
+  },
+  "panelNoStatusPostedYet": "No status posted yet",
+  "@panelNoStatusPostedYet": {
+    "description": "Status line on an agent row when the agent has not posted any status. A short line, not a sentence — no trailing period (deliberately distinct from the fleet card's full sentence)."
+  },
+  "panelAgentStatusFooter": "status: {status}",
+  "@panelAgentStatusFooter": {
+    "description": "Footer line on an agent row showing its latest free-text status. 'status:' is deliberately lowercase; {status} is the agent-authored text.",
+    "placeholders": {
+      "status": {
+        "type": "String",
+        "example": "indexing the repo"
+      }
+    }
+  },
+  "panelFilesSummaryLabel": "Files summary",
+  "@panelFilesSummaryLabel": {
+    "description": "Accessibility label for the summary card at the top of the Files tab."
+  },
+  "panelNoSharedFilesYet": "No shared files yet",
+  "@panelNoSharedFilesYet": {
+    "description": "Hero headline on the Files tab when no files have been shared. No trailing period."
+  },
+  "panelSharedFileCount": "{n, plural, one{{n} shared file} other{{n} shared files}}",
+  "@panelSharedFileCount": {
+    "description": "Hero headline on the Files tab: number of files shared in the room.",
+    "placeholders": {
+      "n": {
+        "type": "num"
+      }
+    }
+  },
+  "panelFilesHeroEmptyDetail": "Share a readable path and peers can fetch a verified copy over P2P.",
+  "@panelFilesHeroEmptyDetail": {
+    "description": "Hero detail line under 'No shared files yet'. P2P means peer-to-peer; 'verified' refers to content-hash verification."
+  },
+  "panelFilesHeroDetail": "{totalBytes} in the room · {availableCount} fetchable here",
+  "@panelFilesHeroDetail": {
+    "description": "Hero detail line on the Files tab. {totalBytes} is a pre-formatted total size; {availableCount} is how many of the shared files can be fetched from this device. ' · ' is a visual separator — keep or adapt spacing carefully.",
+    "placeholders": {
+      "totalBytes": {
+        "type": "String",
+        "example": "12.4 MB"
+      },
+      "availableCount": {
+        "type": "num"
+      }
+    }
+  },
+  "panelNFetched": "{n} fetched",
+  "@panelNFetched": {
+    "description": "Short counter on the Files tab: number of files already fetched to this device.",
+    "placeholders": {
+      "n": {
+        "type": "num"
+      }
+    }
+  },
+  "panelFileAvailabilityLabel": "File availability",
+  "@panelFileAvailabilityLabel": {
+    "description": "Accessibility label for the availability stat row on the Files tab."
+  },
+  "panelFetchableNow": "Fetchable now",
+  "@panelFetchableNow": {
+    "description": "Stat tile label on the Files tab: how many files can be fetched right now."
+  },
+  "panelFetchableNowValue": "{available}/{total}",
+  "@panelFetchableNowValue": {
+    "description": "Value of the 'Fetchable now' stat, a ratio like '3/5': {available} fetchable out of {total} shared files. Adjust the separator only if the locale requires it.",
+    "placeholders": {
+      "available": {
+        "type": "num"
+      },
+      "total": {
+        "type": "num"
+      }
+    }
+  },
+  "panelProviderDevices": "Provider devices",
+  "@panelProviderDevices": {
+    "description": "Stat tile label on the Files tab: number of devices currently able to provide (serve) files."
+  },
+  "panelShareCardTitle": "Choose a file to share",
+  "@panelShareCardTitle": {
+    "description": "Heading of the share-a-file card on the Files tab."
+  },
+  "panelShareCardHelp": "Pick a local file. Jeliya uploads it to this daemon, imports it into the room blob store, and verifies it by content hash.",
+  "@panelShareCardHelp": {
+    "description": "Help copy in the share-a-file card. 'Jeliya' is the product wordmark and 'daemon' names the background process — keep both untranslated. 'blob store' is the daemon's content storage."
+  },
+  "panelHashCheckedBadge": "hash checked",
+  "@panelHashCheckedBadge": {
+    "description": "Small badge indicating a file's integrity is verified by content hash. Deliberately lowercase in English."
+  },
+  "panelHashCheckedBadgeLabel": "Verified by content hash",
+  "@panelHashCheckedBadgeLabel": {
+    "description": "Accessibility label / tooltip for the 'hash checked' badge."
+  },
+  "panelChooseFile": "Choose file",
+  "@panelChooseFile": {
+    "description": "Button that opens the operating system file picker on the share card."
+  },
+  "panelChooseFileToShare": "Choose file to share",
+  "@panelChooseFileToShare": {
+    "description": "Longer accessibility label for the 'Choose file' picker button on the share card."
+  },
+  "panelNoFileSelectedYet": "No file selected yet.",
+  "@panelNoFileSelectedYet": {
+    "description": "Placeholder text beside the file picker before a file has been chosen."
+  },
+  "panelClearSelectedFile": "Clear",
+  "@panelClearSelectedFile": {
+    "description": "Button that clears the currently selected file on the share card (deselects it; nothing is deleted)."
+  },
+  "panelShare": "Share",
+  "@panelShare": {
+    "description": "Primary button that shares the selected file into the room."
+  },
+  "panelSharing": "Sharing…",
+  "@panelSharing": {
+    "description": "In-progress label of the Share button while the upload/import runs. Keep the trailing ellipsis."
+  },
+  "panelAdvancedPathSummary": "Advanced: paste a daemon-readable path",
+  "@panelAdvancedPathSummary": {
+    "description": "Expander summary revealing the advanced path input. 'daemon-readable' means readable by the background daemon process — keep 'daemon' untranslated."
+  },
+  "panelPathFieldLabel": "File path to share",
+  "@panelPathFieldLabel": {
+    "description": "Label of the advanced text field where the user pastes a daemon-readable file path."
+  },
+  "panelPathHint": "Use this only for files already under the daemon data directory.",
+  "@panelPathHint": {
+    "description": "Hint under the advanced path field. 'daemon data directory' is the daemon's storage folder — keep 'daemon' untranslated."
+  },
+  "panelSharedInThisRoom": "Shared in this room",
+  "@panelSharedInThisRoom": {
+    "description": "Heading of the list of files shared in the room."
+  },
+  "panelAllFetchable": "All fetchable",
+  "@panelAllFetchable": {
+    "description": "Summary line beside the shared-files heading when every file can currently be fetched."
+  },
+  "panelServedByYou": "{n} served by you",
+  "@panelServedByYou": {
+    "description": "Summary counter beside the shared-files heading: {n} is the number of files this device is serving to peers.",
+    "placeholders": {
+      "n": {
+        "type": "num"
+      }
+    }
+  },
+  "panelAwaitingProvider": "{n} awaiting a provider",
+  "@panelAwaitingProvider": {
+    "description": "Summary counter beside the shared-files heading: {n} is the number of files with no online provider. 'a provider' stays singular in English regardless of {n}.",
+    "placeholders": {
+      "n": {
+        "type": "num"
+      }
+    }
+  },
+  "panelHealthServingToPeers": "Serving to peers",
+  "@panelHealthServingToPeers": {
+    "description": "File health label on a file row: this device is serving the file to peers."
+  },
+  "panelHealthFetchedLocally": "Fetched locally",
+  "@panelHealthFetchedLocally": {
+    "description": "File health label on a file row: the file has already been fetched to this device."
+  },
+  "panelHealthSecurityCheckFailed": "Security check failed",
+  "@panelHealthSecurityCheckFailed": {
+    "description": "File health label on a file row: fetched data failed the content-hash security check."
+  },
+  "panelHealthFetchFailed": "Fetch failed",
+  "@panelHealthFetchFailed": {
+    "description": "File health label on a file row: the last fetch attempt failed."
+  },
+  "panelHealthReadyToFetch": "Ready to fetch",
+  "@panelHealthReadyToFetch": {
+    "description": "File health label on a file row: the file can be fetched from a provider."
+  },
+  "panelNProviders": "{n, plural, one{{n} provider} other{{n} providers}}",
+  "@panelNProviders": {
+    "description": "Provider counter on a file row: number of devices that can serve this file.",
+    "placeholders": {
+      "n": {
+        "type": "num"
+      }
+    }
+  },
+  "panelKindBinary": "binary",
+  "@panelKindBinary": {
+    "description": "File kind label in a file row's meta line, for binary files. Deliberately lowercase in English."
+  },
+  "panelKindText": "text",
+  "@panelKindText": {
+    "description": "File kind label in a file row's meta line, for text files. Deliberately lowercase in English."
+  },
+  "panelKindFile": "file",
+  "@panelKindFile": {
+    "description": "Generic file kind label in a file row's meta line when the type is unknown. Deliberately lowercase in English."
+  },
+  "panelPipesEmpty": "No pipes yet — expose a local port to one authorized peer below.",
+  "@panelPipesEmpty": {
+    "description": "Empty state of the Pipes tab, pointing at the expose form below it. 'Pipe' is the product term for a forwarded local port."
+  },
+  "panelPipeStateActive": "Active",
+  "@panelPipeStateActive": {
+    "description": "Pipe state label on a pipe row: a connection is established and usable. Separate key from the Members 'Active' stat."
+  },
+  "panelPipeStateOpen": "Open",
+  "@panelPipeStateOpen": {
+    "description": "Pipe state label on a pipe row: the pipe is exposed and waiting for the authorized peer to connect."
+  },
+  "panelPipeStateClosed": "Closed",
+  "@panelPipeStateClosed": {
+    "description": "Pipe state label on a pipe row: the pipe has been closed."
+  },
+  "panelPipeMeta": "by {openedBy} · authorized: {authorized}",
+  "@panelPipeMeta": {
+    "description": "Meta line under a pipe row: who opened the pipe and which peer may connect. Both placeholders are styled spans the app splits on: {openedBy} and {authorized} are replaced by clickable member-name widgets (or the 'You' word / an em-dash when there is no peer). Keep both placeholders; reorder freely.",
+    "placeholders": {
+      "openedBy": {
+        "type": "String"
+      },
+      "authorized": {
+        "type": "String"
+      }
+    }
+  },
+  "panelConnect": "Connect",
+  "@panelConnect": {
+    "description": "Button on a pipe row: connect this device to the peer's exposed pipe."
+  },
+  "panelConnecting": "Connecting…",
+  "@panelConnecting": {
+    "description": "In-progress label of the pipe Connect button. Keep the trailing ellipsis."
+  },
+  "panelOpenPreview": "Open preview ↗",
+  "@panelOpenPreview": {
+    "description": "Link-button that opens the connected pipe's local preview in the browser. Keep the trailing ↗ glyph."
+  },
+  "panelClosePipe": "Close",
+  "@panelClosePipe": {
+    "description": "Button on a pipe row that closes (terminates) the pipe. This is not a dialog-dismiss 'Close' — pick the verb for ending a connection."
+  },
+  "panelClosingPipe": "Closing…",
+  "@panelClosingPipe": {
+    "description": "In-progress label of the pipe Close button. Keep the trailing ellipsis."
+  },
+  "panelExposeTitle": "Expose a pipe",
+  "@panelExposeTitle": {
+    "description": "Heading of the expose-a-pipe form at the bottom of the Pipes tab."
+  },
+  "panelExposeCopy": "Forward a local port to exactly one authorized peer.",
+  "@panelExposeCopy": {
+    "description": "Explanatory copy under the 'Expose a pipe' heading."
+  },
+  "panelTargetFieldLabel": "Local target (host:port)",
+  "@panelTargetFieldLabel": {
+    "description": "Label of the local target field in the expose form. 'host:port' is a literal format hint — keep it as-is."
+  },
+  "panelAuthorizedPeerLabel": "Authorized peer",
+  "@panelAuthorizedPeerLabel": {
+    "description": "Label of the peer picker in the expose form: the single peer allowed to connect to the pipe."
+  },
+  "panelNoOtherMembers": "no other members",
+  "@panelNoOtherMembers": {
+    "description": "Placeholder option in the authorized-peer picker when the room has no other members. Deliberately lowercase in English."
+  },
+  "panelPeerChoice": "{name} ({role})",
+  "@panelPeerChoice": {
+    "description": "Option text in the authorized-peer picker. {name} is the member's display name; {role} is their localized role label.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Maya R."
+      },
+      "role": {
+        "type": "String",
+        "example": "Member"
+      }
+    }
+  },
+  "panelExpose": "Expose",
+  "@panelExpose": {
+    "description": "Submit button of the expose-a-pipe form."
+  },
+  "panelExposing": "Exposing…",
+  "@panelExposing": {
+    "description": "In-progress label of the Expose button. Keep the trailing ellipsis."
+  },
+  "panelExposeDeniedTitle": "Can't expose this target",
+  "@panelExposeDeniedTitle": {
+    "description": "Error title when the daemon refuses to expose the target (it is not a loopback address). Source uses a straight apostrophe."
+  },
+  "panelExposeDeniedMessage": "Pipes may only forward a loopback port on this device.",
+  "@panelExposeDeniedMessage": {
+    "description": "Error body under 'Can't expose this target': only loopback (localhost) ports may be forwarded."
+  },
+  "panelExposeDeniedAction": "Use a 127.0.0.1:<port> target, then retry.",
+  "@panelExposeDeniedAction": {
+    "description": "Remedy line for the expose-denied error. '127.0.0.1:<port>' is a literal address pattern — keep it untranslated, including the angle brackets."
+  },
+  "panelExposeInvalidTitle": "This target isn't valid",
+  "@panelExposeInvalidTitle": {
+    "description": "Error title when the expose form input is invalid. Source uses a straight apostrophe."
+  },
+  "panelExposeInvalidMessage": "The target must be a numeric ip:port on this device, and the peer a 64-hex identity ID.",
+  "@panelExposeInvalidMessage": {
+    "description": "Error body for an invalid expose target or peer. 'ip:port' is a literal format hint; '64-hex' means 64 hexadecimal characters; 'identity ID' is the peer's cryptographic identifier."
+  },
+  "panelExposeInvalidAction": "Use a target like 127.0.0.1:3000, then retry.",
+  "@panelExposeInvalidAction": {
+    "description": "Remedy line for the invalid-expose error. '127.0.0.1:3000' is a literal example address — keep it untranslated."
+  },
+  "panelConnectInvalidTitle": "This pipe can't be connected",
+  "@panelConnectInvalidTitle": {
+    "description": "Error title when connecting to a pipe is rejected. Source uses a straight apostrophe."
+  },
+  "panelConnectInvalidMessage": "The daemon does not know this pipe yet, or it is your own pipe — owners open their target directly instead of connecting.",
+  "@panelConnectInvalidMessage": {
+    "description": "Error body for a rejected pipe connect: either the pipe has not synced to this daemon yet, or the user opened the pipe themselves (owners use their local target directly). 'daemon' stays untranslated."
+  },
+  "panelConnectInvalidAction": "Wait for the room to sync, or open the local target itself.",
+  "@panelConnectInvalidAction": {
+    "description": "Remedy line for the rejected pipe connect."
+  },
+  "inviteTitle": "Invite to room",
+  "@inviteTitle": {
+    "description": "Title of the invite-to-room modal."
+  },
+  "inviteIntro": "Tickets are bound to one identity. Ask the invitee for their identity ID — it is shown on their onboarding screen and in their sidebar footer, with a copy button.",
+  "@inviteIntro": {
+    "description": "Intro copy at the top of the invite modal. 'Ticket' is the product term for an invite token; 'identity ID' is the peer's cryptographic identifier."
+  },
+  "inviteRoomOpenForInviting": "This room is open for inviting.",
+  "@inviteRoomOpenForInviting": {
+    "description": "Readiness headline in the invite modal: the room is currently able to bootstrap a joiner."
+  },
+  "inviteRoomOpenForInvitingCopy": "Keep it open until the invitee finishes joining. Jeliya can only bootstrap them while an owner is reachable.",
+  "@inviteRoomOpenForInvitingCopy": {
+    "description": "Readiness body copy in the invite modal. 'Jeliya' is the product wordmark — keep untranslated."
+  },
+  "inviteInviteeIdentityId": "Invitee identity ID",
+  "@inviteInviteeIdentityId": {
+    "description": "Label of the invitee identity ID text field in the invite form."
+  },
+  "inviteInviteePlaceholder": "64-hex identity ID",
+  "@inviteInviteePlaceholder": {
+    "description": "Placeholder in the invitee identity ID field describing the expected format: 64 hexadecimal characters."
+  },
+  "inviteRoleLabel": "Role",
+  "@inviteRoleLabel": {
+    "description": "Label of the role picker in the invite form (the role the invitee will get)."
+  },
+  "inviteExpiryLabel": "Expiry seconds",
+  "@inviteExpiryLabel": {
+    "description": "Label of the ticket expiry field (lifetime in seconds). Composed with the '(optional)' marker via the shared label template."
+  },
+  "inviteExpiryOptional": "(optional)",
+  "@inviteExpiryOptional": {
+    "description": "Optionality marker rendered next to the 'Expiry seconds' label through the shared '{label} {optional}' template. Keep the parentheses."
+  },
+  "inviteGenerateTicket": "Generate ticket",
+  "@inviteGenerateTicket": {
+    "description": "Submit button of the invite form; generates the invite ticket."
+  },
+  "inviteGenerating": "Generating…",
+  "@inviteGenerating": {
+    "description": "In-progress label of the 'Generate ticket' button. Keep the trailing ellipsis."
+  },
+  "inviteExpiryErrorTitle": "This expiry isn't valid",
+  "@inviteExpiryErrorTitle": {
+    "description": "Error title for a non-numeric or non-positive expiry value (validated locally). Source uses a straight apostrophe."
+  },
+  "inviteExpiryErrorMessage": "Expiry must be a positive number of seconds.",
+  "@inviteExpiryErrorMessage": {
+    "description": "Error body for an invalid expiry value."
+  },
+  "inviteExpiryErrorHint": "Leave it blank or use a value like 3600.",
+  "@inviteExpiryErrorHint": {
+    "description": "Remedy line for the invalid-expiry error. '3600' is a literal example (one hour in seconds) — keep the digits."
+  },
+  "inviteReadyToSend": "Ready to send.",
+  "@inviteReadyToSend": {
+    "description": "Result headline once a ticket with a dialable address was generated."
+  },
+  "inviteReadyToSendCopy": "Stay in this room until they join. If they still see “Couldn't reach the inviter,” copy a fresh invite and retry.",
+  "@inviteReadyToSendCopy": {
+    "description": "Guidance under the ready-to-send invite result. The quoted phrase must match errPeerUnreachableTitle verbatim (it names the error the joiner would see), wrapped in your locale's quotation marks."
+  },
+  "inviteCombinedCopy": "Send this one paste to the invitee — it is the ticket and your dialable address together. They paste it into “Join with a ticket” and the address fills in automatically.",
+  "@inviteCombinedCopy": {
+    "description": "Explains the combined one-paste invite. The quoted “Join with a ticket” cites the join form title on the onboarding screen — its translation must match that string exactly."
+  },
+  "inviteCombinedInviteLabel": "Combined invite (ticket and peer address)",
+  "@inviteCombinedInviteLabel": {
+    "description": "Field label for the combined invite text box (ticket plus peer address in one paste)."
+  },
+  "inviteCopyInvite": "Copy invite",
+  "@inviteCopyInvite": {
+    "description": "Copy-to-clipboard button for the combined invite."
+  },
+  "inviteSeparatelySummary": "Send the ticket and address separately",
+  "@inviteSeparatelySummary": {
+    "description": "Expander summary revealing separate ticket and address fields as an alternative to the combined invite."
+  },
+  "inviteInviteTicketLabel": "Invite ticket",
+  "@inviteInviteTicketLabel": {
+    "description": "Field label for the raw invite ticket in the send-separately section."
+  },
+  "inviteCopyTicket": "Copy ticket",
+  "@inviteCopyTicket": {
+    "description": "Copy-to-clipboard button for the invite ticket."
+  },
+  "inviteCopyAddress": "Copy address",
+  "@inviteCopyAddress": {
+    "description": "Copy-to-clipboard button for the inviter's peer address."
+  },
+  "inviteNewInvite": "← New invite",
+  "@inviteNewInvite": {
+    "description": "Back-style button that resets the modal to create another invite. Keep the leading ← arrow and its trailing space."
+  },
+  "inviteNoDialableAddress": "No dialable address reported yet.",
+  "@inviteNoDialableAddress": {
+    "description": "Result headline when the daemon reported no dialable (directly reachable) address for this device."
+  },
+  "inviteNoDialableAddressCopy": "Keep this room open. The joiner may still connect via discovery or relay, but a fresh room address is more reliable.",
+  "@inviteNoDialableAddressCopy": {
+    "description": "Body copy under the no-dialable-address headline. 'discovery' and 'relay' are the P2P connection fallback mechanisms."
+  },
+  "inviteTicketOnlyCopy": "Send this ticket to the invitee. They join with it (room.join).",
+  "@inviteTicketOnlyCopy": {
+    "description": "Explains sending the bare ticket when no address is available. 'room.join' is the literal wire method name — keep it untranslated, parentheses included."
+  },
+  "inviteNoDialableAddressNote": "This daemon has not reported a dialable address — the joiner may connect via relay or discovery.",
+  "@inviteNoDialableAddressNote": {
+    "description": "Note under the ticket when no address is available. 'daemon' stays untranslated."
+  },
+  "renamePeerTitle": "Name this peer",
+  "@renamePeerTitle": {
+    "description": "Title of the rename-peer modal, which assigns a local nickname (alias) to a peer."
+  },
+  "renamePeerCopy": "Local alias only — names never leave this machine.",
+  "@renamePeerCopy": {
+    "description": "Reassurance copy in the rename-peer modal: aliases are stored locally and never sent over the wire."
+  },
+  "renamePeerIdentityLabel": "Identity:",
+  "@renamePeerIdentityLabel": {
+    "description": "Label above the monospace identity ID in the rename-peer modal. Keep the trailing colon. Rendered on its own — never concatenated into other copy."
+  },
+  "renamePeerAliasLabel": "Alias",
+  "@renamePeerAliasLabel": {
+    "description": "Label of the alias text field in the rename-peer modal."
+  },
+  "renamePeerAliasPlaceholder": "e.g. Maya R.",
+  "@renamePeerAliasPlaceholder": {
+    "description": "Placeholder in the alias field. Replace with a natural short person-name example for the locale."
+  },
+  "renamePeerSave": "Save",
+  "@renamePeerSave": {
+    "description": "Save button of the rename-peer modal."
+  },
+  "renamePeerClearAlias": "Clear alias",
+  "@renamePeerClearAlias": {
+    "description": "Button in the rename-peer modal that removes the stored local alias."
+  },
+  "fetchProvidersListedOnline": "{n, plural, one{{n} provider listed; at least one is online} other{{n} providers listed; at least one is online}}",
+  "@fetchProvidersListedOnline": {
+    "description": "Provider availability line in the fetch control when at least one listed provider is currently online. The whole sentence is inside each plural branch — translate it fully in both.",
+    "placeholders": {
+      "n": {
+        "type": "num"
+      }
+    }
+  },
+  "fetchProvidersListedOffline": "{n, plural, one{{n} provider listed; none are online right now} other{{n} providers listed; none are online right now}}",
+  "@fetchProvidersListedOffline": {
+    "description": "Provider availability line in the fetch control when no listed provider is online. The whole sentence is inside each plural branch — translate it fully in both.",
+    "placeholders": {
+      "n": {
+        "type": "num"
+      }
+    }
+  },
+  "fetchVerifiedTooltip": "verified · {path}",
+  "@fetchVerifiedTooltip": {
+    "description": "Tooltip on the '✓ Verified' status text. {path} is the local saved-file path. 'verified' is deliberately lowercase.",
+    "placeholders": {
+      "path": {
+        "type": "String",
+        "example": "~/Downloads/report.pdf"
+      }
+    }
+  },
+  "fetchFetchedTooltip": "fetched · {path}",
+  "@fetchFetchedTooltip": {
+    "description": "Tooltip on the '✓ Fetched' status text. {path} is the local saved-file path. 'fetched' is deliberately lowercase.",
+    "placeholders": {
+      "path": {
+        "type": "String",
+        "example": "~/Downloads/report.pdf"
+      }
+    }
+  },
+  "fetchDetailVerified": "Verified · {bytes} · saved to {path}",
+  "@fetchDetailVerified": {
+    "description": "FetchDetail line after a verified fetch. {bytes} is a pre-formatted size; {path} is a styled span the app splits on — it is replaced by the clickable monospace file path. Keep both placeholders.",
+    "placeholders": {
+      "bytes": {
+        "type": "String",
+        "example": "2.4 MB"
+      },
+      "path": {
+        "type": "String"
+      }
+    }
+  },
+  "fetchDetailFetched": "Fetched · {bytes} · saved to {path}",
+  "@fetchDetailFetched": {
+    "description": "FetchDetail line after a fetch that is not (yet) verified. {bytes} is a pre-formatted size; {path} is a styled span the app splits on — the clickable monospace file path. Keep both placeholders.",
+    "placeholders": {
+      "bytes": {
+        "type": "String",
+        "example": "2.4 MB"
+      },
+      "path": {
+        "type": "String"
+      }
+    }
+  },
+  "fetchOpenLocalFileCopy": "Open local file copy",
+  "@fetchOpenLocalFileCopy": {
+    "description": "Accessibility label / tooltip for the action that opens the locally saved copy of a fetched file."
+  },
+  "roomHeaderActiveCount": "{n} active",
+  "@roomHeaderActiveCount": {
+    "description": "Room header subtitle segment showing how many room members are currently active, e.g. '3 active'. Rendered inline with the other subtitle segments, joined by a '|' separator (the separator is not part of this string).",
+    "placeholders": {
+      "n": {
+        "type": "num",
+        "example": "3"
+      }
+    }
+  },
+  "roomHeaderAgentCount": "{n, plural, one{{n} agent} other{{n} agents}}",
+  "@roomHeaderAgentCount": {
+    "description": "Room header subtitle segment counting members with the agent role, e.g. '1 agent' / '2 agents'. Here 'agent' is plain UI copy for the role name (not a raw wire value) — translate it, but keep it consistent with how the agent role is named elsewhere in the app.",
+    "placeholders": {
+      "n": {
+        "type": "num",
+        "example": "2"
+      }
+    }
+  },
+  "roomHeaderInvitesPending": "{n, plural, one{{n} invite pending} other{{n} invites pending}}",
+  "@roomHeaderInvitesPending": {
+    "description": "Room header subtitle segment showing how many room invites are outstanding (sent but not yet accepted), e.g. '1 invite pending' / '3 invites pending'.",
+    "placeholders": {
+      "n": {
+        "type": "num",
+        "example": "3"
+      }
+    }
+  },
+  "roomHeaderAloneInRoom": "Alone in this room",
+  "@roomHeaderAloneInRoom": {
+    "description": "Connectivity badge in the room header — one of three honest peer-to-peer states (the app never invents presence). Shown when the user is the only member present, so there are no peers to connect to."
+  },
+  "roomHeaderPeerToPeer": "Peer-to-Peer",
+  "@roomHeaderPeerToPeer": {
+    "description": "Connectivity badge in the room header — shown when at least one direct peer-to-peer connection to another member exists. Title-cased label; keep it short, it sits in a small badge."
+  },
+  "roomHeaderRelayOnly": "Relay only",
+  "@roomHeaderRelayOnly": {
+    "description": "Connectivity badge in the room header — shown when peers are reachable only through a relay server, with no direct peer-to-peer connection. Keep it short, it sits in a small badge."
+  },
+  "roomHeaderShareFile": "Share file",
+  "@roomHeaderShareFile": {
+    "description": "Action button in the room header that starts the share-a-file flow. Short imperative button label; a decorative glyph (⎘) is rendered next to it separately and is not part of this string."
+  },
+  "roomHeaderOpenPipe": "Open pipe",
+  "@roomHeaderOpenPipe": {
+    "description": "Action button in the room header that opens a pipe — Jeliya's live byte-stream channel between peers. 'pipe' is a protocol feature term; keep it consistent with every other 'pipe' string in the app (per glossary it is normally left untranslated). A decorative glyph (⤳) is rendered separately."
+  },
+  "roomHeaderInvite": "Invite",
+  "@roomHeaderInvite": {
+    "description": "Action button in the room header that opens the invite-a-member flow. Short imperative button label; a decorative glyph (⊕) is rendered separately."
+  },
+  "roomHeaderPeerConnections": "Peer connections",
+  "@roomHeaderPeerConnections": {
+    "description": "Accessibility label (role='group') for the strip of peer-connection chips under the room header. Not visually displayed — read aloud by screen readers."
+  },
+  "roomHeaderPeerStateConnected": "connected",
+  "@roomHeaderPeerStateConnected": {
+    "description": "Peer-chip state label shown only when the daemon has not yet reported which network path the live connection uses. When it does report one, the chip shows the translated path word instead (wirePathDirect / wirePathRelay)."
+  },
+  "roomHeaderPeerStateConnecting": "connecting",
+  "@roomHeaderPeerStateConnecting": {
+    "description": "State label on a peer chip in the room-header peer strip while a connection to that peer is being established. Deliberately lowercase — keep lowercase styling if the language allows."
+  },
+  "roomHeaderPeerStateOffline": "offline",
+  "@roomHeaderPeerStateOffline": {
+    "description": "State label on a peer chip in the room-header peer strip when that peer is not reachable. Deliberately lowercase — keep lowercase styling if the language allows."
+  },
+  "settingsTitle": "Settings",
+  "@settingsTitle": {
+    "description": "Header title of the Settings panel."
+  },
+  "settingsLanguageLabel": "Language",
+  "@settingsLanguageLabel": {
+    "description": "Card label in Settings for the UI-language picker."
+  },
+  "settingsFormattingLabel": "Dates & numbers",
+  "@settingsFormattingLabel": {
+    "description": "Label in the Settings language card for the formatting-convention picker (calendar and number conventions). Deliberately separate from the UI language: a Bambara UI on a French system formats dates the French way (glossary decision 4)."
+  },
+  "settingsLocaleSystemDefault": "System default",
+  "@settingsLocaleSystemDefault": {
+    "description": "Option in both the language and the dates-and-numbers pickers: follow the operating system's setting instead of a fixed choice."
+  },
+  "settingsIdentityLabel": "P2P Identity",
+  "@settingsIdentityLabel": {
+    "description": "Row label in the Settings identity card for the user's peer-to-peer identity ID. Keep the abbreviation 'P2P' (peer-to-peer) as-is."
+  },
+  "settingsDeviceLabel": "Device",
+  "@settingsDeviceLabel": {
+    "description": "Row label in the Settings identity card for this device's ID."
+  },
+  "settingsCopyDeviceId": "Copy device ID",
+  "@settingsCopyDeviceId": {
+    "description": "Button label in the Settings identity card that copies the device ID to the clipboard. Imperative verb, like the neighboring 'Copy identity ID' / 'Copy endpoint ID' buttons."
+  },
+  "settingsIdentityNote": "Unrecoverable if this device or its data folder is lost.",
+  "@settingsIdentityNote": {
+    "description": "Warning note under the identity card: the P2P identity cannot be restored if the device or its data folder is lost. Sentence fragment referring to the identity above it; keep the trailing period."
+  },
+  "settingsEndpointLabel": "Endpoint",
+  "@settingsEndpointLabel": {
+    "description": "Row label in the Settings endpoint card for the network endpoint ID (the node's network address identity)."
+  },
+  "settingsRelayLabel": "Relay",
+  "@settingsRelayLabel": {
+    "description": "Row label in the Settings endpoint card for the relay server the endpoint uses to reach peers."
+  },
+  "settingsCopyEndpointId": "Copy endpoint ID",
+  "@settingsCopyEndpointId": {
+    "description": "Button label in the Settings endpoint card that copies the endpoint ID to the clipboard."
+  },
+  "settingsDaemonLabel": "Daemon",
+  "@settingsDaemonLabel": {
+    "description": "Card label in Settings for the Jeliya background daemon process. 'Daemon' names a protocol component (the jeliyad sidecar) — never translate; keep it consistent with the rest of the app."
+  },
+  "settingsDaemonSummary": "{mode} · {conn}",
+  "@settingsDaemonSummary": {
+    "description": "Summary line of the daemon card: the daemon mode and its connection state separated by a middle dot (·). Both values arrive already localized from the wire strings — {mode} is the daemon mode word (e.g. 'loopback', 'real'), {conn} is the inline connection state (e.g. 'connected', 'connecting'). Placeholders may be reordered; keep the separator between them.",
+    "placeholders": {
+      "mode": {
+        "type": "String",
+        "example": "loopback"
+      },
+      "conn": {
+        "type": "String",
+        "example": "connected"
+      }
+    }
+  },
+  "settingsVersionLabel": "Version",
+  "@settingsVersionLabel": {
+    "description": "Row label in the daemon card: the daemon's software version."
+  },
+  "settingsProtocolLabel": "Protocol",
+  "@settingsProtocolLabel": {
+    "description": "Row label in the daemon card: the protocol version the daemon speaks."
+  },
+  "settingsPidLabel": "PID",
+  "@settingsPidLabel": {
+    "description": "Row label in the daemon card: the daemon's operating-system process ID. 'PID' is a standard technical abbreviation and is usually left untranslated."
+  },
+  "settingsPortLabel": "Port",
+  "@settingsPortLabel": {
+    "description": "Row label in the daemon card: the local network port the daemon listens on."
+  },
+  "settingsDataDirLabel": "Data folder",
+  "@settingsDataDirLabel": {
+    "description": "Row label in the daemon card: the filesystem folder where the daemon stores its data."
+  },
+  "settingsTransportLabel": "Transport",
+  "@settingsTransportLabel": {
+    "description": "Row label in the daemon card: the network transport in use."
+  },
+  "settingsSupervisorLabel": "Supervisor",
+  "@settingsSupervisorLabel": {
+    "description": "Row label in the daemon card: who manages the daemon process's lifecycle. Its value is one of settingsSupervisorOwned / settingsSupervisorAdopted."
+  },
+  "settingsSupervisorOwned": "Launched by this app",
+  "@settingsSupervisorOwned": {
+    "description": "Supervisor row value: this app spawned the sidecar daemon itself and owns its lifetime (it will stop it on exit)."
+  },
+  "settingsSupervisorAdopted": "Adopted a running daemon",
+  "@settingsSupervisorAdopted": {
+    "description": "Supervisor row value: the app attached to a daemon that was already running instead of starting its own. 'daemon' is a never-translate protocol term."
+  },
+  "settingsSupportLabel": "Support",
+  "@settingsSupportLabel": {
+    "description": "Label of the support/diagnostics card in Settings."
+  },
+  "settingsDiagnosticsTitle": "Diagnostics",
+  "@settingsDiagnosticsTitle": {
+    "description": "Heading of the diagnostics section inside the Settings support card."
+  },
+  "settingsDiagnosticsCopy": "Copy a privacy-safe snapshot for bug reports: daemon version, connection state, room counts, peer state, file-transfer state, pipe state, and the latest UI error.",
+  "@settingsDiagnosticsCopy": {
+    "description": "Explanatory paragraph above the 'Copy diagnostics' button, listing what the privacy-safe snapshot contains. 'daemon' and 'pipe' name Jeliya protocol components — never translate those two words. Keep the comma-separated list structure and the trailing period."
+  },
+  "settingsNoMessageBodies": "No message bodies",
+  "@settingsNoMessageBodies": {
+    "description": "Privacy-guarantee bullet line under the diagnostics copy (rendered after a • glyph): the snapshot contains no message bodies. Terse fragment, no trailing period."
+  },
+  "settingsNoInviteTickets": "No invite tickets",
+  "@settingsNoInviteTickets": {
+    "description": "Privacy-guarantee bullet line: the snapshot contains no room invite tickets. 'invite ticket' is the app's term for a shareable room-join credential — match its translation elsewhere in the app."
+  },
+  "settingsNoFileNamesOrPaths": "No file names or full local paths",
+  "@settingsNoFileNamesOrPaths": {
+    "description": "Privacy-guarantee bullet line: the snapshot contains no file names and no full local filesystem paths."
+  },
+  "settingsNoFullIdentityIds": "No full identity IDs",
+  "@settingsNoFullIdentityIds": {
+    "description": "Privacy-guarantee bullet line: the snapshot never includes complete (unshortened) identity IDs."
+  },
+  "settingsLastCapturedError": "Last captured error",
+  "@settingsLastCapturedError": {
+    "description": "Label above the most recent UI error captured this session, shown in the diagnostics section."
+  },
+  "settingsNoErrorCaptured": "No UI action error captured in this session.",
+  "@settingsNoErrorCaptured": {
+    "description": "Placeholder shown under 'Last captured error' when no UI action has failed this session. Full sentence with trailing period."
+  },
+  "settingsCopyDiagnostics": "Copy diagnostics",
+  "@settingsCopyDiagnostics": {
+    "description": "Button that copies the privacy-safe diagnostics snapshot to the clipboard."
+  },
+  "settingsCopiedDiagnostics": "Copied diagnostics",
+  "@settingsCopiedDiagnostics": {
+    "description": "Momentary confirmation shown after the diagnostics snapshot was copied (temporarily replaces the 'Copy diagnostics' button label). Past tense."
+  },
+  "settingsReportIssue": "Report issue",
+  "@settingsReportIssue": {
+    "description": "Button in the Settings support card that opens the project's GitHub new-issue page in the browser."
+  },
+  "shellSelectRoom": "Select a room",
+  "@shellSelectRoom": {
+    "description": "Center empty-state headline in the main content area of the app shell when no room is currently selected. Imperative prompt inviting the user to pick a room from the sidebar."
+  },
+  "shellUntitledRoom": "Untitled room",
+  "@shellUntitledRoom": {
+    "description": "Fallback display name for a room that has no title, supplied by the app shell wherever the room name would appear. Keep it short and neutral, like an unnamed-document placeholder."
+  },
+  "shellBannerReconnecting": "Connection to daemon lost — reconnecting… ({wsUrl})",
+  "@shellBannerReconnecting": {
+    "description": "Full-width warning banner rendered above everything in the app while the connection to the local background process is being re-established. ‘daemon’ is a protocol term for the local jeliyad background process — do not translate it. ‘reconnecting…’ ends with an ellipsis to signal an in-progress state. {wsUrl} is the WebSocket endpoint being retried, shown verbatim in parentheses — do not translate or reorder its contents.",
+    "placeholders": {
+      "wsUrl": {
+        "type": "String",
+        "example": "ws://127.0.0.1:3000"
+      }
+    }
+  },
+  "shellBannerDisconnected": "Disconnected from daemon.",
+  "@shellBannerDisconnected": {
+    "description": "Full-width banner above the app when the connection to the local background process has been lost. ‘daemon’ is a protocol term for the local jeliyad background process — do not translate it. A complete sentence ending with a period."
+  },
+  "shellConnConnected": "Connected",
+  "@shellConnConnected": {
+    "description": "Connection-status badge label in the sidebar footer: the app is connected to the local daemon. Short adjective shown next to a status indicator."
+  },
+  "shellConnConnecting": "Connecting…",
+  "@shellConnConnecting": {
+    "description": "Connection-status badge label in the sidebar footer while the initial connection to the local daemon is being established. Ends with an ellipsis (…) to signal an in-progress state."
+  },
+  "shellConnReconnecting": "Reconnecting…",
+  "@shellConnReconnecting": {
+    "description": "Connection-status badge label in the sidebar footer while a lost connection to the local daemon is being re-established. Ends with an ellipsis (…) to signal an in-progress state. Distinct from shellConnConnecting (first connection attempt)."
+  },
+  "shellConnDisconnected": "Disconnected",
+  "@shellConnDisconnected": {
+    "description": "Connection-status badge label in the sidebar footer when the app has no connection to the local daemon. Short adjective shown next to a status indicator; no trailing punctuation (unlike shellBannerDisconnected)."
+  },
+  "sidebarProfileTitle": "Profile & settings",
+  "@sidebarProfileTitle": {
+    "description": "Label/tooltip of the profile card button at the top of the left sidebar; clicking it opens the user's profile and settings. '&' is a plain ampersand joining two nouns."
+  },
+  "sidebarProfileHandle": "@{deEllipsizedShortId}",
+  "@sidebarProfileHandle": {
+    "description": "Monospace handle shown under the profile name in the sidebar profile card: '@' followed by the user's shortened identity id with the ellipsis stripped. The '@' sigil is a technical handle convention — keep it and keep it directly attached to the id; only reposition if the locale's script requires it.",
+    "placeholders": {
+      "deEllipsizedShortId": {
+        "type": "String",
+        "example": "ab12cd34"
+      }
+    }
+  },
+  "sidebarNavPrimaryLabel": "Primary",
+  "@sidebarNavPrimaryLabel": {
+    "description": "Section heading over the primary navigation group (Home, Rooms, Agents, …) in the left sidebar. Meaning: the main/top-level destinations."
+  },
+  "sidebarNavHome": "Home",
+  "@sidebarNavHome": {
+    "description": "Primary navigation item in the left sidebar: the app's home/overview screen."
+  },
+  "sidebarNavRooms": "Rooms",
+  "@sidebarNavRooms": {
+    "description": "Primary navigation item in the left sidebar: the list of chat rooms. 'Room' is the product's term for a peer-to-peer group conversation — keep consistent with other 'room' strings."
+  },
+  "sidebarNavAgents": "Agents",
+  "@sidebarNavAgents": {
+    "description": "Primary navigation item in the left sidebar: the AI agents (fleet) screen. Translate as the feature name for AI agents."
+  },
+  "sidebarNavPipes": "Pipes",
+  "@sidebarNavPipes": {
+    "description": "Primary navigation item in the left sidebar: the peer-to-peer data pipes feature. Translate as a feature name. (Distinct from the lowercase wire token “pipe” quoted in protocol copy, which is never translated.)"
+  },
+  "sidebarNavFiles": "Files",
+  "@sidebarNavFiles": {
+    "description": "Primary navigation item in the left sidebar: file sharing."
+  },
+  "sidebarNavCalls": "Calls",
+  "@sidebarNavCalls": {
+    "description": "Primary navigation item in the left sidebar: voice/video calls."
+  },
+  "sidebarNavSettings": "Settings",
+  "@sidebarNavSettings": {
+    "description": "Primary navigation item in the left sidebar: app settings."
+  },
+  "sidebarNavSoon": "Soon",
+  "@sidebarNavSoon": {
+    "description": "Tiny badge/pill on sidebar navigation items that are not yet available (coming soon). Keep very short — it must fit in a small pill."
+  },
+  "sidebarYourRooms": "Your Rooms",
+  "@sidebarYourRooms": {
+    "description": "Heading of the rooms list section in the sidebar — the rooms the user belongs to. English uses Title Case; follow the locale's heading convention."
+  },
+  "sidebarCreateRoomIcon": "Create room",
+  "@sidebarCreateRoomIcon": {
+    "description": "Accessible label and tooltip for the small '+' icon button beside the 'Your Rooms' heading; opens the create-room dialog. Imperative verb phrase."
+  },
+  "sidebarRoomsListLabel": "Rooms",
+  "@sidebarRoomsListLabel": {
+    "description": "Screen-reader label (aria-label) for the rooms list navigation region in the sidebar. Not visible on screen; happens to match the 'Rooms' nav item in English but is a separate string."
+  },
+  "sidebarNoRoomsYet": "No rooms yet",
+  "@sidebarNoRoomsYet": {
+    "description": "Empty-state row shown in the sidebar rooms list when the user has not created or joined any room."
+  },
+  "sidebarStateActive": "Active",
+  "@sidebarStateActive": {
+    "description": "Room state shown in the room row subtitle (see sidebarRoomMeta): the room has recent activity."
+  },
+  "sidebarStateIdle": "Idle",
+  "@sidebarStateIdle": {
+    "description": "Room state shown in the room row subtitle (see sidebarRoomMeta): the room is quiet / no recent activity."
+  },
+  "sidebarStateLeft": "Left",
+  "@sidebarStateLeft": {
+    "description": "Room state shown in the room row subtitle (see sidebarRoomMeta): the user has left this room — past tense of 'to leave', NOT the direction left/right."
+  },
+  "sidebarStateRemoved": "Removed",
+  "@sidebarStateRemoved": {
+    "description": "Room state shown in the room row subtitle (see sidebarRoomMeta): the user was removed from this room by someone else."
+  },
+  "sidebarRoomMeta": "{memberCount, plural, one{{memberCount} member} other{{memberCount} members}} · {stateLabel}",
+  "@sidebarRoomMeta": {
+    "description": "Subtitle of a room row in the sidebar: member count, then the room state, separated by a spaced middle dot ' · ' (keep the separator). {stateLabel} is filled with one of sidebarStateActive/Idle/Left/Removed.",
+    "placeholders": {
+      "memberCount": {
+        "type": "num"
+      },
+      "stateLabel": {
+        "type": "String",
+        "example": "Active"
+      }
+    }
+  },
+  "sidebarSessionOpen": "Session open",
+  "@sidebarSessionOpen": {
+    "description": "Tooltip on the green presence dot on a room row when the live session for that room is currently open/connected."
+  },
+  "sidebarLeftRoomTitle": "You left this room",
+  "@sidebarLeftRoomTitle": {
+    "description": "Tooltip on a dimmed room row after the user has left that room (their own action)."
+  },
+  "sidebarRemovedRoomTitle": "You were removed from this room",
+  "@sidebarRemovedRoomTitle": {
+    "description": "Tooltip on a dimmed room row after the user was removed from that room by another member — passive voice: someone else removed them."
+  },
+  "sidebarP2pIdentity": "P2P Identity",
+  "@sidebarP2pIdentity": {
+    "description": "Heading of the identity footer at the bottom of the sidebar, above the user's identity id. 'P2P' abbreviates peer-to-peer — keep the abbreviation or use the locale's standard equivalent."
+  },
+  "sidebarEndpointShort": "ep {shortEndpointId}",
+  "@sidebarEndpointShort": {
+    "description": "Identity-footer suffix: 'ep' abbreviates 'endpoint' (a networking id), followed by the shortened endpoint id. Joined to the identity id with a ' · ' separator at the call site — a list of technical facts, not a sentence. Keep it short and lowercase; 'ep' may stay untranslated as a technical abbreviation.",
+    "placeholders": {
+      "shortEndpointId": {
+        "type": "String",
+        "example": "1a2b…9f0e"
+      }
+    }
+  },
+  "sidebarEndpointTitle": "endpoint {endpointId}",
+  "@sidebarEndpointTitle": {
+    "description": "Hover tooltip over the 'ep …' suffix in the identity footer, revealing the full endpoint id. Lowercase 'endpoint' is intentional (technical annotation, not a sentence).",
+    "placeholders": {
+      "endpointId": {
+        "type": "String",
+        "example": "1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d"
+      }
+    }
+  },
+  "timelineRoomTimeline": "Room timeline",
+  "@timelineRoomTimeline": {
+    "description": "Accessibility label (screen readers only, never visible) for the scrollable chat timeline of a room."
+  },
+  "timelineEmptyState": "No events yet — say something below.",
+  "@timelineEmptyState": {
+    "description": "Empty-state line in the room timeline when there are no events and nothing is loading. Invites the user to type in the composer below. Uses an em dash (—) in English; adapt punctuation to the target language."
+  },
+  "timelineAgentChip": "AGENT",
+  "@timelineAgentChip": {
+    "description": "Tiny role chip shown on timeline rows authored by an AI agent. All-caps styling is part of the string in English. Must stay very short to fit the chip. This is display copy for the “agent” wire role (the wire value itself is never translated)."
+  },
+  "timelineStatusFallback": "status",
+  "@timelineStatusFallback": {
+    "description": "Fallback label for an agent status event when the event carries no label of its own. Lowercase noun in English."
+  },
+  "timelineSharedAFile": "shared a file",
+  "@timelineSharedAFile": {
+    "description": "Event head shown right after the sender's name on a file-share row, reading like “Maya shared a file”. Lowercase verb phrase in English; the sender name is a separate widget rendered before it."
+  },
+  "timelineOpenedAPipe": "opened a pipe",
+  "@timelineOpenedAPipe": {
+    "description": "Event head shown right after the sender's name on a pipe-open row, reading like “Maya opened a pipe”. “Pipe” is the product's term for a live peer-to-peer connection — translate it consistently with the Pipes panel copy. Lowercase verb phrase in English."
+  },
+  "timelineFileMeta": "{bytes} · {ext}",
+  "@timelineFileMeta": {
+    "description": "Metadata line on a file tile in the timeline: formatted file size, middle dot separator, uppercase file extension — e.g. “1.5 MB · PDF”.",
+    "placeholders": {
+      "bytes": {
+        "type": "String",
+        "example": "1.5 MB",
+        "description": "Already-formatted file size"
+      },
+      "ext": {
+        "type": "String",
+        "example": "PDF",
+        "description": "Uppercase file extension"
+      }
+    }
+  },
+  "timelineOpenInPipes": "Open in Pipes",
+  "@timelineOpenInPipes": {
+    "description": "Action on a pipe tile in the timeline that jumps to the Pipes panel. “Pipes” is the panel's name — match its translated title."
+  },
+  "timelineAuthorizedPeer": "authorized peer: {peer}",
+  "@timelineAuthorizedPeer": {
+    "description": "Note on a pipe tile saying which peer is allowed to connect. Lowercase in English. {peer} is a styled span: the clickable peer-name widget, or an em dash when no peer is set — reorder it freely but keep it in the sentence.",
+    "placeholders": {
+      "peer": {
+        "type": "String",
+        "description": "Styled span: SenderName widget or em-dash placeholder"
+      }
+    }
+  },
+  "timelineSyslineRoomCreated": "{sender} created the room · {time}",
+  "@timelineSyslineRoomCreated": {
+    "description": "System line for room creation. {sender} is replaced by the clickable member name (styled span). {time} is an already-formatted clock time after the middle dot.",
+    "placeholders": {
+      "sender": {
+        "type": "String",
+        "description": "Styled span: clickable member name"
+      },
+      "time": {
+        "type": "String",
+        "example": "3:04 PM"
+      }
+    }
+  },
+  "timelineSyslineInvited": "{sender} invited {invitee} as {role} · {time}",
+  "@timelineSyslineInvited": {
+    "description": "System line for a member being invited. {sender} and {invitee} are styled spans (clickable member names; {invitee} may be the word “someone” from timelineSomeone). {role} is the granted role label, {time} an already-formatted clock time.",
+    "placeholders": {
+      "sender": {
+        "type": "String",
+        "description": "Styled span: clickable inviter name"
+      },
+      "invitee": {
+        "type": "String",
+        "description": "Styled span: invitee name or the “someone” fallback"
+      },
+      "role": {
+        "type": "String",
+        "example": "member"
+      },
+      "time": {
+        "type": "String",
+        "example": "3:04 PM"
+      }
+    }
+  },
+  "timelineSyslineJoined": "{who} joined as {role} · {time}",
+  "@timelineSyslineJoined": {
+    "description": "System line for a member joining. {who} is replaced by the clickable member name.",
+    "placeholders": {
+      "who": {
+        "type": "String"
+      },
+      "role": {
+        "type": "String",
+        "example": "member"
+      },
+      "time": {
+        "type": "String",
+        "example": "3:04 PM"
+      }
+    }
+  },
+  "timelineSyslineLeft": "{who} left the room · {time}",
+  "@timelineSyslineLeft": {
+    "description": "System line for a member leaving. {who} is a styled span (clickable member name); {time} is an already-formatted clock time.",
+    "placeholders": {
+      "who": {
+        "type": "String",
+        "description": "Styled span: clickable member name"
+      },
+      "time": {
+        "type": "String",
+        "example": "3:04 PM"
+      }
+    }
+  },
+  "timelineSyslinePipeClosed": "{sender} closed pipe {target} · {time}",
+  "@timelineSyslinePipeClosed": {
+    "description": "System line for a pipe being closed. {sender} is a styled span (clickable member name); {target} is a styled span showing the pipe's target; {time} is an already-formatted clock time. “Pipe” is the product's term for a live peer-to-peer connection.",
+    "placeholders": {
+      "sender": {
+        "type": "String",
+        "description": "Styled span: clickable member name"
+      },
+      "target": {
+        "type": "String",
+        "description": "Styled span: pipe target"
+      },
+      "time": {
+        "type": "String",
+        "example": "3:04 PM"
+      }
+    }
+  },
+  "timelineSomeone": "someone",
+  "@timelineSomeone": {
+    "description": "Fallback used as the {invitee} value in the “invited” system line when the event names no invitee (“Maya invited someone as member”). Lowercase in English."
+  },
+  "timelinePendingSending": "Sending…",
+  "@timelinePendingSending": {
+    "description": "Status under an outgoing message while it is being sent. Ends with a single horizontal-ellipsis character (…), not three dots."
+  },
+  "timelinePendingSyncing": "Sent locally, syncing…",
+  "@timelinePendingSyncing": {
+    "description": "Status under an outgoing message that is stored locally but not yet synced to peers. Ends with a single horizontal-ellipsis character (…), not three dots."
+  },
+  "timelinePendingFailed": "Couldn't send",
+  "@timelinePendingFailed": {
+    "description": "Status under an outgoing message that failed to send; shown alongside the Retry action (commonRetry)."
+  },
+  "timelineNewMessages": "{n, plural, one{{n} new message} other{{n} new messages}}",
+  "@timelineNewMessages": {
+    "description": "Unseen-messages pill at the bottom of the chat timeline.",
+    "placeholders": {
+      "n": {
+        "type": "num"
+      }
+    }
+  },
+  "timelineToday": "Today",
+  "@timelineToday": {
+    "description": "Day-separator label in the timeline for events from today."
+  },
+  "timelineYesterday": "Yesterday",
+  "@timelineYesterday": {
+    "description": "Day-separator label in the timeline for events from yesterday."
+  },
+  "timelineBytesUnknown": "?",
+  "@timelineBytesUnknown": {
+    "description": "Shown in place of a file size when the size is unknown, e.g. “? · PDF” in the file-tile metadata line. Keep it a single short symbol or word."
+  },
+  "timelineBytesB": "{n} B",
+  "@timelineBytesB": {
+    "description": "File size in bytes, e.g. “512 B”. “B” is the unit abbreviation for bytes; use the target locale's convention.",
+    "placeholders": {
+      "n": {
+        "type": "num",
+        "example": "512",
+        "description": "Whole number of bytes"
+      }
+    }
+  },
+  "timelineBytesKb": "{n} KB",
+  "@timelineBytesKb": {
+    "description": "File size in kilobytes, e.g. “12 KB”. “KB” is the unit abbreviation; use the target locale's convention.",
+    "placeholders": {
+      "n": {
+        "type": "num",
+        "example": "12",
+        "description": "Whole number of kilobytes"
+      }
+    }
+  },
+  "timelineBytesMb": "{n} MB",
+  "@timelineBytesMb": {
+    "description": "File size in megabytes, e.g. “1.5 MB”. The number arrives pre-formatted as a string (may contain a decimal point). “MB” is the unit abbreviation; use the target locale's convention.",
+    "placeholders": {
+      "n": {
+        "type": "String",
+        "example": "1.5",
+        "description": "Pre-formatted decimal number"
+      }
+    }
+  },
+  "timelineBytesGb": "{n} GB",
+  "@timelineBytesGb": {
+    "description": "File size in gigabytes, e.g. “2.3 GB”. The number arrives pre-formatted as a string (may contain a decimal point). “GB” is the unit abbreviation; use the target locale's convention.",
+    "placeholders": {
+      "n": {
+        "type": "String",
+        "example": "2.3",
+        "description": "Pre-formatted decimal number"
+      }
+    }
+  },
+  "commonCopy": "Copy",
+  "@commonCopy": {
+    "description": "Label on the shared CopyButton used app-wide to copy text (identity IDs, tickets, file paths) to the clipboard."
+  },
+  "commonCopied": "Copied ✓",
+  "@commonCopied": {
+    "description": "Momentary CopyButton label shown right after a successful copy, replacing 'Copy'. The trailing ✓ check mark is part of the string."
+  },
+  "commonRetry": "Retry",
+  "@commonRetry": {
+    "description": "Generic retry button label (boot failure, failed sends, failed fetches)."
+  },
+  "commonCopyIdentityId": "Copy identity ID",
+  "@commonCopyIdentityId": {
+    "description": "Accessibility/semantic label on copy buttons that copy a 64-hex identity ID (onboarding, fleet dashboard, settings, sidebar)."
+  },
+  "commonServing": "Serving",
+  "@commonServing": {
+    "description": "Short status chip on a shared file meaning the local daemon is already offering that file to peers; commonServingTooltip is its tooltip. 'daemon' is a protocol term (the background jeliyad process)."
+  },
+  "commonServingTooltip": "This daemon is already serving this file to peers.",
+  "@commonServingTooltip": {
+    "description": "Tooltip explaining the 'Serving' status chip on a shared file. 'daemon' is a never-translate protocol term for the background jeliyad process — keep the word as-is."
+  },
+  "commonFileExtFallback": "FILE",
+  "@commonFileExtFallback": {
+    "description": "Fallback text on the file-type badge when a file has no recognizable extension — appears where 'PDF' or 'PNG' would. Keep it short and uppercase."
+  },
+  "commonOptionalFieldLabel": "{label} {optional}",
+  "@commonOptionalFieldLabel": {
+    "description": "Template that joins a form field's label with its optionality marker, e.g. 'Peer address (optional)'. This one string owns the word order — reorder the placeholders if your language puts the marker first.",
+    "placeholders": {
+      "label": {
+        "type": "String",
+        "example": "Peer address",
+        "description": "The field's name; rendered as a styled span."
+      },
+      "optional": {
+        "type": "String",
+        "example": "(optional)",
+        "description": "The optionality marker; rendered as a dimmer styled span."
+      }
+    }
+  },
+  "commonClose": "Close",
+  "@commonClose": {
+    "description": "Close action for modal dialogs — used as the tooltip and screen-reader label of the close button (whose visible face is the decorative ✕ glyph)."
+  },
+  "commonTechnicalDetails": "Technical details",
+  "@commonTechnicalDetails": {
+    "description": "Expander label (shown after a ▸/▾ arrow) that reveals the raw technical error text under an error note or a failed file fetch."
+  },
+  "commonYou": "You",
+  "@commonYou": {
+    "description": "Shown instead of your own name on messages you sent (sender name in the chat timeline and member lists)."
+  },
+  "commonClickToSetLocalName": "Click to set a local name",
+  "@commonClickToSetLocalName": {
+    "description": "Second line of the tooltip on an unnamed peer's sender name (the first line is their identity ID), inviting the user to assign a local nickname."
+  },
+  "commonTaskProgress": "Task progress",
+  "@commonTaskProgress": {
+    "description": "Default accessibility label for the task progress bar widget."
+  },
+  "commonPercent": "{n}%",
+  "@commonPercent": {
+    "description": "Percentage readout beside progress bars — this string owns the placement and spacing of the % sign. {n} is the already-formatted number.",
+    "placeholders": {
+      "n": {
+        "type": "String",
+        "example": "42",
+        "description": "Pre-formatted percentage number, e.g. '42' or '99.5'."
+      }
+    }
+  },
+  "commonFetch": "Fetch",
+  "@commonFetch": {
+    "description": "Button label that starts downloading a shared file from peers."
+  },
+  "commonFetching": "Fetching…",
+  "@commonFetching": {
+    "description": "Status label while a file download is in progress; ends with an ellipsis."
+  },
+  "commonChecking": "Checking…",
+  "@commonChecking": {
+    "description": "Status label while a saved file is being re-verified against its content hash; ends with an ellipsis."
+  },
+  "commonVerified": "✓ Verified",
+  "@commonVerified": {
+    "description": "Status label after a saved file passed content-hash verification. The leading ✓ check mark is part of the string."
+  },
+  "commonFetched": "✓ Fetched",
+  "@commonFetched": {
+    "description": "Status label after a file finished downloading successfully. The leading ✓ check mark is part of the string."
+  },
+  "commonFailed": "✕ Failed",
+  "@commonFailed": {
+    "description": "Status label when a file fetch or verification failed. The leading ✕ cross mark is part of the string."
+  },
+  "commonRecheck": "Recheck",
+  "@commonRecheck": {
+    "description": "Button label to re-verify an already-fetched file against its content hash."
+  },
+  "commonOpenFile": "Open file",
+  "@commonOpenFile": {
+    "description": "Button label that opens the fetched file in the system's default application."
+  },
+  "commonCopyPath": "Copy path",
+  "@commonCopyPath": {
+    "description": "Short button label to copy the fetched file's on-disk path; commonCopySavedFilePath is its accessible long form."
+  },
+  "commonCopySavedFilePath": "Copy saved file path",
+  "@commonCopySavedFilePath": {
+    "description": "Accessibility/semantic label for the 'Copy path' button — copies the fetched file's saved on-disk path to the clipboard."
+  },
+  "commonNoProviderOnline": "No provider online",
+  "@commonNoProviderOnline": {
+    "description": "Status shown on a shared file when no peer that has the file is currently online, so fetching is unavailable."
+  },
+  "wireRoleOwnerInline": "owner",
+  "@wireRoleOwnerInline": {
+    "description": "Role word for the protocol role value \"owner\", lowercase for mid-sentence use (e.g. system lines like \"… joined as owner\"). Capitalized role pills use the panelRole* keys instead. The English happens to match the raw wire value; translate it as the natural mid-sentence word for a room owner — the underlying wire value is never shown or translated."
+  },
+  "wireRoleMemberInline": "member",
+  "@wireRoleMemberInline": {
+    "description": "Role word for the protocol role value \"member\", lowercase for mid-sentence use (e.g. \"… joined as member\"). Capitalized role pills use the panelRole* keys instead. Translate as the natural mid-sentence word for an ordinary room member; the raw wire value itself is never displayed."
+  },
+  "wireRoleAgentInline": "agent",
+  "@wireRoleAgentInline": {
+    "description": "Role word for the protocol role value \"agent\" (an automated/bot participant), lowercase for mid-sentence use. Capitalized role pills use the panelRole* keys instead. Translate as the natural mid-sentence word for an automated agent; the raw wire value itself is never displayed."
+  },
+  "wireStatusActive": "Active",
+  "@wireStatusActive": {
+    "description": "Member lifecycle status shown in roster pills and the agent-card footer: the member is currently active in the room. Standalone capitalized word (maps the protocol status value \"active\", which itself is never shown)."
+  },
+  "wireStatusInvited": "Invited",
+  "@wireStatusInvited": {
+    "description": "Member lifecycle status shown in roster pills and the agent-card footer: the member has been invited but has not joined yet. Standalone capitalized word (maps the protocol status value \"invited\")."
+  },
+  "wireStatusLeft": "Left",
+  "@wireStatusLeft": {
+    "description": "Member lifecycle status shown in roster pills and the agent-card footer: the member left the room voluntarily (past tense of \"to leave\"). Standalone capitalized word (maps the protocol status value \"left\")."
+  },
+  "wireStatusRemoved": "Removed",
+  "@wireStatusRemoved": {
+    "description": "Member lifecycle status shown in roster pills and the agent-card footer: the member was removed from the room by someone else. Standalone capitalized word (maps the protocol status value \"removed\")."
+  },
+  "wirePathDirect": "direct",
+  "@wirePathDirect": {
+    "description": "Peer connection path label in the room-header connection chip: traffic flows over a direct peer-to-peer connection. Lowercase, appears inside the chip's state label mid-phrase (maps the protocol path value \"direct\")."
+  },
+  "wirePathRelay": "relay",
+  "@wirePathRelay": {
+    "description": "Peer connection path label in the room-header connection chip: traffic is routed through a relay server rather than directly. Lowercase, appears inside the chip's state label mid-phrase (maps the protocol path value \"relay\"). Networking term — keep the established local term for a relay if one exists."
+  },
+  "wireModeLoopback": "loopback",
+  "@wireModeLoopback": {
+    "description": "Daemon mode word shown in the Settings daemon summary: local-only loopback mode (no real networking; used for testing). Lowercase, mid-sentence. \"Loopback\" is a networking term — prefer the established technical term in the target language; the protocol mode value itself is never shown."
+  },
+  "wireModeReal": "real",
+  "@wireModeReal": {
+    "description": "Daemon mode word shown in the Settings daemon summary: normal networked operation (as opposed to loopback test mode). Lowercase, mid-sentence (maps the protocol mode value \"real\")."
+  },
+  "wireConnConnectedInline": "connected",
+  "@wireConnConnectedInline": {
+    "description": "Client connection state, lowercase for mid-sentence use: the app is connected to its local daemon. Standalone capitalized badges use the shellConn* keys instead."
+  },
+  "wireConnConnectingInline": "connecting",
+  "@wireConnConnectingInline": {
+    "description": "Client connection state, lowercase for mid-sentence use: the app is establishing its first connection to the local daemon (in progress). Standalone capitalized badges use the shellConn* keys instead."
+  },
+  "wireConnReconnectingInline": "reconnecting",
+  "@wireConnReconnectingInline": {
+    "description": "Client connection state, lowercase for mid-sentence use: the connection dropped and the app is trying to reconnect to the local daemon. Standalone capitalized badges use the shellConn* keys instead."
+  },
+  "wireConnDisconnectedInline": "disconnected",
+  "@wireConnDisconnectedInline": {
+    "description": "Client connection state, lowercase for mid-sentence use: the app has no connection to the local daemon. Standalone capitalized badges use the shellConn* keys instead."
+  },
+  "panelPathPlaceholder": "/path/to/report.pdf",
+  "@panelPathPlaceholder": {
+    "description": "Hint text of the advanced daemon-readable file-path field on the Files tab share card — an EXAMPLE filesystem path; localize the words (e.g. FR '/chemin/vers/rapport.pdf'), keep it an absolute path."
+  }
+}

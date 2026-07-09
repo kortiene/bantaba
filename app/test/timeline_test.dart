@@ -32,7 +32,7 @@ void main() {
     }
 
     // Not the empty state, and stick-to-bottom shows the newest fixture event.
-    expect(find.text('No events yet — say something below.'), findsNothing);
+    expect(find.text(en.timelineEmptyState), findsNothing);
     expect(find.text('Sync convergence suite running (14/24 green).'),
         findsOneWidget);
 
@@ -41,7 +41,8 @@ void main() {
     expect(
       find.byWidgetPredicate((widget) =>
           widget is Text &&
-          (widget.data == 'Today' || widget.data == 'Yesterday')),
+          (widget.data == en.timelineToday ||
+              widget.data == en.timelineYesterday)),
       findsWidgets,
     );
   });
@@ -61,7 +62,7 @@ void main() {
     await tester.tap(find.text('➤'));
     await tester.pump();
     // Optimistic: pending card renders immediately, draft cleared already.
-    expect(find.text('Sending...'), findsOneWidget);
+    expect(find.text(en.timelinePendingSending), findsOneWidget);
     expect(find.text(body), findsOneWidget);
     expect(session.prefs.draftFor(roomId), isNull);
 
@@ -69,8 +70,8 @@ void main() {
     // the pending entry is dropped at the response — exactly one bubble left.
     await tester.pump(const Duration(milliseconds: 100));
     expect(session.room!.pendingMessages, isEmpty);
-    expect(find.text('Sending...'), findsNothing);
-    expect(find.text('Sent locally, syncing...'), findsNothing);
+    expect(find.text(en.timelinePendingSending), findsNothing);
+    expect(find.text(en.timelinePendingSyncing), findsNothing);
     expect(find.text(body), findsOneWidget);
   });
 
@@ -86,12 +87,12 @@ void main() {
     await tester.pump();
     await tester.tap(find.text('➤'));
     await tester.pump();
-    expect(find.text('Sending...'), findsOneWidget);
+    expect(find.text(en.timelinePendingSending), findsOneWidget);
 
     // Response resolves while the echo push is held back → phase 'syncing'
     // carrying the wire event_id.
     await tester.pump(const Duration(milliseconds: 100));
-    expect(find.text('Sent locally, syncing...'), findsOneWidget);
+    expect(find.text(en.timelinePendingSyncing), findsOneWidget);
     final pending = session.room!.pendingMessages.single;
     expect(pending.phase, PendingPhases.syncing);
     expect(pending.eventId, isNotNull);
@@ -102,7 +103,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 50));
     await tester.pump();
     expect(session.room!.pendingMessages, isEmpty);
-    expect(find.text('Sent locally, syncing...'), findsNothing);
+    expect(find.text(en.timelinePendingSyncing), findsNothing);
     expect(find.text(body), findsOneWidget);
   });
 
@@ -122,21 +123,21 @@ void main() {
     await tester.pump();
 
     // Failed visibly, in the timeline (not a toast): "Couldn't send" + Retry.
-    expect(find.text("Couldn't send"), findsOneWidget);
-    expect(find.text('Retry'), findsOneWidget);
+    expect(find.text(en.timelinePendingFailed), findsOneWidget);
+    expect(find.text(en.commonRetry), findsOneWidget);
     expect(find.text(body), findsOneWidget); // body kept for the retry
     expect(session.room!.pendingMessages.single.phase, PendingPhases.failed);
     // The failure was recorded for diagnostics (Settings "Last captured error").
     expect(session.lastDiagnosticError?.context, 'message.send');
 
     // Retry re-sends the same body reusing the clientId.
-    await tester.tap(find.text('Retry'));
+    await tester.tap(find.text(en.commonRetry));
     await tester.pump();
-    expect(find.text('Sending...'), findsOneWidget);
+    expect(find.text(en.timelinePendingSending), findsOneWidget);
 
     await tester.pump(const Duration(milliseconds: 100));
     expect(session.room!.pendingMessages, isEmpty);
-    expect(find.text("Couldn't send"), findsNothing);
+    expect(find.text(en.timelinePendingFailed), findsNothing);
     expect(find.text(body), findsOneWidget);
   });
 }

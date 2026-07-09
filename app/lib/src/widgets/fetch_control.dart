@@ -22,22 +22,13 @@ import 'package:jeliya_protocol/jeliya_protocol.dart'
     show ErrorCodes, FetchPhases, FetchState, RequestError;
 import 'package:url_launcher/url_launcher.dart';
 
-import '../l10n/strings_errors.dart';
-import '../l10n/strings_panel.dart';
-import '../l10n/strings_widgets.dart';
+import '../format.dart';
+import '../l10n/error_display.dart';
+import '../l10n/strings_context.dart';
 import '../theme.dart';
 import 'buttons.dart';
 import 'copy_button.dart';
-
-/// format.ts `formatBytes`: B / KB rounded / MB 1dp / GB 1dp, '?' for
-/// negative or non-finite input. Shared display helper for file surfaces.
-String formatBytes(num n) {
-  if (!n.isFinite || n < 0) return '?';
-  if (n < 1024) return '${n.round()} B';
-  if (n < 1024 * 1024) return '${(n / 1024).round()} KB';
-  if (n < 1024 * 1024 * 1024) return '${(n / (1024 * 1024)).toStringAsFixed(1)} MB';
-  return '${(n / (1024 * 1024 * 1024)).toStringAsFixed(1)} GB';
-}
+import 'template_text.dart';
 
 /// The availability slice of a `FileEntry` the control needs.
 class FetchAvailability {
@@ -47,11 +38,11 @@ class FetchAvailability {
   final int providers;
 }
 
-String? _providerTitle(FetchAvailability? availability) {
+String? _providerTitle(AppStrings s, FetchAvailability? availability) {
   if (availability == null) return null;
   return availability.available
-      ? FetchControlStrings.providersListedOnline(availability.providers)
-      : FetchControlStrings.providersListedOffline(availability.providers);
+      ? s.fetchProvidersListedOnline(availability.providers)
+      : s.fetchProvidersListedOffline(availability.providers);
 }
 
 void _open(String url) => unawaited(launchUrl(Uri.parse(url)));
@@ -80,12 +71,13 @@ class FetchControl extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = JeliyaTokens.of(context);
+    final s = context.strings;
     final state = this.state;
 
     if (state == null) {
       if (availabilityPending) {
-        return const JeliyaButton(
-          label: WidgetStrings.checking,
+        return JeliyaButton(
+          label: s.commonChecking,
           size: JeliyaButtonSize.sm,
           busy: true,
           onPressed: null,
@@ -96,9 +88,9 @@ class FetchControl extends StatelessWidget {
         return _NoProviderOnline(availability: availability, onRecheck: onRecheck);
       }
       return _withTooltip(
-        _providerTitle(availability),
+        _providerTitle(s, availability),
         JeliyaButton(
-          label: WidgetStrings.fetch,
+          label: s.commonFetch,
           size: JeliyaButtonSize.sm,
           onPressed: onFetch,
         ),
@@ -106,8 +98,8 @@ class FetchControl extends StatelessWidget {
     }
 
     if (state.phase == FetchPhases.pending) {
-      return const JeliyaButton(
-        label: WidgetStrings.fetching,
+      return JeliyaButton(
+        label: s.commonFetching,
         size: JeliyaButtonSize.sm,
         busy: true,
         onPressed: null,
@@ -124,24 +116,25 @@ class FetchControl extends StatelessWidget {
         children: [
           if (url != null)
             JeliyaButton(
-              label: WidgetStrings.openFile,
+              label: s.commonOpenFile,
               size: JeliyaButtonSize.sm,
               variant: JeliyaButtonVariant.primary,
               onPressed: () => _open(url),
             )
           else
             Tooltip(
-              message:
-                  '${verified ? FetchControlStrings.verifiedWordLower : FetchControlStrings.fetchedWordLower} · $path',
+              message: verified
+                  ? s.fetchVerifiedTooltip(path)
+                  : s.fetchFetchedTooltip(path),
               child: Text(
-                verified ? WidgetStrings.verified : WidgetStrings.fetched,
+                verified ? s.commonVerified : s.commonFetched,
                 style: TextStyle(fontSize: 12.5, color: tokens.accent),
               ),
             ),
           CopyButton(
             text: path,
-            label: WidgetStrings.copyPath,
-            semanticLabel: WidgetStrings.copySavedFilePath,
+            label: s.commonCopyPath,
+            semanticLabel: s.commonCopySavedFilePath,
           ),
         ],
       );
@@ -151,7 +144,7 @@ class FetchControl extends StatelessWidget {
     if (state.isHardStop) {
       // hash_mismatch is a hard stop per the protocol honesty rules — no retry.
       return Text(
-        WidgetStrings.failed,
+        s.commonFailed,
         style: TextStyle(fontSize: 12.5, color: tokens.red),
       );
     }
@@ -160,7 +153,7 @@ class FetchControl extends StatelessWidget {
       return _NoProviderOnline(availability: availability, onRecheck: onRecheck);
     }
     return JeliyaButton(
-      label: WidgetStrings.retryFetch,
+      label: s.commonRetry,
       size: JeliyaButtonSize.sm,
       variant: JeliyaButtonVariant.danger,
       onPressed: onFetch,
@@ -181,9 +174,10 @@ class _NoProviderOnline extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = JeliyaTokens.of(context);
+    final s = context.strings;
     final onRecheck = this.onRecheck;
     return Tooltip(
-      message: _providerTitle(availability)!,
+      message: _providerTitle(s, availability)!,
       child: Wrap(
         spacing: JeliyaSpacing.x6,
         crossAxisAlignment: WrapCrossAlignment.center,
@@ -199,13 +193,13 @@ class _NoProviderOnline extends StatelessWidget {
             ),
             alignment: Alignment.center,
             child: Text(
-              WidgetStrings.noProviderOnline,
+              s.commonNoProviderOnline,
               style: TextStyle(fontSize: 12, color: tokens.amber),
             ),
           ),
           if (onRecheck != null)
             JeliyaButton(
-              label: WidgetStrings.recheck,
+              label: s.commonRecheck,
               size: JeliyaButtonSize.sm,
               variant: JeliyaButtonVariant.ghost,
               onPressed: onRecheck,
@@ -224,13 +218,12 @@ class FetchDetail extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = JeliyaTokens.of(context);
+    final s = context.strings;
+    final fmt = context.formats;
     final state = this.state;
     if (state == null) return const SizedBox.shrink();
 
     if (state.phase == FetchPhases.verified || state.phase == FetchPhases.fetched) {
-      final word = state.phase == FetchPhases.verified
-          ? FetchControlStrings.verifiedWord
-          : FetchControlStrings.fetchedWord;
       final url = state.url;
       final path = state.path ?? '';
       final pathSpan = url != null
@@ -245,15 +238,13 @@ class FetchDetail extends StatelessWidget {
               text: path,
               style: JeliyaText.mono(fontSize: 12, color: tokens.textDim),
             );
-      final line = Text.rich(
-        TextSpan(children: [
-          TextSpan(
-            text: FetchControlStrings.detailLine(
-                word, formatBytes(state.bytes ?? 0)),
-            style: TextStyle(fontSize: 12, color: tokens.accent),
-          ),
-          pathSpan,
-        ]),
+      final bytes = fmt.bytes(state.bytes ?? 0);
+      final line = templateText(
+        state.phase == FetchPhases.verified
+            ? s.fetchDetailVerified(bytes, '{path}')
+            : s.fetchDetailFetched(bytes, '{path}'),
+        slots: {'path': pathSpan},
+        style: TextStyle(fontSize: 12, color: tokens.accent),
       );
       if (url == null) {
         return Padding(
@@ -265,7 +256,7 @@ class FetchDetail extends StatelessWidget {
       return Padding(
         padding: const EdgeInsets.only(top: JeliyaSpacing.x6),
         child: Tooltip(
-          message: FetchControlStrings.openLocalFileCopy,
+          message: s.fetchOpenLocalFileCopy,
           child: MouseRegion(
             cursor: SystemMouseCursors.click,
             child: GestureDetector(
@@ -279,22 +270,27 @@ class FetchDetail extends StatelessWidget {
 
     if (state.phase == FetchPhases.error) {
       final error = state.error!;
-      final (String message, String? detail) = switch (error.code) {
+      final (String message, String detail) = switch (error.code) {
         // hash_mismatch means a real integrity-check failure — lead with plain
         // language, keep the raw code/message/hint de-emphasized.
         ErrorCodes.hashMismatch => (
-            FetchErrorStrings.hashMismatch,
+            s.fetchErrHashMismatch,
             '${error.message}${error.hint != null ? ' — ${error.hint}' : ''}',
           ),
         ErrorCodes.fileUnavailable => (
-            FetchErrorStrings.fileUnavailable,
+            s.fetchErrFileUnavailable,
             error.hint ?? error.message,
           ),
         ErrorCodes.fileUnauthorized => (
-            FetchErrorStrings.fileUnauthorized,
+            s.fetchErrFileUnauthorized,
             error.hint ?? error.message,
           ),
-        _ => (error.message, error.hint),
+        // Cross-cutting / unexpected codes: lead with the generic friendly
+        // copy; the raw daemon message stays in the technical disclosure.
+        _ => (
+            s.friendlyError(error).message,
+            '${error.message}${error.hint != null ? ' — ${error.hint}' : ''}',
+          ),
       };
       return Padding(
         padding: const EdgeInsets.only(top: JeliyaSpacing.x6),
@@ -302,7 +298,7 @@ class FetchDetail extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(message, style: TextStyle(fontSize: 12, color: tokens.red)),
-            if (detail != null) _TechnicalDetails(error: error, detail: detail),
+            _TechnicalDetails(error: error, detail: detail),
           ],
         ),
       );
@@ -329,6 +325,7 @@ class _TechnicalDetailsState extends State<_TechnicalDetails> {
   @override
   Widget build(BuildContext context) {
     final tokens = JeliyaTokens.of(context);
+    final s = context.strings;
     return Padding(
       padding: const EdgeInsets.only(top: JeliyaSpacing.x6),
       child: Column(
@@ -337,7 +334,7 @@ class _TechnicalDetailsState extends State<_TechnicalDetails> {
           InkWell(
             onTap: () => setState(() => _open = !_open),
             child: Text(
-              '${_open ? '▾' : '▸'} ${WidgetStrings.technicalDetails}',
+              '${_open ? '▾' : '▸'} ${s.commonTechnicalDetails}',
               style: TextStyle(fontSize: 12, color: tokens.textMute),
             ),
           ),

@@ -4,6 +4,7 @@
 library;
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:jeliya_app/src/l10n/tokens.dart';
 import 'package:jeliya_app/src/screens/boot_screen.dart';
 import 'package:jeliya_app/src/screens/room_header.dart';
 import 'package:jeliya_app/src/screens/shell.dart';
@@ -25,8 +26,8 @@ void main() {
     expect(session.phase, BootstrapPhase.boot);
 
     await tester.pump(const Duration(milliseconds: 50));
-    expect(find.text('Jeliya'), findsOneWidget);
-    expect(find.text('Contacting daemon…'), findsOneWidget);
+    expect(find.text(Tokens.wordmark), findsOneWidget);
+    expect(find.text(en.bootContactingDaemon), findsOneWidget);
     expect(find.text('mock fixtures (in-memory) — no daemon'), findsOneWidget);
 
     // Connect (200ms) then daemon.status → identity → room.list → ready;
@@ -40,6 +41,7 @@ void main() {
     expect(
       find.descendant(
           of: find.byType(RoomHeader),
+          // i18n-exempt: MockClient fixture room name, coincides with copy
           matching: find.text('Build Iroh Rooms MVP')),
       findsOneWidget,
     );
@@ -56,10 +58,9 @@ void main() {
     client.setConnection(ConnectionState.reconnecting);
     await tester.pump(const Duration(milliseconds: 10));
     expect(find.byType(BootScreen), findsOneWidget);
-    expect(find.text('Contacting daemon…'), findsOneWidget);
+    expect(find.text(en.bootContactingDaemon), findsOneWidget);
     expect(
-      find.text(
-          'Retrying with backoff — start jeliyad or pass ?daemon=<port>.'),
+      find.text(en.bootRetryingHint),
       findsOneWidget,
     );
 

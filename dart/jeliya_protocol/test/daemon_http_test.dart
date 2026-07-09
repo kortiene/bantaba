@@ -246,7 +246,7 @@ void main() {
           sourcePath: big.path,
         ),
         throwsA(isA<RequestError>()
-            .having((e) => e.code, 'code', ErrorCodes.invalidParams)
+            .having((e) => e.code, 'code', ErrorCodes.fileTooLarge)
             .having((e) => e.message, 'message', contains('share limit'))),
       );
       expect(stagedLeftovers(), isEmpty, reason: 'the limit is enforced before copying');

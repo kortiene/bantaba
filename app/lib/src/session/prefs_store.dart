@@ -24,8 +24,40 @@ class PrefsStore extends ChangeNotifier {
   final String? path;
 
   String? _lastRoomId;
+  String? _textLocale;
+  String? _formattingLocale;
   final Map<String, String> _drafts = {};
   final Map<String, String> _aliases = {};
+
+  /// UI language as a BCP-47 tag ('textLocale'); null follows the system
+  /// language (MaterialApp resolves against supportedLocales).
+  String? get textLocale => _textLocale;
+
+  set textLocale(String? tag) {
+    final v = _normalizedTag(tag);
+    if (_textLocale == v) return;
+    _textLocale = v;
+    _save();
+    notifyListeners();
+  }
+
+  /// Date/number-convention tag ('formattingLocale') — deliberately separate
+  /// from [textLocale] (glossary decision 4: a Bambara UI on a French system
+  /// formats dates the French way); null follows the system locale.
+  String? get formattingLocale => _formattingLocale;
+
+  set formattingLocale(String? tag) {
+    final v = _normalizedTag(tag);
+    if (_formattingLocale == v) return;
+    _formattingLocale = v;
+    _save();
+    notifyListeners();
+  }
+
+  static String? _normalizedTag(String? tag) {
+    final t = tag?.trim() ?? '';
+    return t.isEmpty ? null : t;
+  }
 
   /// The last opened room id ('jeliya.lastRoom').
   String? get lastRoomId => _lastRoomId;
@@ -84,6 +116,8 @@ class PrefsStore extends ChangeNotifier {
       final map = decoded.cast<String, dynamic>();
       final last = map['lastRoom'];
       _lastRoomId = last is String && last.isNotEmpty ? last : null;
+      _textLocale = _optionalString(map['textLocale']);
+      _formattingLocale = _optionalString(map['formattingLocale']);
       _drafts
         ..clear()
         ..addAll(_stringMap(map['drafts']));
@@ -95,6 +129,9 @@ class PrefsStore extends ChangeNotifier {
       // Missing or corrupt prefs file — start fresh, like localStorage misses.
     }
   }
+
+  static String? _optionalString(dynamic v) =>
+      v is String && v.isNotEmpty ? v : null;
 
   static Map<String, String> _stringMap(dynamic v) {
     if (v is! Map) return const {};
@@ -116,6 +153,8 @@ class PrefsStore extends ChangeNotifier {
       final tmp = File('$p.tmp');
       tmp.writeAsStringSync(jsonEncode({
         if (_lastRoomId != null) 'lastRoom': _lastRoomId,
+        if (_textLocale != null) 'textLocale': _textLocale,
+        if (_formattingLocale != null) 'formattingLocale': _formattingLocale,
         'drafts': _drafts,
         'aliases': _aliases,
       }));

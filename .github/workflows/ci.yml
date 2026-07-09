@@ -1,0 +1,66 @@
+name: ci
+
+# The i18n / app / package verification, on every PR and every push to main —
+# a literal leak or generated-code drift must fail here, not lie in wait on
+# main until a release tag is cut. release.yml calls this same workflow
+# (workflow_call) so a release runs the identical gates and its publish jobs
+# can `needs:` it.
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_call:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  verify:
+    name: verify (i18n + app + package gates)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          # Pinned: the gen-drift gate below is byte-exact, so the generator
+          # version must match the one that produced the committed gen/ files.
+          # Bump the pin and regenerate/commit together.
+          flutter-version: 3.41.5
+          cache: true
+
+      - name: Verify i18n + app gates (gen drift, analyze, tests, gate)
+        working-directory: app
+        run: |
+          set -eu
+          flutter pub get
+          # Committed generated l10n must match the ARB catalog exactly.
+          # `git status --porcelain` (not `git diff`) so newly created or
+          # deleted generated files count as drift too — an ARB for a new
+          # locale whose gen/ output was never committed must fail here.
+          flutter gen-l10n
+          test -z "$(git status --porcelain -- lib/src/l10n/gen)"
+          # The generated parity test must match the ARB too.
+          node ../scripts/gen-l10n-parity.mjs
+          test -z "$(git status --porcelain -- test/l10n_parity_test.dart)"
+          flutter analyze
+          flutter test
+          node ../scripts/i18n-gate.mjs
+
+      - name: Verify jeliya_protocol
+        working-directory: dart/jeliya_protocol
+        run: |
+          set -eu
+          dart pub get
+          dart analyze
+          dart test

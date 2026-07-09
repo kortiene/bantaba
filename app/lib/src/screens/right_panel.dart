@@ -27,6 +27,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:jeliya_protocol/jeliya_protocol.dart'
     show
+        ErrorCodes,
         FetchPhases,
         FetchState,
         FileEntry,
@@ -41,8 +42,11 @@ import 'package:jeliya_protocol/jeliya_protocol.dart'
         labelTone;
 import 'package:url_launcher/url_launcher.dart';
 
-import '../l10n/strings_panel.dart';
-import '../l10n/strings_widgets.dart';
+import '../format.dart';
+import '../l10n/error_display.dart';
+import '../l10n/strings_context.dart';
+import '../l10n/tokens.dart';
+import '../l10n/wire_display.dart';
 import '../session/daemon_session.dart';
 import '../session/room_store.dart';
 import '../theme.dart';
@@ -52,33 +56,22 @@ import '../widgets/error_note.dart';
 import '../widgets/fetch_control.dart';
 import '../widgets/progress_bar.dart';
 import '../widgets/sender_name.dart';
+import '../widgets/template_text.dart';
 
 /// Right-panel tabs (RightPanel.tsx `PanelTab`).
 enum PanelTab { members, agents, files, pipes }
 
-String _tabLabel(PanelTab tab) => switch (tab) {
-      PanelTab.members => PanelStrings.tabMembers,
-      PanelTab.agents => PanelStrings.tabAgents,
-      PanelTab.files => PanelStrings.tabFiles,
-      PanelTab.pipes => PanelStrings.tabPipes,
+String _tabLabel(AppStrings s, PanelTab tab) => switch (tab) {
+      PanelTab.members => s.panelTabMembers,
+      PanelTab.agents => s.panelTabAgents,
+      PanelTab.files => s.panelTabFiles,
+      PanelTab.pipes => s.panelTabPipes,
     };
 
-/// format.ts `formatTime`: locale h:mm.
-String _formatTime(BuildContext context, int ts) =>
-    MaterialLocalizations.of(context).formatTimeOfDay(
-        TimeOfDay.fromDateTime(DateTime.fromMillisecondsSinceEpoch(ts)));
+// Clock formatting goes through ../format.dart context.formats clock — one
+// consistent (and later locale-aware) clock for every surface.
 
-/// format.ts `prettyLabel`.
-String _prettyLabel(String label) {
-  final s = label.replaceAll(RegExp('[_-]+'), ' ').trim();
-  return s.isEmpty ? label : s[0].toUpperCase() + s.substring(1);
-}
-
-/// format.ts `extOf`.
-String _extOf(String name) {
-  final i = name.lastIndexOf('.');
-  return i >= 0 ? name.substring(i + 1).toLowerCase() : '';
-}
+// prettyLabel / extOf live in ../format.dart — the shared single home.
 
 class RightPanel extends StatelessWidget {
   const RightPanel({
@@ -118,6 +111,7 @@ class RightPanel extends StatelessWidget {
 
   Widget _buildPanel(
       BuildContext context, DaemonSession session, RoomStore? room) {
+    final s = context.strings;
     final members = room?.members ?? const <Member>[];
     final files = room?.files ?? const <FileEntry>[];
     final pipes = room?.pipes ?? const <PipeEntry>[];
@@ -161,7 +155,7 @@ class RightPanel extends StatelessWidget {
           // role='tabpanel' labelled by the active tab.
           child: Semantics(
             container: true,
-            label: _tabLabel(tab),
+            label: _tabLabel(s, tab),
             child: SingleChildScrollView(
               padding: const EdgeInsets.all(JeliyaSpacing.panel),
               child: body,
@@ -228,6 +222,7 @@ class _PanelTabsState extends State<_PanelTabs> {
 
   @override
   Widget build(BuildContext context) {
+    final s = context.strings;
     final tokens = JeliyaTokens.of(context);
     // Roving tabindex: only the active tab participates in Tab traversal.
     for (final tab in PanelTab.values) {
@@ -235,7 +230,7 @@ class _PanelTabsState extends State<_PanelTabs> {
     }
     return Semantics(
       container: true,
-      label: PanelStrings.roomPanel,
+      label: s.panelRoomPanel,
       child: Container(
         padding: const EdgeInsets.fromLTRB(
             JeliyaSpacing.x8, JeliyaSpacing.x12, JeliyaSpacing.x8, 0),
@@ -248,7 +243,7 @@ class _PanelTabsState extends State<_PanelTabs> {
             for (final tab in PanelTab.values)
               Expanded(
                 child: _PanelTabButton(
-                  label: _tabLabel(tab),
+                  label: _tabLabel(s, tab),
                   count: widget.counts[tab] ?? 0,
                   active: tab == widget.tab,
                   focusNode: _nodes[tab]!,
@@ -339,7 +334,7 @@ class _PanelTabButtonState extends State<_PanelTabButton> {
                   ),
                   child: Text(
                     widget.count > 99
-                        ? PanelStrings.countCap
+                        ? Tokens.countCap
                         : '${widget.count}',
                     style: TextStyle(fontSize: 10, color: tokens.textDim),
                   ),
@@ -540,15 +535,9 @@ int _statusRank(String status) => switch (status) {
       _ => 4,
     };
 
-String _displayStatus(String status) => status.isEmpty
-    ? PanelStrings.statusUnknown
-    : status[0].toUpperCase() + status.substring(1);
+String _displayStatus(AppStrings s, String status) => s.memberStatus(status);
 
-String _displayRole(String role) => switch (role) {
-      Roles.owner => PanelStrings.roleOwner,
-      Roles.agent => PanelStrings.roleAgent,
-      _ => PanelStrings.roleMember,
-    };
+String _displayRole(AppStrings s, String role) => s.rolePill(role);
 
 String _shortMemberId(String id) => id.length > 18
     ? '${id.substring(0, 8)}…${id.substring(id.length - 6)}'
@@ -567,7 +556,8 @@ class _MembersTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (members.isEmpty) return const _PanelEmpty(PanelStrings.membersEmpty);
+    final s = context.strings;
+    if (members.isEmpty) return _PanelEmpty(s.panelMembersEmpty);
 
     final sorted = [...members]..sort((a, b) {
         final aSelf = session.isSelf(a.identityId);
@@ -578,8 +568,8 @@ class _MembersTab extends StatelessWidget {
         final byRole = _roleRank(a.role) - _roleRank(b.role);
         if (byRole != 0) return byRole;
         return session
-            .displayName(a.identityId)
-            .compareTo(session.displayName(b.identityId));
+            .displayName(s, a.identityId)
+            .compareTo(session.displayName(s, b.identityId));
       });
     final activeCount = members.where((m) => m.status == 'active').length;
     final invitedCount = members.where((m) => m.status == 'invited').length;
@@ -591,8 +581,8 @@ class _MembersTab extends StatelessWidget {
         _buildSummary(context, activeCount, invitedCount, agentCount),
         const SizedBox(height: JeliyaSpacing.x10),
         _SectionHead(
-          title: PanelStrings.roomRoster,
-          summary: PanelStrings.nActive(activeCount),
+          title: s.panelRoomRoster,
+          summary: s.panelNActive(activeCount),
         ),
         for (final member in sorted) ...[
           const SizedBox(height: JeliyaSpacing.x10),
@@ -605,10 +595,11 @@ class _MembersTab extends StatelessWidget {
 
   Widget _buildSummary(
       BuildContext context, int active, int invited, int agents) {
+    final s = context.strings;
     final tokens = JeliyaTokens.of(context);
     return Semantics(
       container: true,
-      label: PanelStrings.membersSummaryLabel,
+      label: s.panelMembersSummaryLabel,
       child: Container(
         decoration: BoxDecoration(
           color: tokens.bgCard,
@@ -632,29 +623,29 @@ class _MembersTab extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(PanelStrings.roomMemberCount(members.length),
+              Text(s.panelRoomMemberCount(members.length),
                   style: JeliyaText.cardTitle),
               const SizedBox(height: JeliyaSpacing.x4),
-              Text(PanelStrings.rosterCopy,
+              Text(s.panelRosterCopy,
                   style: TextStyle(fontSize: 12.5, color: tokens.textDim)),
               const SizedBox(height: JeliyaSpacing.x12),
               Semantics(
                 container: true,
-                label: PanelStrings.memberCountsLabel,
+                label: s.panelMemberCountsLabel,
                 child: Row(
                   children: [
                     Expanded(
                         child: _StatCell(
-                            term: PanelStrings.statActive, value: '$active')),
+                            term: s.panelStatActive, value: '$active')),
                     const SizedBox(width: JeliyaSpacing.x8),
                     Expanded(
                         child: _StatCell(
-                            term: PanelStrings.statAgents, value: '$agents')),
+                            term: s.panelStatAgents, value: '$agents')),
                     if (invited > 0) ...[
                       const SizedBox(width: JeliyaSpacing.x8),
                       Expanded(
                           child: _StatCell(
-                              term: PanelStrings.statInvited,
+                              term: s.panelStatInvited,
                               value: '$invited')),
                     ],
                   ],
@@ -681,6 +672,7 @@ class _MemberRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = context.strings;
     final tokens = JeliyaTokens.of(context);
     final mine = session.isSelf(member.identityId);
     final departed = member.status == 'left' || member.status == 'removed';
@@ -739,7 +731,7 @@ class _MemberRow extends StatelessWidget {
                             border: Border.all(color: tokens.accentLine),
                           ),
                           child: Text(
-                            PanelStrings.thisDevice,
+                            s.panelThisDevice,
                             style: TextStyle(
                                 fontSize: 10.5, color: tokens.accent),
                           ),
@@ -758,19 +750,19 @@ class _MemberRow extends StatelessWidget {
             Semantics(
               container: true,
               label:
-                  '${_displayRole(member.role)}, ${_displayStatus(member.status)}',
+                  '${_displayRole(s, member.role)}, ${_displayStatus(s, member.status)}',
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
                   _pill(
                       tokens,
-                      _displayRole(member.role),
+                      _displayRole(s, member.role),
                       roleColor,
                       member.role == Roles.owner
                           ? tokens.accentLine
                           : tokens.borderStrong),
                   const SizedBox(height: 5),
-                  _pill(tokens, _displayStatus(member.status), statusColor,
+                  _pill(tokens, _displayStatus(s, member.status), statusColor,
                       tokens.borderStrong,
                       dot: true),
                 ],
@@ -779,7 +771,7 @@ class _MemberRow extends StatelessWidget {
             if (canLeave) ...[
               const SizedBox(width: JeliyaSpacing.x10),
               JeliyaButton(
-                label: PanelStrings.leave,
+                label: s.panelLeave,
                 size: JeliyaButtonSize.sm,
                 variant: JeliyaButtonVariant.danger,
                 onPressed: onLeaveRoom,
@@ -788,9 +780,9 @@ class _MemberRow extends StatelessWidget {
             if (ownerCannotLeave) ...[
               const SizedBox(width: JeliyaSpacing.x10),
               Tooltip(
-                message: PanelStrings.ownerStaysTitle,
+                message: s.panelOwnerStaysTitle,
                 child: Text(
-                  PanelStrings.ownerStays,
+                  s.panelOwnerStays,
                   style: TextStyle(fontSize: 11, color: tokens.textMute),
                 ),
               ),
@@ -835,8 +827,9 @@ class _AgentsTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = context.strings;
     final agents = members.where((m) => m.role == Roles.agent).toList();
-    if (agents.isEmpty) return const _PanelEmpty(PanelStrings.agentsEmpty);
+    if (agents.isEmpty) return _PanelEmpty(s.panelAgentsEmpty);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -870,6 +863,8 @@ class _AgentCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = context.strings;
+    final fmt = context.formats;
     final tokens = JeliyaTokens.of(context);
     final latest = this.latest;
     final label = latest?.label;
@@ -904,7 +899,7 @@ class _AgentCard extends StatelessWidget {
                           const SizedBox(width: 5),
                           Flexible(
                             child: Text(
-                              _prettyLabel(label),
+                              prettyLabel(label),
                               overflow: TextOverflow.ellipsis,
                               style: TextStyle(
                                   fontSize: 12, color: tokens.accent),
@@ -913,14 +908,14 @@ class _AgentCard extends StatelessWidget {
                         ],
                       )
                     else
-                      Text(PanelStrings.noStatusPostedYet,
+                      Text(s.panelNoStatusPostedYet,
                           style:
                               TextStyle(fontSize: 12, color: tokens.textDim)),
                   ],
                 ),
               ),
               if (latest != null)
-                Text(_formatTime(context, latest.ts), style: JeliyaText.meta),
+                Text(fmt.clock(latest.ts), style: JeliyaText.meta),
             ],
           ),
           if (latest?.statusMessage != null) ...[
@@ -935,7 +930,7 @@ class _AgentCard extends StatelessWidget {
                 Expanded(child: ProgressBar(value: progress.toDouble())),
                 const SizedBox(width: JeliyaSpacing.x8),
                 Text(
-                  '${progress.clamp(0, 100).round()}%',
+                  fmt.percent(progress.clamp(0, 100).round()),
                   style: JeliyaText.mono(fontSize: 11.5, color: tokens.textDim),
                 ),
               ],
@@ -943,7 +938,8 @@ class _AgentCard extends StatelessWidget {
           ],
           const SizedBox(height: JeliyaSpacing.x8),
           Text(
-            PanelStrings.agentStatusFooter(agent.status).toUpperCase(),
+            s.panelAgentStatusFooter(_displayStatus(s, agent.status))
+                .toUpperCase(),
             style: TextStyle(
                 fontSize: 11, letterSpacing: 0.66, color: tokens.textMute),
           ),
@@ -956,17 +952,17 @@ class _AgentCard extends StatelessWidget {
 // -- Files tab -------------------------------------------------------------------------
 
 /// RightPanel.tsx `mimeTypeLabel`.
-String _mimeTypeLabel(String mime, String fallback) {
-  if (mime.isEmpty) return fallback.isEmpty ? PanelStrings.kindFile : fallback;
+String _mimeTypeLabel(AppStrings s, String mime, String fallback) {
+  if (mime.isEmpty) return fallback.isEmpty ? s.panelKindFile : fallback;
   final slash = mime.indexOf('/');
   if (slash < 0) return mime;
   final type = mime.substring(0, slash);
   final subtype = mime.substring(slash + 1);
   if (subtype.isEmpty) return mime;
   if (subtype == 'octet-stream') {
-    return fallback.isEmpty ? PanelStrings.kindBinary : fallback;
+    return fallback.isEmpty ? s.panelKindBinary : fallback;
   }
-  if (type == 'text' && subtype == 'plain') return PanelStrings.kindText;
+  if (type == 'text' && subtype == 'plain') return s.panelKindText;
   return subtype.replaceAll(RegExp(r'[.+-]'), ' ');
 }
 
@@ -1070,6 +1066,7 @@ class _FilesTabState extends State<_FilesTab> {
 
   @override
   Widget build(BuildContext context) {
+    final s = context.strings;
     final files = widget.room?.files ?? const <FileEntry>[];
     final fetches = widget.room?.fetches ?? const <String, FetchState>{};
 
@@ -1095,14 +1092,14 @@ class _FilesTabState extends State<_FilesTab> {
         if (files.isNotEmpty) ...[
           const SizedBox(height: JeliyaSpacing.x12),
           _SectionHead(
-            title: PanelStrings.sharedInThisRoom,
+            title: s.panelSharedInThisRoom,
             summary: availableCount == files.length
-                ? PanelStrings.allFetchable
+                ? s.panelAllFetchable
                 : [
-                    if (servingCount > 0) PanelStrings.servedByYou(servingCount),
+                    if (servingCount > 0) s.panelServedByYou(servingCount),
                     if (waitingProviderCount > 0)
-                      PanelStrings.awaitingProvider(waitingProviderCount),
-                  ].join(' · '),
+                      s.panelAwaitingProvider(waitingProviderCount),
+                  ].join(Tokens.metaSep),
           ),
           for (final file in files) ...[
             const SizedBox(height: JeliyaSpacing.x10),
@@ -1115,19 +1112,21 @@ class _FilesTabState extends State<_FilesTab> {
 
   Widget _buildHero(BuildContext context, List<FileEntry> files,
       int availableCount, int fetchedCount, int servingCount) {
+    final s = context.strings;
+    final fmt = context.formats;
     final tokens = JeliyaTokens.of(context);
     final empty = files.isEmpty;
     final totalBytes = files.fold<int>(0, (sum, f) => sum + f.size);
     final providerCount = files.fold<int>(0, (sum, f) => sum + f.providers);
+    // Independent stat phrases joined by the decorative separator — a list,
+    // never a sentence built from fragments.
     final detail = empty
-        ? PanelStrings.filesHeroEmptyDetail
-        : PanelStrings.filesHeroDetail(formatBytes(totalBytes), availableCount) +
-            (fetchedCount > 0
-                ? PanelStrings.filesHeroFetchedSuffix(fetchedCount)
-                : '') +
-            (servingCount > 0
-                ? PanelStrings.filesHeroServedSuffix(servingCount)
-                : '');
+        ? s.panelFilesHeroEmptyDetail
+        : [
+            s.panelFilesHeroDetail(fmt.bytes(totalBytes), availableCount),
+            if (fetchedCount > 0) s.panelNFetched(fetchedCount),
+            if (servingCount > 0) s.panelServedByYou(servingCount),
+          ].join(Tokens.metaSep);
 
     final inner = Container(
       padding: const EdgeInsets.all(JeliyaSpacing.panel),
@@ -1160,7 +1159,7 @@ class _FilesTabState extends State<_FilesTab> {
                     borderRadius: BorderRadius.circular(JeliyaRadii.row),
                     border: Border.all(color: tokens.accentLine),
                   ),
-                  child: Text(PanelStrings.filesHeroMark,
+                  child: Text(Tokens.filesHeroMark,
                       style:
                           TextStyle(fontSize: 18, color: tokens.accent)),
                 ),
@@ -1172,8 +1171,8 @@ class _FilesTabState extends State<_FilesTab> {
                   children: [
                     Text(
                       empty
-                          ? PanelStrings.noSharedFilesYet
-                          : PanelStrings.sharedFileCount(files.length),
+                          ? s.panelNoSharedFilesYet
+                          : s.panelSharedFileCount(files.length),
                       style: JeliyaText.cardTitle,
                     ),
                     const SizedBox(height: 3),
@@ -1189,20 +1188,20 @@ class _FilesTabState extends State<_FilesTab> {
             const SizedBox(height: JeliyaSpacing.x12),
             Semantics(
               container: true,
-              label: PanelStrings.fileAvailabilityLabel,
+              label: s.panelFileAvailabilityLabel,
               child: Row(
                 children: [
                   Expanded(
                     child: _StatCell(
-                      term: PanelStrings.fetchableNow,
-                      value: PanelStrings.fetchableNowValue(
+                      term: s.panelFetchableNow,
+                      value: s.panelFetchableNowValue(
                           availableCount, files.length),
                     ),
                   ),
                   const SizedBox(width: JeliyaSpacing.x8),
                   Expanded(
                     child: _StatCell(
-                      term: PanelStrings.providerDevices,
+                      term: s.panelProviderDevices,
                       value: '$providerCount',
                     ),
                   ),
@@ -1224,7 +1223,7 @@ class _FilesTabState extends State<_FilesTab> {
     );
     return Semantics(
       container: true,
-      label: PanelStrings.filesSummaryLabel,
+      label: s.panelFilesSummaryLabel,
       // Empty hero: dashed accent-line affordance instead of the solid border.
       child: empty
           ? _DashedBorder(
@@ -1234,6 +1233,7 @@ class _FilesTabState extends State<_FilesTab> {
   }
 
   Widget _buildShareForm(BuildContext context) {
+    final s = context.strings;
     final tokens = JeliyaTokens.of(context);
     final selected = _selected;
     final canSubmit = widget.room != null &&
@@ -1256,13 +1256,13 @@ class _FilesTabState extends State<_FilesTab> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(PanelStrings.shareCardTitle,
+                    Text(s.panelShareCardTitle,
                         style: TextStyle(
                             fontSize: 13,
                             fontWeight: FontWeight.w700,
                             color: tokens.text)),
                     const SizedBox(height: JeliyaSpacing.x2),
-                    Text(PanelStrings.shareCardHelp,
+                    Text(s.panelShareCardHelp,
                         style:
                             TextStyle(fontSize: 12, color: tokens.textDim)),
                   ],
@@ -1270,7 +1270,7 @@ class _FilesTabState extends State<_FilesTab> {
               ),
               const SizedBox(width: JeliyaSpacing.x10),
               Semantics(
-                label: PanelStrings.hashCheckedBadgeLabel,
+                label: s.panelHashCheckedBadgeLabel,
                 child: Container(
                   padding: const EdgeInsets.symmetric(
                       horizontal: JeliyaSpacing.x8, vertical: 3),
@@ -1279,7 +1279,7 @@ class _FilesTabState extends State<_FilesTab> {
                     borderRadius: BorderRadius.circular(JeliyaRadii.pill),
                     border: Border.all(color: tokens.accentLine),
                   ),
-                  child: Text(PanelStrings.hashCheckedBadge,
+                  child: Text(s.panelHashCheckedBadge,
                       style:
                           TextStyle(fontSize: 10.5, color: tokens.accent)),
                 ),
@@ -1299,10 +1299,10 @@ class _FilesTabState extends State<_FilesTab> {
               child: Row(
                 children: [
                   JeliyaButton(
-                    label: PanelStrings.chooseFile,
+                    label: s.panelChooseFile,
                     size: JeliyaButtonSize.sm,
                     variant: JeliyaButtonVariant.primary,
-                    semanticLabel: PanelStrings.chooseFileToShare,
+                    semanticLabel: s.panelChooseFileToShare,
                     onPressed: _sharing ? null : () => unawaited(_pick()),
                   ),
                 ],
@@ -1319,11 +1319,11 @@ class _FilesTabState extends State<_FilesTab> {
               ),
             )
           else
-            Text(PanelStrings.noFileSelectedYet,
+            Text(s.panelNoFileSelectedYet,
                 style: TextStyle(fontSize: 12, color: tokens.textDim)),
           const SizedBox(height: JeliyaSpacing.x10),
           JeliyaButton(
-            label: _sharing ? PanelStrings.sharing : PanelStrings.share,
+            label: _sharing ? s.panelSharing : s.panelShare,
             variant: JeliyaButtonVariant.primary,
             busy: _sharing,
             onPressed: canSubmit ? () => unawaited(_share()) : null,
@@ -1337,12 +1337,14 @@ class _FilesTabState extends State<_FilesTab> {
   }
 
   Widget _buildFileRow(BuildContext context, FileEntry file, FetchState? state) {
+    final s = context.strings;
+    final fmt = context.formats;
     final tokens = JeliyaTokens.of(context);
     final room = widget.room;
     final tint = tokens.fileTint(file.name);
-    final rawExt = _extOf(file.name).toUpperCase();
-    final ext = rawExt.isEmpty ? PanelStrings.extFallback : rawExt;
-    final kind = _mimeTypeLabel(file.mime, rawExt.toLowerCase());
+    final rawExt = extOf(file.name).toUpperCase();
+    final ext = rawExt.isEmpty ? s.commonFileExtFallback : rawExt;
+    final kind = _mimeTypeLabel(s, file.mime, rawExt.toLowerCase());
     final mine = _isMine(file);
     final fetched = _isFetched(file, state);
     final failed = state?.phase == FetchPhases.error ? state : null;
@@ -1351,19 +1353,19 @@ class _FilesTabState extends State<_FilesTab> {
     // Health line — label by ownership so a self-shared file is never shown
     // as a fault (SELF-OWNED FILE SEMANTICS).
     final (Color healthColor, String healthText) = mine
-        ? (tokens.textDim, PanelStrings.healthServingToPeers)
+        ? (tokens.textDim, s.panelHealthServingToPeers)
         : fetched
-            ? (tokens.accent, PanelStrings.healthFetchedLocally)
+            ? (tokens.accent, s.panelHealthFetchedLocally)
             : failed != null
                 ? (
                     tokens.amber,
                     failed.isHardStop
-                        ? PanelStrings.healthSecurityCheckFailed
-                        : PanelStrings.healthFetchFailed
+                        ? s.panelHealthSecurityCheckFailed
+                        : s.panelHealthFetchFailed
                   )
                 : file.available
-                    ? (tokens.accent, PanelStrings.healthReadyToFetch)
-                    : (tokens.amber, WidgetStrings.noProviderOnline);
+                    ? (tokens.accent, s.panelHealthReadyToFetch)
+                    : (tokens.amber, s.commonNoProviderOnline);
 
     return Tooltip(
       message: file.fileId,
@@ -1436,7 +1438,7 @@ class _FilesTabState extends State<_FilesTab> {
                   Wrap(
                     crossAxisAlignment: WrapCrossAlignment.center,
                     children: [
-                      Text('${formatBytes(file.size)}${PanelStrings.metaSep}',
+                      Text('${fmt.bytes(file.size)}${Tokens.metaSep}',
                           style: JeliyaText.meta),
                       SenderName(
                         id: file.senderId,
@@ -1445,9 +1447,7 @@ class _FilesTabState extends State<_FilesTab> {
                             fontWeight: FontWeight.w500,
                             color: tokens.textDim),
                       ),
-                      Text(
-                          '${PanelStrings.metaSep}'
-                          '${_formatTime(context, file.ts)}',
+                      Text(Tokens.metaSep + fmt.clock(file.ts),
                           style: JeliyaText.meta),
                     ],
                   ),
@@ -1458,8 +1458,8 @@ class _FilesTabState extends State<_FilesTab> {
                       const SizedBox(width: 5),
                       Flexible(
                         child: Text(
-                          '$healthText${PanelStrings.metaSep}'
-                          '${PanelStrings.nProviders(file.providers)}',
+                          '$healthText${Tokens.metaSep}'
+                          '${s.panelNProviders(file.providers)}',
                           overflow: TextOverflow.ellipsis,
                           style:
                               TextStyle(fontSize: 11.5, color: healthColor),
@@ -1472,7 +1472,7 @@ class _FilesTabState extends State<_FilesTab> {
                     Align(
                       alignment: Alignment.centerLeft,
                       child: Tooltip(
-                        message: PanelStrings.servingNoteTitle,
+                        message: s.commonServingTooltip,
                         child: Container(
                           constraints: const BoxConstraints(minHeight: 28),
                           padding: const EdgeInsets.symmetric(
@@ -1483,7 +1483,7 @@ class _FilesTabState extends State<_FilesTab> {
                                 BorderRadius.circular(JeliyaRadii.pill),
                             border: Border.all(color: tokens.borderStrong),
                           ),
-                          child: Text(PanelStrings.servingNote,
+                          child: Text(s.commonServing,
                               style: TextStyle(
                                   fontSize: 12, color: tokens.textDim)),
                         ),
@@ -1522,10 +1522,12 @@ class _SelectedFileCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = context.strings;
+    final fmt = context.formats;
     final tokens = JeliyaTokens.of(context);
-    final rawExt = _extOf(file.name);
+    final rawExt = extOf(file.name);
     final iconExt = rawExt.toUpperCase();
-    final type = _mimeTypeLabel(file.mime ?? '', rawExt);
+    final type = _mimeTypeLabel(s, file.mime ?? '', rawExt);
     return Container(
       padding: const EdgeInsets.all(9),
       decoration: BoxDecoration(
@@ -1547,7 +1549,7 @@ class _SelectedFileCard extends StatelessWidget {
               ),
               child: Text(
                 iconExt.isEmpty
-                    ? PanelStrings.extFallback
+                    ? s.commonFileExtFallback
                     : (iconExt.length > 4 ? iconExt.substring(0, 4) : iconExt),
                 style: JeliyaText.mono(
                     fontSize: 10,
@@ -1570,14 +1572,14 @@ class _SelectedFileCard extends StatelessWidget {
                       color: tokens.text),
                 ),
                 const SizedBox(height: JeliyaSpacing.x2),
-                Text('${formatBytes(file.size)}${PanelStrings.metaSep}$type',
+                Text('${fmt.bytes(file.size)}${Tokens.metaSep}$type',
                     style: TextStyle(fontSize: 12.5, color: tokens.textDim)),
               ],
             ),
           ),
           const SizedBox(width: JeliyaSpacing.x10),
           JeliyaButton(
-            label: PanelStrings.clearSelectedFile,
+            label: s.panelClearSelectedFile,
             size: JeliyaButtonSize.sm,
             onPressed: onClear,
           ),
@@ -1602,6 +1604,7 @@ class _AdvancedPathState extends State<_AdvancedPath> {
 
   @override
   Widget build(BuildContext context) {
+    final s = context.strings;
     final tokens = JeliyaTokens.of(context);
     return Container(
       padding: const EdgeInsets.only(top: 9),
@@ -1614,23 +1617,23 @@ class _AdvancedPathState extends State<_AdvancedPath> {
           InkWell(
             onTap: () => setState(() => _open = !_open),
             child: Text(
-              '${_open ? '▾' : '▸'} ${PanelStrings.advancedPathSummary}',
+              '${_open ? '▾' : '▸'} ${s.panelAdvancedPathSummary}',
               style: TextStyle(fontSize: 12, color: tokens.textDim),
             ),
           ),
           if (_open) ...[
             const SizedBox(height: JeliyaSpacing.x8),
             Semantics(
-              label: PanelStrings.pathFieldLabel,
+              label: s.panelPathFieldLabel,
               child: TextField(
                 controller: widget.controller,
                 style: JeliyaText.mono(fontSize: 12.5, color: tokens.text),
-                decoration: const InputDecoration(
-                    hintText: PanelStrings.pathPlaceholder),
+                decoration:
+                    InputDecoration(hintText: s.panelPathPlaceholder),
               ),
             ),
             const SizedBox(height: JeliyaSpacing.x8),
-            Text(PanelStrings.pathHint,
+            Text(s.panelPathHint,
                 style: TextStyle(fontSize: 11.5, color: tokens.textMute)),
           ],
         ],
@@ -1695,11 +1698,12 @@ class _PipesTabState extends State<_PipesTab> {
 
   @override
   Widget build(BuildContext context) {
+    final s = context.strings;
     final pipes = widget.room?.pipes ?? const <PipeEntry>[];
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        if (pipes.isEmpty) const _PanelEmpty(PanelStrings.pipesEmpty),
+        if (pipes.isEmpty) _PanelEmpty(s.panelPipesEmpty),
         for (final pipe in pipes) ...[
           _PipeRow(pipe: pipe, room: widget.room, session: widget.session),
           const SizedBox(height: JeliyaSpacing.x10),
@@ -1711,6 +1715,7 @@ class _PipesTabState extends State<_PipesTab> {
   }
 
   Widget _buildExposeForm(BuildContext context) {
+    final s = context.strings;
     final tokens = JeliyaTokens.of(context);
     final choices = _peerChoices;
     final effectivePeer = choices.any((m) => m.identityId == _peer)
@@ -1727,22 +1732,22 @@ class _PipesTabState extends State<_PipesTab> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(PanelStrings.exposeTitle,
+            Text(s.panelExposeTitle,
                 style: TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.w700,
                     color: tokens.text)),
             const SizedBox(height: JeliyaSpacing.x2),
-            Text(PanelStrings.exposeCopy,
+            Text(s.panelExposeCopy,
                 style: TextStyle(fontSize: 12, color: tokens.textDim)),
             const SizedBox(height: 9),
             Semantics(
-              label: PanelStrings.targetFieldLabel,
+              label: s.panelTargetFieldLabel,
               child: TextField(
                 controller: _target,
                 style: JeliyaText.mono(fontSize: 12.5, color: tokens.text),
                 decoration: const InputDecoration(
-                    hintText: PanelStrings.targetPlaceholder),
+                    hintText: Tokens.targetPlaceholderExample),
                 onSubmitted: (_) => _expose(),
               ),
             ),
@@ -1751,7 +1756,7 @@ class _PipesTabState extends State<_PipesTab> {
               children: [
                 Expanded(
                   child: Semantics(
-                    label: PanelStrings.authorizedPeerLabel,
+                    label: s.panelAuthorizedPeerLabel,
                     child: Container(
                       padding: const EdgeInsets.symmetric(
                           horizontal: JeliyaSpacing.x10),
@@ -1767,10 +1772,10 @@ class _PipesTabState extends State<_PipesTab> {
                           isDense: true,
                           padding: const EdgeInsets.symmetric(
                               vertical: JeliyaSpacing.x8),
-                          hint: Text(PanelStrings.noOtherMembers,
+                          hint: Text(s.panelNoOtherMembers,
                               style: TextStyle(
                                   fontSize: 13, color: tokens.textMute)),
-                          disabledHint: Text(PanelStrings.noOtherMembers,
+                          disabledHint: Text(s.panelNoOtherMembers,
                               style: TextStyle(
                                   fontSize: 13, color: tokens.textMute)),
                           dropdownColor: tokens.bgCard,
@@ -1781,10 +1786,10 @@ class _PipesTabState extends State<_PipesTab> {
                               DropdownMenuItem(
                                 value: member.identityId,
                                 child: Text(
-                                  PanelStrings.peerChoice(
+                                  s.panelPeerChoice(
                                     widget.session
-                                        .displayName(member.identityId),
-                                    member.role,
+                                        .displayName(s, member.identityId),
+                                    s.roleInline(member.role),
                                   ),
                                   overflow: TextOverflow.ellipsis,
                                 ),
@@ -1801,13 +1806,31 @@ class _PipesTabState extends State<_PipesTab> {
                 const SizedBox(width: JeliyaSpacing.x8),
                 JeliyaButton(
                   label:
-                      _exposing ? PanelStrings.exposing : PanelStrings.expose,
+                      _exposing ? s.panelExposing : s.panelExpose,
                   busy: _exposing,
                   onPressed: canSubmit ? () => unawaited(_expose()) : null,
                 ),
               ],
             ),
-            ErrorNote(error: _exposeError),
+            ErrorNote(
+              error: _exposeError,
+              // pipe.expose has flow-specific failure meanings (PROTOCOL.md):
+              // pipe_denied = non-loopback target, invalid_params = malformed
+              // target/peer — the generic code copy reads wrong here.
+              friendly: switch (_exposeError?.code) {
+                ErrorCodes.pipeDenied => FriendlyError(
+                    title: s.panelExposeDeniedTitle,
+                    message: s.panelExposeDeniedMessage,
+                    action: s.panelExposeDeniedAction,
+                  ),
+                ErrorCodes.invalidParams => FriendlyError(
+                    title: s.panelExposeInvalidTitle,
+                    message: s.panelExposeInvalidMessage,
+                    action: s.panelExposeInvalidAction,
+                  ),
+                _ => null,
+              },
+            ),
           ],
         ),
       ),
@@ -1824,6 +1847,7 @@ class _PipeRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = context.strings;
     final tokens = JeliyaTokens.of(context);
     final closed = pipe.state == PipeStates.closed;
     final conn = room?.pipeConns[pipe.pipeId];
@@ -1831,10 +1855,10 @@ class _PipeRow extends StatelessWidget {
     final authorizedPeer = pipe.authorizedPeer;
 
     final (String chipText, Color chipColor, Color chipBorder) = closed
-        ? (PanelStrings.pipeStateClosed, tokens.textMute, tokens.borderStrong)
+        ? (s.panelPipeStateClosed, tokens.textMute, tokens.borderStrong)
         : pipe.connected
-            ? (PanelStrings.pipeStateActive, tokens.accent, tokens.accentLine)
-            : (PanelStrings.pipeStateOpen, tokens.accent, tokens.accentLine);
+            ? (s.panelPipeStateActive, tokens.accent, tokens.accentLine)
+            : (s.panelPipeStateOpen, tokens.accent, tokens.accentLine);
 
     return Container(
       padding: const EdgeInsets.symmetric(
@@ -1862,7 +1886,7 @@ class _PipeRow extends StatelessWidget {
                       color: tokens.accentDim,
                       borderRadius: BorderRadius.circular(JeliyaRadii.btn),
                     ),
-                    child: Text(PanelStrings.pipeIcon,
+                    child: Text(Tokens.pipeIcon,
                         style:
                             TextStyle(fontSize: 17, color: tokens.accent)),
                   ),
@@ -1893,35 +1917,34 @@ class _PipeRow extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 5),
-          Wrap(
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: [
-              Text(PanelStrings.pipeBy,
-                  style: TextStyle(fontSize: 12, color: tokens.textMute)),
-              SenderName(
+          templateText(
+            s.panelPipeMeta('{openedBy}', '{authorized}'),
+            style: TextStyle(fontSize: 12, color: tokens.textMute),
+            slots: {
+              'openedBy': widgetSlot(SenderName(
                 id: pipe.openedBy,
                 style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w500,
                     color: tokens.textDim),
-              ),
-              Text(PanelStrings.pipeAuthorized,
-                  style: TextStyle(fontSize: 12, color: tokens.textMute)),
-              if (authorizedPeer == null)
-                Text(PanelStrings.pipeNone,
-                    style: TextStyle(fontSize: 12, color: tokens.textMute))
-              else if (session.isSelf(authorizedPeer))
-                Text(PanelStrings.pipeAuthorizedYou,
-                    style: TextStyle(fontSize: 12, color: tokens.textDim))
-              else
-                SenderName(
-                  id: authorizedPeer,
-                  style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500,
-                      color: tokens.textDim),
-                ),
-            ],
+              )),
+              'authorized': authorizedPeer == null
+                  ? TextSpan(
+                      text: Tokens.emDash,
+                      style: TextStyle(fontSize: 12, color: tokens.textMute))
+                  : session.isSelf(authorizedPeer)
+                      ? TextSpan(
+                          text: s.commonYou,
+                          style:
+                              TextStyle(fontSize: 12, color: tokens.textDim))
+                      : widgetSlot(SenderName(
+                          id: authorizedPeer,
+                          style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w500,
+                              color: tokens.textDim),
+                        )),
+            },
           ),
           if (!closed) ...[
             const SizedBox(height: 9),
@@ -1932,14 +1955,14 @@ class _PipeRow extends StatelessWidget {
               children: [
                 if (conn == null || conn.phase == PipeConnPhases.error)
                   JeliyaButton(
-                    label: PanelStrings.connect,
+                    label: s.panelConnect,
                     size: JeliyaButtonSize.sm,
                     onPressed: () =>
                         unawaited(room?.connectPipe(pipe.pipeId)),
                   )
                 else if (conn.phase == PipeConnPhases.connecting)
-                  const JeliyaButton(
-                    label: PanelStrings.connecting,
+                  JeliyaButton(
+                    label: s.panelConnecting,
                     size: JeliyaButtonSize.sm,
                     busy: true,
                     onPressed: null,
@@ -1961,15 +1984,15 @@ class _PipeRow extends StatelessWidget {
                     ),
                   ),
                   JeliyaButton(
-                    label: PanelStrings.openPreview,
+                    label: s.panelOpenPreview,
                     size: JeliyaButtonSize.sm,
                     variant: JeliyaButtonVariant.primary,
                     onPressed: () => _launch('http://${conn.localAddr}'),
                   ),
                 ],
                 if (closing)
-                  const JeliyaButton(
-                    label: PanelStrings.closingPipe,
+                  JeliyaButton(
+                    label: s.panelClosingPipe,
                     size: JeliyaButtonSize.sm,
                     variant: JeliyaButtonVariant.ghost,
                     busy: true,
@@ -1977,7 +2000,7 @@ class _PipeRow extends StatelessWidget {
                   )
                 else
                   JeliyaButton(
-                    label: PanelStrings.closePipe,
+                    label: s.panelClosePipe,
                     size: JeliyaButtonSize.sm,
                     variant: JeliyaButtonVariant.ghost,
                     onPressed: () => unawaited(room?.closePipe(pipe.pipeId)),
@@ -1986,7 +2009,18 @@ class _PipeRow extends StatelessWidget {
             ),
           ],
           if (conn?.phase == PipeConnPhases.error)
-            ErrorNote(error: conn!.error),
+            ErrorNote(
+              error: conn!.error,
+              // pipe.connect's invalid_params means unknown pipe / owner
+              // self-connect (PROTOCOL.md) — not a form-input problem.
+              friendly: conn.error?.code == ErrorCodes.invalidParams
+                  ? FriendlyError(
+                      title: s.panelConnectInvalidTitle,
+                      message: s.panelConnectInvalidMessage,
+                      action: s.panelConnectInvalidAction,
+                    )
+                  : null,
+            ),
         ],
       ),
     );
