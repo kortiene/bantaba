@@ -3,6 +3,10 @@
 //! for the online runtime), consumed by the `jeliyad` daemon.
 //!
 //! Modules:
+//! * [`engine`] — the transport-free engine facade: protocol dispatch,
+//!   request/response envelope, and push fan-out per `docs/PROTOCOL.md`,
+//!   shared by every transport (the `jeliyad` WebSocket daemon, the mobile
+//!   FFI shim).
 //! * [`fleet`] — pure agent-liveness derivation (the `agents.fleet` /
 //!   `agent.history` decision table per `docs/agent-orchestration.md` §1.2).
 //! * [`identity`] — create/load the device identity under `--data-dir`
@@ -17,6 +21,7 @@
 //!   (spawned the way the reference CLI spawns its room session), plus the
 //!   offline flows (create/invite/join/reads) mirrored from the CLI.
 
+pub mod engine;
 pub mod error;
 pub mod fleet;
 pub mod identity;
@@ -24,6 +29,7 @@ pub mod localstate;
 pub mod materializer;
 pub mod supervisor;
 
+pub use engine::{Engine, EngineConfig, PROTOCOL_VERSION};
 pub use error::{CoreError, CoreResult, ErrorKind};
 
 /// Wall-clock milliseconds since the Unix epoch (advisory/display only — the
