@@ -94,6 +94,19 @@ class _SettingsPanelState extends State<SettingsPanel> {
             : s.settingsSupervisorOwned;
     final transport = session.transportDescription;
 
+    // One shared width for the daemon-detail label column, measured from the
+    // ACTUAL translated labels (fr « Superviseur », « Dossier de données »
+    // outgrow the reference 96px) so no locale ever clips a label.
+    final detailLabelWidth = _detailLabelWidth(context, [
+      s.settingsVersionLabel,
+      s.settingsProtocolLabel,
+      s.settingsPidLabel,
+      s.settingsPortLabel,
+      s.settingsDataDirLabel,
+      s.settingsTransportLabel,
+      s.settingsSupervisorLabel,
+    ]);
+
     return ColoredBox(
       color: tokens.bg,
       child: Semantics(
@@ -183,31 +196,38 @@ class _SettingsPanelState extends State<SettingsPanel> {
                           _DetailRow(
                             label: s.settingsVersionLabel,
                             value: status?.version,
+                            labelWidth: detailLabelWidth,
                           ),
                           _DetailRow(
                             label: s.settingsProtocolLabel,
                             value:
                                 status == null ? null : '${status.protocol}',
+                            labelWidth: detailLabelWidth,
                           ),
                           _DetailRow(
                             label: s.settingsPidLabel,
                             value: status == null ? null : '${status.pid}',
+                            labelWidth: detailLabelWidth,
                           ),
                           _DetailRow(
                             label: s.settingsPortLabel,
                             value: status == null ? null : '${status.port}',
+                            labelWidth: detailLabelWidth,
                           ),
                           _DetailRow(
                             label: s.settingsDataDirLabel,
                             value: status?.dataDir,
+                            labelWidth: detailLabelWidth,
                           ),
                           _DetailRow(
                             label: s.settingsTransportLabel,
                             value: transport.isEmpty ? null : transport,
+                            labelWidth: detailLabelWidth,
                           ),
                           _DetailRow(
                             label: s.settingsSupervisorLabel,
                             value: supervisorState,
+                            labelWidth: detailLabelWidth,
                           ),
                         ],
                       ),
@@ -347,22 +367,31 @@ class _DiagnosticsCard extends StatelessWidget {
           ),
         const SizedBox(height: JeliyaSpacing.x12),
         // Wrap, not Row: one line at desktop widths, and the pair reflows
-        // instead of clipping at phone widths under wider (fr) labels.
+        // instead of clipping at phone widths under wider (fr) labels. Each
+        // button additionally scales down as a last resort when a label
+        // outgrows even a full wrap line (JeliyaButton's label cannot flex
+        // internally) — a no-op at every shipped locale and real font width.
         Wrap(
           spacing: JeliyaSpacing.x8,
           runSpacing: JeliyaSpacing.x8,
           children: [
-            JeliyaButton(
-              label: copied
-                  ? s.settingsCopiedDiagnostics
-                  : s.settingsCopyDiagnostics,
-              variant: JeliyaButtonVariant.primary,
-              onPressed: onCopy,
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              child: JeliyaButton(
+                label: copied
+                    ? s.settingsCopiedDiagnostics
+                    : s.settingsCopyDiagnostics,
+                variant: JeliyaButtonVariant.primary,
+                onPressed: onCopy,
+              ),
             ),
-            JeliyaButton(
-              label: s.settingsReportIssue,
-              variant: JeliyaButtonVariant.ghost,
-              onPressed: onReportIssue,
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              child: JeliyaButton(
+                label: s.settingsReportIssue,
+                variant: JeliyaButtonVariant.ghost,
+                onPressed: onReportIssue,
+              ),
             ),
           ],
         ),
@@ -405,6 +434,10 @@ class _LocaleDropdown extends StatelessWidget {
       if (value != null && !options.contains(value)) value,
     ];
     return DropdownButtonFormField<String>(
+      // Fill the card instead of sizing to the widest item: without
+      // isExpanded the intrinsic width of fr « Par défaut du système » can
+      // exceed a 360dp card's inner width and overflow it.
+      isExpanded: true,
       initialValue: value ?? _system,
       items: [
         DropdownMenuItem(
@@ -491,12 +524,41 @@ class _MonoValueRow extends StatelessWidget {
   }
 }
 
-/// One daemon-detail row: fixed-width micro label + mono value.
+/// Width of the shared daemon-detail label column: the widest UPPERCASED
+/// label at the ambient text scale, floored at the reference 96 (which holds
+/// every English label) and capped at 160 so the value column keeps room at
+/// 360dp — a longer multi-word label wraps at word boundaries under the cap
+/// instead of clipping.
+double _detailLabelWidth(BuildContext context, List<String> labels) {
+  final scaler = MediaQuery.textScalerOf(context);
+  var width = 96.0;
+  for (final label in labels) {
+    final painter = TextPainter(
+      text: TextSpan(text: label.toUpperCase(), style: JeliyaText.microLabel),
+      textDirection: TextDirection.ltr,
+      textScaler: scaler,
+    )..layout();
+    if (painter.width > width) width = painter.width;
+    painter.dispose();
+  }
+  if (width > 160) width = 160;
+  return width.ceilToDouble();
+}
+
+/// One daemon-detail row: shared-width micro label column + mono value.
 class _DetailRow extends StatelessWidget {
-  const _DetailRow({required this.label, required this.value});
+  const _DetailRow({
+    required this.label,
+    required this.value,
+    this.labelWidth = 96,
+  });
 
   final String label;
   final String? value;
+
+  /// The shared label column width (see [_detailLabelWidth]); 96 is the
+  /// web reference default.
+  final double labelWidth;
 
   @override
   Widget build(BuildContext context) {
@@ -509,7 +571,7 @@ class _DetailRow extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SizedBox(
-            width: 96,
+            width: labelWidth,
             child: Text(label.toUpperCase(), style: JeliyaText.microLabel),
           ),
           Expanded(
