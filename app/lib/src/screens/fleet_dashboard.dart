@@ -175,6 +175,25 @@ class _FleetDashboardState extends State<FleetDashboard> {
         ),
       ),
     );
+    final addAgent = JeliyaButton(
+      label: s.fleetAddAgent,
+      variant: JeliyaButtonVariant.primary,
+      onPressed: _openAddAgent,
+    );
+    final title = <Widget>[
+      const TreeMark(size: 26),
+      const SizedBox(width: JeliyaSpacing.x10),
+      Semantics(
+        header: true,
+        child: Text(
+          s.fleetAgentsTitle,
+          style: const TextStyle(
+            fontSize: 22,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ),
+    ];
     return Container(
       padding: const EdgeInsets.fromLTRB(
         JeliyaSpacing.page,
@@ -189,37 +208,31 @@ class _FleetDashboardState extends State<FleetDashboard> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Row(
-            children: [
-              const TreeMark(size: 26),
-              const SizedBox(width: JeliyaSpacing.x10),
-              Semantics(
-                header: true,
-                child: Text(
-                  s.fleetAgentsTitle,
-                  style: const TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
-              // Below the breakpoint the fixed 200px search yields to flex so
-              // the row holds at 360dp; desktop keeps the reference layout.
-              if (mobile) ...[
-                const SizedBox(width: JeliyaSpacing.x10),
+          // Below the breakpoint the head wraps like the web's
+          // .fleet-head-top (flex-wrap): the title keeps its own line and the
+          // fixed 200px search yields to flex beside Add Agent, so the
+          // actions row holds at 360dp even under the wider French copy.
+          // Desktop keeps the reference single-row layout.
+          if (mobile) ...[
+            Row(children: title),
+            const SizedBox(height: JeliyaSpacing.x10),
+            Row(
+              children: [
                 Expanded(child: search),
-              ] else ...[
+                const SizedBox(width: JeliyaSpacing.x10),
+                addAgent,
+              ],
+            ),
+          ] else
+            Row(
+              children: [
+                ...title,
                 const Spacer(),
                 SizedBox(width: 200, child: search),
+                const SizedBox(width: JeliyaSpacing.x10),
+                addAgent,
               ],
-              const SizedBox(width: JeliyaSpacing.x10),
-              JeliyaButton(
-                label: s.fleetAddAgent,
-                variant: JeliyaButtonVariant.primary,
-                onPressed: _openAddAgent,
-              ),
-            ],
-          ),
+            ),
           const SizedBox(height: JeliyaSpacing.x14),
           // Mutually-exclusive filter toggles — pressed-state buttons, not
           // tabs (no tabpanels, no roving tabindex behind that contract).
@@ -531,9 +544,55 @@ class _FleetSkeleton extends StatelessWidget {
     ),
   );
 
+  /// One agent-card placeholder (avatar tile, name/id bars, status band,
+  /// footer bar) — static tonal shapes only.
+  Widget _card() => Container(
+    padding: const EdgeInsets.all(15),
+    decoration: BoxDecoration(
+      color: tokens.bgCard,
+      borderRadius: BorderRadius.circular(JeliyaRadii.hero),
+      border: Border.all(color: tokens.border),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            Container(
+              width: 34,
+              height: 34,
+              decoration: BoxDecoration(
+                color: tokens.bgCard2,
+                borderRadius: BorderRadius.circular(JeliyaRadii.btn),
+              ),
+            ),
+            const SizedBox(width: JeliyaSpacing.x12),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _bar(120, 12),
+                const SizedBox(height: JeliyaSpacing.x8),
+                _bar(96, 10),
+              ],
+            ),
+          ],
+        ),
+        const SizedBox(height: JeliyaSpacing.x12),
+        _bar(double.infinity, 40),
+        const SizedBox(height: JeliyaSpacing.x12),
+        FractionallySizedBox(
+          alignment: Alignment.centerLeft,
+          widthFactor: 0.6,
+          child: _bar(double.infinity, 10),
+        ),
+      ],
+    ),
+  );
+
   @override
   Widget build(BuildContext context) {
     final s = context.strings;
+    final mobile = isMobileWidth(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -547,106 +606,76 @@ class _FleetSkeleton extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Row(
-                children: [
-                  for (var i = 0; i < 3; i++) ...[
-                    if (i > 0) const SizedBox(width: JeliyaSpacing.x12),
-                    Expanded(
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 14,
-                        ),
-                        decoration: BoxDecoration(
-                          color: tokens.bgCard,
-                          borderRadius: BorderRadius.circular(
-                            JeliyaRadii.bubble,
+              // The KPI strip is hidden below the breakpoint, so its
+              // skeleton row is too — a placeholder for a row that never
+              // renders would be a lie.
+              if (!mobile) ...[
+                Row(
+                  children: [
+                    for (var i = 0; i < 3; i++) ...[
+                      if (i > 0) const SizedBox(width: JeliyaSpacing.x12),
+                      Expanded(
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 14,
                           ),
-                          border: Border.all(color: tokens.border),
-                        ),
-                        child: Row(
-                          children: [
-                            Container(
-                              width: 38,
-                              height: 38,
-                              decoration: BoxDecoration(
-                                color: tokens.bgCard2,
-                                borderRadius: BorderRadius.circular(
-                                  JeliyaRadii.nav,
-                                ),
-                              ),
+                          decoration: BoxDecoration(
+                            color: tokens.bgCard,
+                            borderRadius: BorderRadius.circular(
+                              JeliyaRadii.bubble,
                             ),
-                            const SizedBox(width: JeliyaSpacing.x12),
-                            Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                _bar(92, 10),
-                                const SizedBox(height: JeliyaSpacing.x8),
-                                _bar(52, 22),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-              const SizedBox(height: JeliyaSpacing.section),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  for (var i = 0; i < 3; i++) ...[
-                    if (i > 0) const SizedBox(width: JeliyaSpacing.x14),
-                    Expanded(
-                      child: Container(
-                        padding: const EdgeInsets.all(15),
-                        decoration: BoxDecoration(
-                          color: tokens.bgCard,
-                          borderRadius: BorderRadius.circular(JeliyaRadii.hero),
-                          border: Border.all(color: tokens.border),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            Row(
-                              children: [
-                                Container(
-                                  width: 34,
-                                  height: 34,
-                                  decoration: BoxDecoration(
-                                    color: tokens.bgCard2,
-                                    borderRadius: BorderRadius.circular(
-                                      JeliyaRadii.btn,
-                                    ),
+                            border: Border.all(color: tokens.border),
+                          ),
+                          child: Row(
+                            children: [
+                              Container(
+                                width: 38,
+                                height: 38,
+                                decoration: BoxDecoration(
+                                  color: tokens.bgCard2,
+                                  borderRadius: BorderRadius.circular(
+                                    JeliyaRadii.nav,
                                   ),
                                 ),
-                                const SizedBox(width: JeliyaSpacing.x12),
-                                Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    _bar(120, 12),
-                                    const SizedBox(height: JeliyaSpacing.x8),
-                                    _bar(96, 10),
-                                  ],
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: JeliyaSpacing.x12),
-                            _bar(double.infinity, 40),
-                            const SizedBox(height: JeliyaSpacing.x12),
-                            FractionallySizedBox(
-                              alignment: Alignment.centerLeft,
-                              widthFactor: 0.6,
-                              child: _bar(double.infinity, 10),
-                            ),
-                          ],
+                              ),
+                              const SizedBox(width: JeliyaSpacing.x12),
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  _bar(92, 10),
+                                  const SizedBox(height: JeliyaSpacing.x8),
+                                  _bar(52, 22),
+                                ],
+                              ),
+                            ],
+                          ),
                         ),
                       ),
-                    ),
+                    ],
                   ],
-                ],
-              ),
+                ),
+                const SizedBox(height: JeliyaSpacing.section),
+              ],
+              // Card placeholders mirror the grid: three across on desktop,
+              // a single column below the breakpoint (the grid's one-column
+              // floor at phone widths — fixed inner bars cannot share a row
+              // at 360dp).
+              if (mobile)
+                for (var i = 0; i < 3; i++) ...[
+                  if (i > 0) const SizedBox(height: JeliyaSpacing.x14),
+                  _card(),
+                ]
+              else
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    for (var i = 0; i < 3; i++) ...[
+                      if (i > 0) const SizedBox(width: JeliyaSpacing.x14),
+                      Expanded(child: _card()),
+                    ],
+                  ],
+                ),
             ],
           ),
         ),
