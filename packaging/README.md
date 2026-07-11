@@ -89,3 +89,66 @@ Gatekeeper (macOS) and SmartScreen (Windows). The `curl | sh` and Homebrew
 install paths do **not** set the quarantine bit, so they install cleanly.
 macOS notarization and Windows Authenticode signing are deferred to Phase 2 and
 are intentionally out of scope for these files.
+
+## Android release builds
+
+The Android app (`app/android`) release-signs from an **optional, gitignored**
+`app/android/key.properties`. Without it, release builds fall back to the
+debug keystore so `flutter run --release` works on-device — those artifacts
+are **not distributable** (Play rejects debug signatures, and sideloaded
+upgrades break when the signature later changes). No keystore is checked in
+anywhere, and none should ever be.
+
+### One-time keystore setup
+
+Create an upload keystore **outside the repo** (never commit it):
+
+```sh
+keytool -genkeypair -v \
+  -keystore "$HOME/keystores/jeliya-upload.jks" \
+  -keyalg RSA -keysize 2048 -validity 10000 \
+  -alias upload
+```
+
+Then create `app/android/key.properties` (gitignored via
+`app/android/.gitignore`, alongside `*.jks`/`*.keystore`):
+
+```properties
+storeFile=/Users/you/keystores/jeliya-upload.jks
+storePassword=...
+keyAlias=upload
+keyPassword=...
+```
+
+Relative `storeFile` paths resolve against `app/android/app`; an absolute
+path is simplest.
+
+### The two build commands
+
+```sh
+cd app
+flutter build appbundle                    # release path: .aab for Play
+flutter build apk --split-per-abi --release  # sideload path: one APK per ABI
+```
+
+- **Play (release path):** Play requires app bundles and enrolls the app in
+  Play App Signing — Google holds the distribution key and our keystore
+  becomes the *upload* key. The bundle builds with no extra Gradle flags.
+- **Sideload:** `--split-per-abi` produces one APK per supported ABI
+  (armeabi-v7a, arm64-v8a, x86_64). The Gradle config skips its
+  `ndk.abiFilters` for this build only (AGP forbids `abiFilters` combined
+  with ABI splits); the default debug fat APK is unaffected.
+
+### Sizes (measured 2026-07-10, release, tree-shaken icons)
+
+| Artifact | Size |
+| --- | --- |
+| `app-armeabi-v7a-release.apk` | 30.4 MB |
+| `app-arm64-v8a-release.apk` | 39.7 MB |
+| `app-x86_64-release.apk` | 43.1 MB |
+| `app-release.aab` (all ABIs; Play serves per-device splits) | 77.2 MB |
+| fat `app-release.apk` (all ABIs, for reference) | 112.1 MB |
+| fat `app-debug.apk` (the on-device dev build) | 222 MB |
+
+Per-ABI APKs run larger than a stock Flutter app (~15–25 MB) because each
+carries the bundled Rust core (`libjeliya_ffi.so`: 14–23 MB per ABI).
