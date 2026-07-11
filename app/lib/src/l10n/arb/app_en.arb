@@ -1297,6 +1297,10 @@
   "@inviteCopyInvite": {
     "description": "Copy-to-clipboard button for the combined invite."
   },
+  "inviteShareInvite": "Share invite",
+  "@inviteShareInvite": {
+    "description": "Button under the combined invite that opens the operating system share sheet with the combined invite text. Shown only on phone-width layouts; desktop keeps copy only."
+  },
   "inviteSeparatelySummary": "Send the ticket and address separately",
   "@inviteSeparatelySummary": {
     "description": "Expander summary revealing separate ticket and address fields as an alternative to the combined invite."
@@ -1308,6 +1312,10 @@
   "inviteCopyTicket": "Copy ticket",
   "@inviteCopyTicket": {
     "description": "Copy-to-clipboard button for the invite ticket."
+  },
+  "inviteShareTicket": "Share ticket",
+  "@inviteShareTicket": {
+    "description": "Button under the bare invite ticket (no dialable address case) that opens the operating system share sheet with the ticket text. Shown only on phone-width layouts; desktop keeps copy only."
   },
   "inviteCopyAddress": "Copy address",
   "@inviteCopyAddress": {

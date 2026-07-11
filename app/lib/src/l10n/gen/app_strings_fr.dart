@@ -1023,6 +1023,9 @@ class AppStringsFr extends AppStrings {
   String get inviteCopyInvite => 'Copier l’invitation';
 
   @override
+  String get inviteShareInvite => 'Partager l’invitation';
+
+  @override
   String get inviteSeparatelySummary =>
       'Envoyer le ticket et l’adresse séparément';
 
@@ -1031,6 +1034,9 @@ class AppStringsFr extends AppStrings {
 
   @override
   String get inviteCopyTicket => 'Copier le ticket';
+
+  @override
+  String get inviteShareTicket => 'Partager le ticket';
 
   @override
   String get inviteCopyAddress => 'Copier l’adresse';

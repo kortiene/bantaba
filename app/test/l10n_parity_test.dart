@@ -252,9 +252,11 @@ void main() {
     expect(en.inviteCombinedCopy, "Send this one paste to the invitee — it is the ticket and your dialable address together. They paste it into “Join with a ticket” and the address fills in automatically.");
     expect(en.inviteCombinedInviteLabel, "Combined invite (ticket and peer address)");
     expect(en.inviteCopyInvite, "Copy invite");
+    expect(en.inviteShareInvite, "Share invite");
     expect(en.inviteSeparatelySummary, "Send the ticket and address separately");
     expect(en.inviteInviteTicketLabel, "Invite ticket");
     expect(en.inviteCopyTicket, "Copy ticket");
+    expect(en.inviteShareTicket, "Share ticket");
     expect(en.inviteCopyAddress, "Copy address");
     expect(en.inviteNewInvite, "← New invite");
     expect(en.inviteNoDialableAddress, "No dialable address reported yet.");
