@@ -323,6 +323,14 @@ class _TimelineViewState extends State<TimelineView> {
       label: s.timelineRoomTimeline,
       child: Stack(
         children: [
+          // SelectionArea holds on BOTH form factors. Evaluated for the
+          // mobile release (2026-07-10): SelectableRegion gives touch only a
+          // horizontal-drag recognizer + long-press, so vertical drags scroll
+          // the list untouched; long-press selects and its native toolbar
+          // already offers Copy (timeline_touch_selection_test.dart and
+          // mobile_chat_route_test.dart pin both). Do NOT add another
+          // long-press action here — a second recognizer would create the
+          // selection-vs-scroll conflict this arrangement avoids.
           Positioned.fill(child: SelectionArea(child: scroller)),
           if (_newItemCount > 0)
             Positioned(
