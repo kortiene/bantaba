@@ -61,8 +61,8 @@ enum BootstrapPhase { boot, noIdentity, noRooms, ready }
 /// so tests can substitute a fake transport without a supervisor.
 typedef ClientFactory = Client Function(WsUrlResolver resolveUrl);
 
-/// Resolve the jeliyad binary: bundled sidecar (next to the app executable)
-/// → `JELIYAD_BIN` env override → debug-only repo fallback. Null when nothing
+/// Resolve the jeliyad binary: `JELIYAD_BIN` env override → bundled sidecar
+/// (next to the app executable) → debug-only repo fallback. Null when nothing
 /// is found ([DaemonSession] surfaces this as a [Boot.failed] with a hint).
 String? resolveJeliyadBinary() {
   final env = Platform.environment['JELIYAD_BIN'];
