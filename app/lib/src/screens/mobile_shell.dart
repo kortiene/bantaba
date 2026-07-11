@@ -1,5 +1,5 @@
 /// Mobile bottom-tab shell (issue #17) — the below-[kShellBreakpoint] fork of
-/// the app shell, one pane at a time behind a fixed 58dp five-tab bar
+/// the app shell, one pane at a time behind a min-58dp five-tab bar
 /// (Rooms / Agents / Pipes / Files / Settings, DESIGN.md "Mobile tab bar";
 /// executable spec: ui/src/components/MobileTabBar.tsx + the styles.css
 /// mv-* pane mapping):
@@ -201,10 +201,17 @@ class MobileShell extends StatelessWidget {
 
 // -- tab bar -------------------------------------------------------------------------
 
-/// Fixed 58dp bottom bar, five glyph+label tabs, active = accent TEXT only
+/// 58dp bottom bar, five glyph+label tabs, active = accent TEXT only
 /// (One Emerald Voice — no fills), with bottom/left/right safe-area padding
 /// (DESIGN.md "Mobile tab bar"; ui/src/styles.css .tabbar). It sits under
 /// the soft keyboard when one opens (the Scaffold body resizes above it).
+/// 58dp is a MINIMUM, not a fixed height: at large accessibility font
+/// scales (Android "largest" ≈ textScale 2.0) the scaled glyph+label
+/// column needs ~85dp, and the a11y floor is that the user's font size
+/// wins over the design height — so the bar grows to fit instead of
+/// clamping the text or clipping it (a fixed 58dp overflowed by ~27px
+/// at scale 2.0). At normal scales the column stays well under 58dp and
+/// the bar renders its exact DESIGN.md height.
 class MobileTabBar extends StatelessWidget {
   const MobileTabBar({super.key, required this.active, required this.onNav});
 
@@ -213,7 +220,8 @@ class MobileTabBar extends StatelessWidget {
 
   final ValueChanged<NavKey> onNav;
 
-  /// 58dp bar height (--tabbar-h), before the bottom safe-area inset.
+  /// 58dp bar MIN height (--tabbar-h), before the bottom safe-area inset;
+  /// large font scales grow the bar past it (see the class doc).
   static const double height = 58;
 
   @override
@@ -237,23 +245,33 @@ class MobileTabBar extends StatelessWidget {
         child: Semantics(
           container: true,
           label: s.sidebarNavPrimaryLabel,
-          child: SizedBox(
-            height: height,
-            child: Material(
-              color: Colors.transparent,
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  for (final (key, glyph, label) in entries)
-                    Expanded(
-                      child: _TabItem(
-                        glyph: glyph,
-                        label: label,
-                        active: key == active,
-                        onTap: () => onNav(key),
+          // minHeight (not a fixed SizedBox) + IntrinsicHeight: the bar is
+          // exactly [height] until the text-scaled tab columns' intrinsic
+          // height exceeds it, then grows to the exact scaled need (no
+          // linear height*scale guess). IntrinsicHeight also gives the
+          // stretch Row a bounded height, so every tab stays a full-bar
+          // touch target (>= 58dp >= the 44dp floor) instead of shrinking
+          // to its content. The Scaffold accommodates the growth — the
+          // body resizes above the taller bottomNavigationBar.
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: height),
+            child: IntrinsicHeight(
+              child: Material(
+                color: Colors.transparent,
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    for (final (key, glyph, label) in entries)
+                      Expanded(
+                        child: _TabItem(
+                          glyph: glyph,
+                          label: label,
+                          active: key == active,
+                          onTap: () => onNav(key),
+                        ),
                       ),
-                    ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),
@@ -280,8 +298,8 @@ class _TabItem extends StatelessWidget {
   Widget build(BuildContext context) {
     final tokens = JeliyaTokens.of(context);
     // Active = accent TEXT only; inactive tabs read text-mute (styles.css
-    // .tab / .tab.active). Each tab spans width/5 x 58dp — over the 44dp
-    // touch floor at any phone width.
+    // .tab / .tab.active). Each tab spans width/5 x the full bar height
+    // (>= 58dp) — over the 44dp touch floor at any phone width.
     final color = active ? tokens.accent : tokens.textMute;
     return Semantics(
       selected: active, // aria-current="page"
