@@ -1730,6 +1730,12 @@ abstract class AppStrings {
   /// **'Copy invite'**
   String get inviteCopyInvite;
 
+  /// Button under the combined invite that opens the operating system share sheet with the combined invite text. Shown only on phone-width layouts; desktop keeps copy only.
+  ///
+  /// In en, this message translates to:
+  /// **'Share invite'**
+  String get inviteShareInvite;
+
   /// Expander summary revealing separate ticket and address fields as an alternative to the combined invite.
   ///
   /// In en, this message translates to:
@@ -1747,6 +1753,12 @@ abstract class AppStrings {
   /// In en, this message translates to:
   /// **'Copy ticket'**
   String get inviteCopyTicket;
+
+  /// Button under the bare invite ticket (no dialable address case) that opens the operating system share sheet with the ticket text. Shown only on phone-width layouts; desktop keeps copy only.
+  ///
+  /// In en, this message translates to:
+  /// **'Share ticket'**
+  String get inviteShareTicket;
 
   /// Copy-to-clipboard button for the inviter's peer address.
   ///

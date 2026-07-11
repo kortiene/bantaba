@@ -9,6 +9,7 @@ library;
 import 'package:flutter/material.dart';
 import 'package:jeliya_protocol/jeliya_protocol.dart'
     show ErrorCodes, JeliyaMethods, RequestError, Roles, errorShape;
+import 'package:share_plus/share_plus.dart';
 
 import '../../l10n/error_display.dart';
 import '../../l10n/strings_context.dart';
@@ -268,6 +269,13 @@ class _InviteModalState extends State<InviteModal> {
           semanticLabel: s.inviteCombinedInviteLabel,
           copyLabel: s.inviteCopyInvite,
         ),
+        // Phones get the OS share sheet next to clipboard copy — a paste
+        // target (messaging app) is rarely one alt-tab away on a phone.
+        // Desktop (>= the shell breakpoint) stays copy-only, byte-identical.
+        if (isMobileWidth(context)) ...[
+          const SizedBox(height: JeliyaSpacing.x10),
+          _ShareButton(text: combined, label: s.inviteShareInvite),
+        ],
         const SizedBox(height: JeliyaSpacing.x10),
         _SeparatePartsDisclosure(ticket: ticket, endpointAddr: endpointAddr),
         const SizedBox(height: JeliyaSpacing.x14),
@@ -309,6 +317,11 @@ class _InviteModalState extends State<InviteModal> {
           semanticLabel: s.inviteInviteTicketLabel,
           copyLabel: s.inviteCopyTicket,
         ),
+        // Same phones-only share affordance as the combined view above.
+        if (isMobileWidth(context)) ...[
+          const SizedBox(height: JeliyaSpacing.x10),
+          _ShareButton(text: ticket, label: s.inviteShareTicket),
+        ],
         const SizedBox(height: JeliyaSpacing.x10),
         Text(s.inviteNoDialableAddressNote,
             style: TextStyle(fontSize: 13, color: tokens.textDim)),
@@ -489,6 +502,37 @@ class _TicketBoxState extends State<_TicketBox> {
         const SizedBox(width: JeliyaSpacing.x10),
         CopyButton(text: widget.value, label: widget.copyLabel),
       ],
+    );
+  }
+}
+
+/// OS share sheet affordance — rendered ONLY below the shell breakpoint
+/// (the call sites gate on [isMobileWidth]). Hands the share sheet the SAME
+/// string the sibling [CopyButton] copies; the sheet itself is the feedback
+/// (no invented 'Shared ✓' state — the app cannot know the outcome).
+class _ShareButton extends StatelessWidget {
+  const _ShareButton({required this.text, required this.label});
+
+  /// What gets shared — byte-identical to the copy button's payload.
+  final String text;
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return JeliyaButton(
+      label: label,
+      size: JeliyaButtonSize.sm,
+      onPressed: () {
+        // iPads present the sheet as a popover and require an anchor rect;
+        // pass this button's bounds (ignored on phones/Android).
+        final box = context.findRenderObject() as RenderBox?;
+        final origin = box != null && box.hasSize
+            ? box.localToGlobal(Offset.zero) & box.size
+            : null;
+        SharePlus.instance
+            .share(ShareParams(text: text, sharePositionOrigin: origin));
+      },
     );
   }
 }
