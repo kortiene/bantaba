@@ -217,14 +217,14 @@ Choose this if you want to modify Jeliya or run the developer demos.
 
 | Tool | Version | Why |
 |---|---|---|
-| [Rust](https://www.rust-lang.org/tools/install) | **1.80 or newer** | builds the daemon (`jeliyad`) |
+| [Rust](https://www.rust-lang.org/tools/install) | **1.91.0 or newer** | builds the daemon (`jeliyad`); 1.91.0 is the MSRV |
 | [Node.js](https://nodejs.org/) | **22 or newer** | runs the web UI and the helper scripts |
 | `git` | any recent | to clone the repo |
 
 Check what you have:
 
 ```bash
-rustc --version   # want 1.80+
+rustc --version   # want 1.91.0+
 node --version    # want v22+
 ```
 

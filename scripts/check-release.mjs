@@ -12,6 +12,7 @@ import {
   readFileSync,
   readdirSync,
 } from "node:fs";
+import { isIP } from "node:net";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -235,6 +236,300 @@ function strictPublicGitHubUrl(value) {
   }
 }
 
+function publicGitHubGitUrl(value) {
+  return strictPublicGitHubUrl(value)
+    || /^git@github\.com:[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:\.git)?$/.test(value ?? "");
+}
+
+function localFileGitUrl(value) {
+  try {
+    const url = new URL(value);
+    return url.protocol === "file:" && !url.username && !url.password && !url.search && !url.hash;
+  } catch {
+    return false;
+  }
+}
+
+const SANITIZED_LOG_POLICY = "raw daemon logs are transient in run-owned data directories and removed after successful cleanup; retained log summaries store only per-stream line/byte counts and SHA-256 digests";
+const LOCAL_CHECKOUT_SCHEMA = Symbol("local-checkout-schema");
+
+const CERTIFYING_NETWORK_SCHEMA = {
+  schema: null,
+  run_id: null,
+  started_at_utc: null,
+  ended_at_utc: null,
+  result: null,
+  certifiable: null,
+  expected_path: null,
+  mode: null,
+  source: {
+    commit: null,
+    dirty: null,
+    origin: null,
+    public_source: null,
+    published_at_origin: null,
+    iroh_rooms_revision: null,
+    iroh_rooms: {
+      kind: null,
+      source: null,
+      requested_revision: null,
+      resolved_revision: null,
+      public_source: null,
+      local_checkout: LOCAL_CHECKOUT_SCHEMA,
+      releaseable: null,
+      published_at_origin: null,
+    },
+    releaseable: null,
+  },
+  build: {
+    mode: null,
+    source_bound: null,
+    source_snapshot_commit: null,
+    locked: null,
+    embedded_ui: {
+      built_from_source: null,
+      package_lock_sha256: null,
+    },
+    features: [],
+    targets: [],
+    commands: [],
+    toolchain: {
+      rustc: { filename: null, version: null, sha256: null },
+      cargo: { filename: null, version: null, sha256: null },
+      node: { filename: null, version: null, sha256: null },
+      npm: { filename: null, version: null, sha256: null },
+      zig: {
+        filename: null,
+        version: null,
+        sha256: null,
+        expected_sha256: null,
+        integrity_verified: null,
+      },
+      cargo_zigbuild: { filename: null, version: null, sha256: null },
+      cargo_build_jobs: null,
+      installed_cross_target: null,
+    },
+  },
+  distinct_public_egress: {
+    evaluated: null,
+    pairwise: {
+      operator_to_b: { status: null, family: null },
+      operator_to_c: { status: null, family: null },
+      b_to_c: { status: null, family: null },
+    },
+    all_observed_addresses_different: null,
+    autonomous_systems: {
+      operator: null,
+      role_b: null,
+      role_c: null,
+    },
+    distinct_autonomous_system_count: null,
+    independent_network_topology_proven: null,
+    claim: null,
+  },
+  assertions: [],
+  path_observations: {
+    a: { expected_identities: null, consecutive_observations: null, expected_path: null },
+    b: { expected_identities: null, consecutive_observations: null, expected_path: null },
+    c: { expected_identities: null, consecutive_observations: null, expected_path: null },
+  },
+  functional_evidence: {
+    file: {
+      bytes_expected: null,
+      bytes_actual: null,
+      engine_verified: null,
+      expected_sha256: null,
+      actual_sha256: null,
+      sha256_equal: null,
+    },
+    pipe: {
+      http_status: null,
+      bytes: null,
+      target_connections: null,
+      target_requests: null,
+      unauthorized_third_peer: {
+        local_forwarder_created: null,
+        response_received: null,
+        target_connections: null,
+        target_requests: null,
+      },
+    },
+    reconnect: {
+      session_closed: null,
+      message_authored_while_closed: null,
+      offline_message_resynchronized: null,
+      settled_path: {
+        expected_identities: null,
+        consecutive_observations: null,
+        expected_path: null,
+      },
+    },
+    foreign_room_non_disclosure: {
+      rpc_methods_denied: [],
+      local_file_http_denied: null,
+      aggregate_reads_filtered: null,
+      foreign_agent_projection_exercised: null,
+      foreign_agent_join_attempts: null,
+      synchronization_isolation_claimed: null,
+    },
+    multi_peer: { peers: null, convergence_verified: null },
+  },
+  cleanup: {
+    completed: null,
+    processes_stopped: null,
+    temporary_artifacts_removed: null,
+    failure_codes: [],
+  },
+  binaries: {
+    local: {
+      filename: null,
+      sha256: null,
+      version: null,
+      relay_only_attested: null,
+    },
+    remote: {
+      filename: null,
+      sha256: null,
+      expected_version: null,
+      expected_relay_only: null,
+      execution_validation: null,
+    },
+  },
+  hosts: [],
+  sanitized_logs: {
+    policy: null,
+    roles: [],
+  },
+};
+
+const ASSERTION_SCHEMA = { name: null, result: null, duration_ms: null };
+const OPERATOR_HOST_SCHEMA = {
+  role: null,
+  host: null,
+  os: null,
+  architecture: null,
+};
+const REMOTE_HOST_SCHEMA = {
+  role: null,
+  host: null,
+  os: null,
+  architecture: null,
+  process_privilege: null,
+  binary_validation: {
+    sha256: null,
+    version: null,
+    execution_uid: null,
+    relay_only_attested: null,
+    relay_attestation_exit_status: null,
+  },
+};
+const LOG_ROLE_SCHEMA = {
+  role: null,
+  transport: null,
+  streams: {
+    stdout: { lines: null, bytes: null, sha256: null },
+    stderr: { lines: null, bytes: null, sha256: null },
+  },
+};
+
+function closedSchema(value, schema, path) {
+  if (schema === LOCAL_CHECKOUT_SCHEMA) {
+    if (value === null) return;
+    closedSchema(value, { commit: null, dirty: null, origin: null }, path);
+    return;
+  }
+  if (Array.isArray(schema)) {
+    if (!Array.isArray(value)) fail(`${path} must be an array`);
+    return;
+  }
+  if (schema === null) {
+    if (value !== null && typeof value === "object") {
+      fail(`${path} must be a scalar or null`);
+    }
+    return;
+  }
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    fail(`${path} must be an object`);
+  }
+  const expected = Object.keys(schema);
+  const actual = Object.keys(value);
+  const missing = expected.filter((key) => !Object.hasOwn(value, key));
+  const unknown = actual.filter((key) => !Object.hasOwn(schema, key));
+  if (missing.length > 0 || unknown.length > 0) {
+    const details = [
+      missing.length > 0 ? `missing ${missing.join(", ")}` : "",
+      unknown.length > 0 ? `unknown ${unknown.join(", ")}` : "",
+    ].filter(Boolean).join("; ");
+    fail(`${path} violates the closed evidence schema: ${details}`);
+  }
+  for (const key of expected) closedSchema(value[key], schema[key], `${path}.${key}`);
+}
+
+function secretBearingEvidenceKey(key) {
+  const normalized = key.toLowerCase().replace(/[^a-z0-9]+/g, "_");
+  if (normalized === "excerpt_limit_characters") return true;
+  if (/(?:^|_)(?:raw_logs?|raw_excerpt|redacted_excerpt|excerpt_truncated|log_excerpt|excerpts?|stdout_text|stderr_text)(?:_|$)/.test(normalized)) {
+    return true;
+  }
+  return /(?:^|_)(?:token|auth_token|authorization|bearer_token|access_token|refresh_token|api_key|cookie|credential|credentials|secret|secrets|seed|identity_seed|private_key|password|room_ticket|invite_ticket|ticket)(?:_|$)/.test(normalized)
+    || /(?:_token|_secret|_password|_private_key|_seed|_ticket)$/.test(normalized);
+}
+
+function containsIpLiteral(value) {
+  for (const match of value.matchAll(/(?:^|[^\d.])((?:\d{1,3}\.){3}\d{1,3})(?=$|[^\d.])/g)) {
+    if (isIP(match[1]) === 4) return true;
+  }
+  return (value.match(/[A-Fa-f0-9:.%]+/g) ?? []).some((candidate) => {
+    const withoutZone = candidate.replace(/%.+$/, "");
+    return isIP(withoutZone) === 6 || isIP(withoutZone.replace(/\.$/, "")) === 6;
+  });
+}
+
+function rejectSecretBearingEvidence(value, path) {
+  if (typeof value === "string") {
+    if (/-----BEGIN [A-Z0-9][A-Z0-9 ]*-----/.test(value)) {
+      fail(`${path} contains forbidden PEM material`);
+    }
+    if (/\bBearer\s+[A-Za-z0-9._~+/=-]+/i.test(value)) {
+      fail(`${path} contains forbidden bearer material`);
+    }
+    if (containsIpLiteral(value)) {
+      fail(`${path} contains a forbidden literal IP address`);
+    }
+    return;
+  }
+  if (value === null || typeof value !== "object") return;
+  if (Array.isArray(value)) {
+    value.forEach((entry, index) => rejectSecretBearingEvidence(entry, `${path}[${index}]`));
+    return;
+  }
+  for (const [key, entry] of Object.entries(value)) {
+    if (secretBearingEvidenceKey(key)) {
+      fail(`${path}.${key} is a forbidden secret-bearing or log-excerpt field`);
+    }
+    rejectSecretBearingEvidence(entry, `${path}.${key}`);
+  }
+}
+
+function validateClosedEvidenceSchema(manifest, relativePath) {
+  closedSchema(manifest, CERTIFYING_NETWORK_SCHEMA, relativePath);
+  for (const [index, assertion] of manifest.assertions.entries()) {
+    closedSchema(assertion, ASSERTION_SCHEMA, `${relativePath}.assertions[${index}]`);
+  }
+  if (manifest.hosts.length !== 3) {
+    fail(`${relativePath}.hosts must contain exactly roles a, b, and c`);
+  }
+  closedSchema(manifest.hosts[0], OPERATOR_HOST_SCHEMA, `${relativePath}.hosts[0]`);
+  closedSchema(manifest.hosts[1], REMOTE_HOST_SCHEMA, `${relativePath}.hosts[1]`);
+  closedSchema(manifest.hosts[2], REMOTE_HOST_SCHEMA, `${relativePath}.hosts[2]`);
+  if (manifest.sanitized_logs.roles.length !== 3) {
+    fail(`${relativePath}.sanitized_logs.roles must contain exactly roles a, b, and c`);
+  }
+  for (const [index, role] of manifest.sanitized_logs.roles.entries()) {
+    closedSchema(role, LOG_ROLE_SCHEMA, `${relativePath}.sanitized_logs.roles[${index}]`);
+  }
+}
+
 export function irohRoomsReleaseIdentity(root = repoRoot) {
   const dependencyLine = readText("Cargo.toml", root)
     .split(/\r?\n/)
@@ -348,12 +643,19 @@ export function validateNetworkEvidenceManifest(manifest, {
   if (!/^\d{8}T\d{6}Z-[0-9a-f]{8}$/.test(manifest?.run_id ?? "")
       || !Number.isFinite(startedAt)
       || !Number.isFinite(endedAt)
+      || new Date(startedAt).toISOString() !== manifest?.started_at_utc
+      || new Date(endedAt).toISOString() !== manifest?.ended_at_utc
       || endedAt <= startedAt) {
     fail(`${relativePath} lacks a valid run ID and bounded UTC evidence window`);
   }
-  if (manifest?.schema !== 1 || manifest.result !== "pass" || manifest.certifiable !== true) {
+  rejectSecretBearingEvidence(manifest, relativePath);
+  validateClosedEvidenceSchema(manifest, relativePath);
+  if (manifest?.schema !== 1
+      || manifest.result !== "pass"
+      || typeof manifest.certifiable !== "boolean") {
     fail(`${relativePath} is not a passing certifiable schema-1 run`);
   }
+  const certifying = manifest.certifiable === true;
   if (manifest.expected_path !== expectedPath) {
     fail(`${relativePath} expected_path is not ${expectedPath}`);
   }
@@ -361,36 +663,114 @@ export function validateNetworkEvidenceManifest(manifest, {
   if (manifest.mode !== expectedMode) {
     fail(`${relativePath} mode is not ${expectedMode}`);
   }
-  if (manifest.source?.commit !== candidateCommit
-      || manifest.source?.dirty !== false
-      || manifest.source?.published_at_origin !== true
-      || manifest.source?.releaseable !== true) {
-    fail(`${relativePath} does not bind to the releaseable network-qualified commit`);
+  if (certifying) {
+    if (manifest.source?.commit !== candidateCommit
+        || manifest.source?.dirty !== false
+        || !strictPublicGitHubUrl(manifest.source?.origin)
+        || manifest.source?.public_source !== true
+        || manifest.source?.published_at_origin !== true
+        || manifest.source?.releaseable !== true) {
+      fail(`${relativePath} does not bind to the releaseable network-qualified commit`);
+    }
+    if (manifest.source?.iroh_rooms_revision !== upstreamRevision
+        || manifest.source?.iroh_rooms?.kind !== "git"
+        || !strictPublicGitHubUrl(manifest.source?.iroh_rooms?.source)
+        || manifest.source?.iroh_rooms?.requested_revision !== upstreamRevision
+        || manifest.source?.iroh_rooms?.resolved_revision !== upstreamRevision
+        || manifest.source?.iroh_rooms?.public_source !== true
+        || manifest.source?.iroh_rooms?.local_checkout !== null
+        || manifest.source?.iroh_rooms?.published_at_origin !== true
+        || manifest.source?.iroh_rooms?.releaseable !== true) {
+      fail(`${relativePath} does not bind to the releaseable upstream revision`);
+    }
+  } else {
+    const localCheckout = manifest.source?.iroh_rooms?.local_checkout;
+    if (manifest.source?.commit !== candidateCommit
+        || manifest.source?.dirty !== false
+        || !publicGitHubGitUrl(manifest.source?.origin)
+        || manifest.source?.public_source !== true
+        || manifest.source?.published_at_origin !== false
+        || manifest.source?.releaseable !== false
+        || manifest.source?.iroh_rooms_revision !== upstreamRevision
+        || manifest.source?.iroh_rooms?.kind !== "local-git-url"
+        || !localFileGitUrl(manifest.source?.iroh_rooms?.source)
+        || manifest.source?.iroh_rooms?.requested_revision !== upstreamRevision
+        || manifest.source?.iroh_rooms?.resolved_revision !== upstreamRevision
+        || manifest.source?.iroh_rooms?.public_source !== false
+        || localCheckout?.commit !== upstreamRevision
+        || localCheckout?.dirty !== false
+        || !publicGitHubGitUrl(localCheckout?.origin)
+        || manifest.source?.iroh_rooms?.published_at_origin !== false
+        || manifest.source?.iroh_rooms?.releaseable !== false) {
+      fail(`${relativePath} does not bind to the retained unpublished source and upstream checkout`);
+    }
   }
-  if (manifest.source?.iroh_rooms_revision !== upstreamRevision
-      || manifest.source?.iroh_rooms?.requested_revision !== upstreamRevision
-      || manifest.source?.iroh_rooms?.resolved_revision !== upstreamRevision
-      || manifest.source?.iroh_rooms?.public_source !== true
-      || manifest.source?.iroh_rooms?.published_at_origin !== true
-      || manifest.source?.iroh_rooms?.releaseable !== true) {
-    fail(`${relativePath} does not bind to the releaseable upstream revision`);
-  }
+  const expectedFeatures = expectedPath === "relay"
+    ? ["embed-ui", "relay-only-test"]
+    : ["embed-ui"];
+  const featureArgument = expectedFeatures.join(",");
+  const expectedBuildCommands = [
+    `git archive ${candidateCommit}`,
+    "npm ci",
+    "npm run build",
+    `cargo +1.91.0 build --locked --release -p jeliyad --features ${featureArgument}`,
+    `cargo +1.91.0 zigbuild --locked --release -p jeliyad --features ${featureArgument} --target x86_64-unknown-linux-musl`,
+  ];
   if (manifest.build?.mode !== "from-source"
       || manifest.build?.source_bound !== true
       || manifest.build?.source_snapshot_commit !== candidateCommit
       || manifest.build?.locked !== true
-      || !Array.isArray(manifest.build?.features)
-      || !manifest.build.features.includes("embed-ui")
-      || !Array.isArray(manifest.build?.targets)
-      || !manifest.build.targets.includes("x86_64-apple-darwin")
-      || !manifest.build.targets.includes("x86_64-unknown-linux-musl")) {
+      || manifest.build?.embedded_ui?.built_from_source !== true
+      || !/^[0-9a-f]{64}$/.test(manifest.build?.embedded_ui?.package_lock_sha256 ?? "")
+      || JSON.stringify(manifest.build?.features) !== JSON.stringify(expectedFeatures)
+      || JSON.stringify(manifest.build?.targets)
+        !== JSON.stringify(["x86_64-apple-darwin", "x86_64-unknown-linux-musl"])
+      || JSON.stringify(manifest.build?.commands) !== JSON.stringify(expectedBuildCommands)) {
     fail(`${relativePath} was not built source-bound with the lockfile`);
+  }
+  const toolchain = manifest.build.toolchain;
+  const toolDigestValid = (tool) => /^[0-9a-f]{64}$/.test(tool?.sha256 ?? "");
+  const expectedRustcVersion = [
+    "rustc 1.91.0 (f8297e351 2025-10-28)",
+    "binary: rustc",
+    "commit-hash: f8297e351a40c1439a467bbbb6879088047f50b3",
+    "commit-date: 2025-10-28",
+    "host: x86_64-apple-darwin",
+    "release: 1.91.0",
+    "LLVM version: 21.1.2",
+  ].join("\n");
+  if (toolchain.rustc.filename !== "rustc"
+      || toolchain.rustc.version !== expectedRustcVersion
+      || !toolDigestValid(toolchain.rustc)
+      || toolchain.cargo.filename !== "cargo"
+      || toolchain.cargo.version !== "cargo 1.91.0 (ea2d97820 2025-10-10)"
+      || !toolDigestValid(toolchain.cargo)
+      || toolchain.node.filename !== "node"
+      || toolchain.node.version !== "v22.22.3"
+      || !toolDigestValid(toolchain.node)
+      || toolchain.npm.filename !== "npm"
+      || toolchain.npm.version !== "10.9.8"
+      || !toolDigestValid(toolchain.npm)
+      || toolchain.zig.filename !== "zig"
+      || toolchain.zig.version !== "0.15.2"
+      || !toolDigestValid(toolchain.zig)
+      || toolchain.zig.sha256 !== toolchain.zig.expected_sha256
+      || toolchain.zig.integrity_verified !== true
+      || toolchain.cargo_zigbuild.filename !== "cargo-zigbuild"
+      || toolchain.cargo_zigbuild.version !== "cargo-zigbuild 0.23.0"
+      || !toolDigestValid(toolchain.cargo_zigbuild)
+      || toolchain.cargo_build_jobs !== 2
+      || toolchain.installed_cross_target !== "x86_64-unknown-linux-musl") {
+    fail(`${relativePath} lacks the exact verified release toolchain`);
   }
   const topology = manifest.distinct_public_egress;
   const pairwise = topology?.pairwise;
   const asns = topology?.autonomous_systems;
-  if (topology?.all_observed_addresses_different !== true
+  if (topology?.evaluated !== true
+      || topology?.all_observed_addresses_different !== true
       || topology?.independent_network_topology_proven !== true
+      || topology?.claim
+        !== "distinct public egress plus at least two independently resolved BGP origin ASNs; no IP address is persisted"
       || !Number.isInteger(topology?.distinct_autonomous_system_count)
       || topology.distinct_autonomous_system_count < 2
       || !pairwise
@@ -409,7 +789,7 @@ export function validateNetworkEvidenceManifest(manifest, {
   const expectedAssertions = expectedNetworkAssertionNames(expectedPath);
   if (!Array.isArray(assertions)
       || assertions.some((assertion) => assertion.result !== "pass"
-        || !Number.isFinite(assertion.duration_ms)
+        || !Number.isInteger(assertion.duration_ms)
         || assertion.duration_ms < 0)
       || JSON.stringify(assertions.map((assertion) => assertion.name))
         !== JSON.stringify(expectedAssertions)) {
@@ -419,9 +799,10 @@ export function validateNetworkEvidenceManifest(manifest, {
   for (const role of ["a", "b", "c"]) {
     const observation = paths?.[role];
     if (observation?.expected_path !== expectedPath
-        || observation?.consecutive_observations < 3
+        || !Number.isInteger(observation?.consecutive_observations)
+        || observation.consecutive_observations < 3
         || !Number.isInteger(observation?.expected_identities)
-        || observation.expected_identities < 1) {
+        || observation.expected_identities !== (role === "a" ? 2 : 1)) {
       fail(`${relativePath} lacks stable ${expectedPath} observations for role ${role}`);
     }
   }
@@ -432,13 +813,31 @@ export function validateNetworkEvidenceManifest(manifest, {
     "file.fetch", "pipe.expose", "pipe.list", "pipe.connect", "pipe.close",
     "peers.status", "agent.history",
   ];
-  if (functional?.file?.engine_verified !== true
+  if (!Number.isInteger(functional?.file?.bytes_expected)
+      || functional.file.bytes_expected < 1
+      || functional.file.bytes_actual !== functional.file.bytes_expected
+      || functional?.file?.engine_verified !== true
       || functional?.file?.sha256_equal !== true
+      || !/^[0-9a-f]{64}$/.test(functional?.file?.expected_sha256 ?? "")
       || functional?.file?.expected_sha256 !== functional?.file?.actual_sha256
+      || functional?.pipe?.http_status !== 200
+      || !Number.isInteger(functional?.pipe?.bytes)
+      || functional.pipe.bytes < 1
+      || !Number.isInteger(functional?.pipe?.target_connections)
+      || functional.pipe.target_connections < 1
+      || !Number.isInteger(functional?.pipe?.target_requests)
+      || functional.pipe.target_requests < 1
+      || functional?.pipe?.unauthorized_third_peer?.local_forwarder_created !== true
+      || functional?.pipe?.unauthorized_third_peer?.response_received !== false
       || functional?.pipe?.unauthorized_third_peer?.target_connections !== 0
       || functional?.pipe?.unauthorized_third_peer?.target_requests !== 0
+      || functional?.reconnect?.session_closed !== true
+      || functional?.reconnect?.message_authored_while_closed !== true
       || functional?.reconnect?.offline_message_resynchronized !== true
       || functional?.reconnect?.settled_path?.expected_path !== expectedPath
+      || functional?.reconnect?.settled_path?.expected_identities !== 1
+      || !Number.isInteger(functional?.reconnect?.settled_path?.consecutive_observations)
+      || functional.reconnect.settled_path.consecutive_observations < 3
       || functional?.multi_peer?.peers !== 3
       || functional?.multi_peer?.convergence_verified !== true
       || JSON.stringify(functional?.foreign_room_non_disclosure?.rpc_methods_denied)
@@ -458,39 +857,45 @@ export function validateNetworkEvidenceManifest(manifest, {
       || manifest.cleanup?.failure_codes?.length !== 0) {
     fail(`${relativePath} cleanup is incomplete`);
   }
-  const remoteHosts = Array.isArray(manifest.hosts)
-    ? manifest.hosts.filter((host) => host.role === "b" || host.role === "c")
-    : [];
+  const hostRoles = manifest.hosts.map((host) => host.role);
+  const operatorHost = manifest.hosts[0];
+  const remoteHosts = manifest.hosts.slice(1);
   const remoteDigest = manifest.binaries?.remote?.sha256;
-  const expectedFeatures = expectedPath === "relay"
-    ? ["embed-ui", "relay-only-test"]
-    : ["embed-ui"];
-  if (JSON.stringify(manifest.build.features) !== JSON.stringify(expectedFeatures)) {
-    fail(`${relativePath} has an unexpected source-build feature set`);
-  }
-  if (remoteHosts.length !== 2
-      || new Set(remoteHosts.map((host) => host.role)).size !== 2
+  const expectedRelayOnly = expectedPath === "relay";
+  const expectedRelayAttestationStatus = expectedRelayOnly ? 0 : 2;
+  if (JSON.stringify(hostRoles) !== JSON.stringify(["a", "b", "c"])
+      || operatorHost.host !== "operator-local"
+      || operatorHost.os !== "darwin"
+      || operatorHost.architecture !== "x64"
       || new Set(remoteHosts.map((host) => host.host)).size !== 2
       || !/^[0-9a-f]{64}$/.test(remoteDigest ?? "")
-      || remoteHosts.some((host) => host.architecture !== "x86_64"
-        || typeof host.os !== "string"
-        || host.os.length < 3
+      || remoteHosts.some((host) => !/^[A-Za-z0-9][A-Za-z0-9._@-]*$/.test(host.host)
+        || host.architecture !== "x86_64"
+        || !/^Ubuntu [1-9]\d*\.\d+(?:\.\d+)?(?: LTS)?$/.test(host.os)
         || !["dropped-to-unprivileged-system-uid", "ssh-account-uid"].includes(host.process_privilege)
         || host.binary_validation?.sha256 !== remoteDigest
         || host.binary_validation?.version !== expectedVersion
-        || !/^[1-9]\d*$/.test(host.binary_validation?.execution_uid ?? ""))) {
-    fail(`${relativePath} lacks two independently verified remote binaries`);
+        || !/^[1-9]\d*$/.test(host.binary_validation?.execution_uid ?? "")
+        || host.binary_validation?.relay_only_attested !== expectedRelayOnly
+        || host.binary_validation?.relay_attestation_exit_status
+          !== expectedRelayAttestationStatus)) {
+    fail(`${relativePath} lacks the exact operator and two independently verified remote environments`);
   }
   const logRoles = manifest.sanitized_logs?.roles;
-  if (!Array.isArray(logRoles)
+  const emptyStreamSha256 = createHash("sha256").update("").digest("hex");
+  if (manifest.sanitized_logs?.policy !== SANITIZED_LOG_POLICY
       || JSON.stringify(logRoles.map((role) => role.role)) !== JSON.stringify(["a", "b", "c"])
-      || logRoles.some((role) => ["stdout", "stderr"].some((stream) => {
+      || logRoles.some((role, index) => role.transport !== (index === 0 ? "local-child" : "supervised-ssh")
+        || ["stdout", "stderr"].some((stream) => {
         const record = role.streams?.[stream];
         return !Number.isInteger(record?.lines)
           || record.lines < 0
           || !Number.isInteger(record?.bytes)
           || record.bytes < 0
-          || !/^[0-9a-f]{64}$/.test(record?.sha256 ?? "");
+          || !/^[0-9a-f]{64}$/.test(record?.sha256 ?? "")
+          || (record.bytes === 0
+            && (record.lines !== 0 || record.sha256 !== emptyStreamSha256))
+          || (record.bytes > 0 && (record.lines < 1 || record.lines > record.bytes));
       }))) {
     fail(`${relativePath} lacks sanitized per-role log integrity records`);
   }
@@ -499,13 +904,22 @@ export function validateNetworkEvidenceManifest(manifest, {
   if (expectedPath === "relay" && !relayAttested) {
     fail(`${relativePath} lacks compile-time relay-only attestation on every execution host`);
   }
-  if (manifest.binaries?.local?.version !== expectedVersion
+  if (manifest.binaries?.local?.filename !== "jeliyad"
+      || !/^[0-9a-f]{64}$/.test(manifest.binaries?.local?.sha256 ?? "")
+      || manifest.binaries?.local?.version !== expectedVersion
+      || manifest.binaries?.remote?.filename !== "jeliyad"
       || manifest.binaries?.remote?.expected_version !== expectedVersion
+      || manifest.binaries?.remote?.expected_relay_only !== expectedRelayOnly
+      || manifest.binaries?.remote?.execution_validation
+        !== "verified independently on every Linux execution host after transfer"
       || (expectedPath === "direct" && (
         manifest.binaries.local.relay_only_attested !== false
         || remoteHosts.some((host) => host.binary_validation?.relay_only_attested !== false)
       ))) {
     fail(`${relativePath} binary versions or direct-build attestations are inconsistent`);
+  }
+  if (!certifying) {
+    fail(`${relativePath} is not a passing certifiable schema-1 run`);
   }
   return { valid: true };
 }

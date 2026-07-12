@@ -61,7 +61,10 @@ Apply these rules before running the harness:
 The harness supervises SSH sessions and loopback tunnels from the operator
 machine. It validates the remote PID, executable, binary digest, version, and
 execution UID before accepting evidence. Signals enter an idempotent cleanup
-path. Raw daemon logs are held only in memory and are never persisted.
+path. Daemon file logs exist only inside isolated run-owned data directories.
+Successful cleanup removes them; a failed or ownership-ambiguous cleanup is
+recorded and must be resolved before the run can qualify. Evidence retains no
+log excerpt, only per-stream line/byte counts and SHA-256 digests.
 
 ## Approved topology for the recorded runs
 

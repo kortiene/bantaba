@@ -56,8 +56,8 @@ the retained manifests correctly set `certifiable: false` and
 | Deliberately forced relay | compile-time relay-only diagnostic build, attestation on all execution hosts, stable relay paths on roles A/B/C, 36/36 assertions | functional PASS; proves relay fallback, not a naturally failed hole punch; non-certifying retained manifest |
 | Join, reconnect, and resynchronization | targeted joins, three-peer convergence, closed-session message, reopen, resynchronization, and settled reconnect path | functional PASS in direct and relay runs |
 | Messages, files, and pipes | bidirectional and three-peer messages, byte-identical engine-verified BLAKE3 file fetch, authorized pipe, and zero-target-connection unauthorized pipe | functional PASS in direct and relay runs |
-| Installer integrity | Unix installer behavioral tests verify checksum-before-extraction; PowerShell contract is structurally checked | Unix PASS; Windows behavioral execution pending |
-| Atomic publication | source/artifact gate and sole-write-job workflow are implemented | structurally verified only; no five-archive set built and no publication executed |
+| Installer integrity | Unix behavioral tests verify checksum-before-extraction; Windows jobs execute checksum/tamper behavior, simulate reparse rejection, and smoke the native daemon | Unix PASS; Windows gates configured but no hosted `windows-latest` result exists |
+| Atomic publication | an execution-free read-only job validates and seals the complete set, a separate read-only job performs smoke execution, and the sole writer verifies the receipt without candidate execution before its final token-bearing step | contract and negative receipt tests PASS; no five-archive set built and no publication executed |
 | Version consistency | local source checks bind daemon/UI/lockfile/changelog naming to `0.5.0` | local PASS; public tag and artifacts do not exist |
 | Documentation | required OKF pages and retained sanitized evidence are present | local docs gate PASS during reconciliation; rerun on the final commit |
 
@@ -116,8 +116,8 @@ topology gate.
 
 | Path | Run and UTC window | Result | Retained evidence | Manifest SHA-256 |
 |---|---|---|---|---|
-| direct | `20260712T155534Z-d3d9ff69`, 15:55:34–16:15:24 | 36/36; A/B/C each remained direct for three consecutive observations | [`direct.json`](evidence/v0.5.0/direct.json) | `1283e7c9d806f136ec364c9d35ba2259bab4a909e896fe6c1a427e132c6f75dd` |
-| forced relay | `20260712T161837Z-f1d9c149`, 16:18:37–16:38:54 | 36/36; A/B/C each remained relay for three consecutive observations | [`relay.json`](evidence/v0.5.0/relay.json) | `ca770491d98c2236d057d25b146101bdf469e3b0640a635034786d2995b6f294` |
+| direct | `20260712T155534Z-d3d9ff69`, 15:55:34–16:15:24 | 36/36; A/B/C each remained direct for three consecutive observations | [`direct.json`](evidence/v0.5.0/direct.json) | `5b4659cc709148e149ce339c8b70515ddd838b4cc7cf07a96a5982b08a1b2af0` |
+| forced relay | `20260712T161837Z-f1d9c149`, 16:18:37–16:38:54 | 36/36; A/B/C each remained relay for three consecutive observations | [`relay.json`](evidence/v0.5.0/relay.json) | `472f71394485e72e1e3c9f791d1d80e1489bdcbd19ec22d15326044efb5049e9` |
 
 Both runs used Jeliya
 `fe870c7c5b63f2bf52b031dd1bc8e27e83183be5`, Iroh Rooms
@@ -143,6 +143,13 @@ run-owned temporary directories were removed. The retained manifests omit log
 excerpts and raw logs; they keep only per-role stream line counts, byte counts,
 and SHA-256 digests. They contain no invite tickets, bearer tokens, portfile
 tokens, identity seeds, private keys, or public IP addresses.
+
+The run-era collector finalized those stream summaries after process exit but
+did not separately prove stdout/stderr closure. The functional assertions do
+not depend on the summaries, but their tail completeness is therefore not a
+release claim. The hardened harness now waits for both streams with a bounded,
+fail-closed timeout before digest finalization; a fresh certifying run must use
+that implementation.
 
 ### Qualification limits
 

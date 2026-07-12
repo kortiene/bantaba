@@ -435,8 +435,7 @@
     }
   },
   "sanitized_logs": {
-    "policy": "bounded excerpt with exact in-memory secrets, credential labels, and long hex/base64-like tokens redacted; no raw logs persisted",
-    "excerpt_limit_characters": 1024,
+    "policy": "raw daemon logs are transient in run-owned data directories and removed after successful cleanup; retained log summaries store only per-stream line/byte counts and SHA-256 digests",
     "roles": [
       {
         "role": "a",

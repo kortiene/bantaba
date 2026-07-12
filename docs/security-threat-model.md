@@ -54,7 +54,7 @@ signed evidence run are security requirements, not release administration.
 | Shared event store to public RPC | rooms the local identity has accepted | foreign or invite-only rooms that exist in storage | centralized accepted-room guard before fold, materialization, or return; aggregate filtering |
 | Flutter app to Android storage and backup | app-private `noBackupFilesDir` state | cloud backup, device transfer, debug extraction, repository checkout | disabled backup plus explicit cloud/device-transfer exclusions and fail-closed migration |
 | Agent runner to host | operator-approved sender, worker, workspace, and room | room messages, generated tasks, subprocess output | explicit opt-in, sender allowlist, least-privilege process, isolated state/workspace, no ambient secret logging |
-| CI build to public release | reviewed immutable source and complete verified artifacts | third-party actions/tools, compromised downloads, partial jobs | immutable action pins, verified tool downloads, read-only builders, atomic final publication |
+| CI build to public release | reviewed immutable source and complete verified artifacts | third-party actions/tools, compromised downloads, partial jobs, candidate binary attempting to alter release inputs | immutable action pins, verified tool downloads, execution-free validation and sealing, isolated read-only smoke, receipt verification without candidate execution, token only in final step |
 | Retained evidence to release decision | exact sanitized manifest signed by the approved evidence key | edited, fabricated, stale, or secret-bearing evidence | pinned public SPKI, detached Ed25519 signature, exact source/dependency checks, ancestry restriction |
 
 Android currently relies on app-private no-backup storage and explicit backup
@@ -73,10 +73,10 @@ implemented control.
 | Agent identity or state committed from a checkout | public secret disclosure and identity reuse | platform data directory outside the checkout, per-directory deny-all `.gitignore`, repository ignore rules, tracked-secret gate | six secret-storage tests plus repository validation pass locally |
 | Reachable vulnerable dependency | code execution, compromise, or denial of service | automated cargo/npm audits; high/critical findings block; explicit owned/expiring exception only when unavoidable | zero cargo/npm vulnerabilities; three maintenance warnings and one yanked version expire 2026-09-30 |
 | Compromised action or downloaded build tool | release supply-chain compromise | third-party Actions pinned to immutable revisions; Zig and Gradle distributions verified before execution; least-privilege jobs | workflow and local contract tests pass; no hosted double run has occurred |
-| Partial or mismatched release | incomplete, stale, or mislabeled binaries | build and verify all five private archives before tag/release creation; only final job has write permission; version and names cross-checked | workflow is implemented but no complete five-archive `v0.5.0` set or publication rehearsal exists |
-| Installer extracts modified bytes | local code execution | fetch the matching published checksum, validate filename/format, verify SHA-256, then extract | Unix behavior passes; PowerShell is structurally validated but has not been behaviorally executed on Windows |
+| Partial, mismatched, or post-validation-modified release | incomplete, stale, mislabeled, or candidate-mutated binaries | validate and seal all five private archives in a no-execution job; smoke the immutable artifact separately; verify the receipt without execution before tag/release creation; expose the write token only to the final step | workflow and receipt negative tests pass locally, but no complete five-archive `v0.5.0` set or publication rehearsal exists |
+| Installer extracts modified bytes | local code execution | fetch the matching published checksum, validate filename/format, verify SHA-256, then extract | Unix behavior passes; Windows behavioral and simulated-reparse gates are configured but have not executed on a hosted Windows runner |
 | Forged or edited verification record | false release confidence | retained exact manifest, canonical public key, detached Ed25519 signature, source/publication/ancestry checks | manifests are retained but unsigned; the approved public SPKI is absent, so the release gate fails closed |
-| Secrets copied into logs or evidence | credential or identity disclosure | exact in-memory redaction, no raw-log persistence, no address persistence, bounded structured summaries | retained manifests omit excerpts and keep only line/byte counts and stream SHA-256 digests; retained fields contain no tickets, tokens, seeds, private keys, or IP addresses |
+| Secrets copied into logs or evidence | credential or identity disclosure | transient logs confined to run-owned data directories, no address retention, and digest-only retained summaries | successful cleanup removed transient logs in both retained runs; any cleanup failure makes a run fail qualification. Manifests keep only line/byte counts and stream SHA-256 digests and contain no tickets, tokens, seeds, private keys, excerpts, or IP addresses |
 
 ## Authorization invariant
 
@@ -155,10 +155,13 @@ for the exact revisions, environments, assertions, hashes, and cleanup record.
 
 Build jobs must remain read-only. A manual promotion binds an exact version and
 public default-branch commit, then requires two independent complete CI runs.
-Read-only jobs build private workflow artifacts; one final job revalidates the
-five daemon archives, embedded UI, filenames, checksums, versions, commit,
-changelog, signed network evidence, and source ancestry before receiving write
-permission.
+An execution-free read-only job validates the five daemon archives, embedded
+UI, filenames, checksums, versions, commit, changelog, signed network evidence,
+and source ancestry, then seals exact bytes and provenance in a receipt. A
+separate read-only job executes the immutable smoke artifact. The sole writer
+fetches the public verification source without credentials and verifies the
+receipt without executing candidate bytes; its GitHub token exists only in the
+final publishing step.
 
 The finalizer rejects an existing tag or release, keeps the release draft until
 uploaded bytes compare exactly, and attempts scoped cleanup of only its own

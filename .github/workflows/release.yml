@@ -1,8 +1,9 @@
 name: release
 
 # v0.5.x publishes only the daemon with its embedded web UI. All binaries and
-# checksum sidecars are built as private workflow artifacts first. The sole
-# write-capable job validates the complete set, uploads it to a draft release,
+# checksum sidecars are built as private workflow artifacts first. A read-only
+# job validates and seals the complete set. The sole write-capable job verifies
+# that receipt without executing candidate bytes, uploads a private draft,
 # verifies the remote assets, and only then makes the release visible.
 
 on:
@@ -17,7 +18,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: release-${{ inputs.version }}-${{ github.sha }}
+  group: release-${{ inputs.version }}
   cancel-in-progress: false
 
 jobs:
@@ -199,6 +200,17 @@ jobs:
         if: ${{ matrix.zigbuild != true }}
         run: cargo build --locked --release -p jeliyad --features embed-ui --target ${{ matrix.target }}
 
+      - name: Verify the native Windows daemon starts and reports the release version
+        if: ${{ matrix.target == 'x86_64-pc-windows-msvc' }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $actual = & "target/${{ matrix.target }}/release/jeliyad.exe" --version
+          $expected = "jeliyad $($env:RELEASE_TAG.TrimStart('v'))"
+          if ($actual -cne $expected) {
+            throw "Windows daemon version mismatch: got '$actual', expected '$expected'"
+          }
+
       - name: Package and verify tar.gz
         if: ${{ matrix.archive == 'tar.gz' }}
         shell: bash
@@ -240,8 +252,8 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
-  publish:
-    name: Validate complete set and publish atomically
+  validate-release:
+    name: Validate and seal the complete release set
     needs:
       - verify-first
       - verify-second
@@ -249,28 +261,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
-      contents: write
+      contents: read
     env:
-      GH_TOKEN: ${{ github.token }}
       RELEASE_TAG: ${{ inputs.version }}
       DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-      RELEASE_BODY: |
-        `jeliyad` is the Jeliya peer-to-peer daemon with the verified web UI embedded.
-
-        This technical preview intentionally publishes the daemon archives only. Native mobile and desktop packages remain unpublished until their platform gates are fully satisfied.
-
-        Each archive has a `.sha256` sidecar. The official Unix and Windows installers download and verify that checksum before extracting anything.
-
-        This release is intentionally marked as a prerelease, so the installers' unpinned `latest` path continues to select the latest stable release. Install this preview explicitly:
-
-        ```sh
-        curl -fsSL https://raw.githubusercontent.com/kortiene/jeliya/${{ inputs.version }}/packaging/install.sh | JELIYA_VERSION=${{ inputs.version }} sh
-        ```
-
-        ```powershell
-        $env:JELIYA_VERSION = '${{ inputs.version }}'
-        irm https://raw.githubusercontent.com/kortiene/jeliya/${{ inputs.version }}/packaging/install.ps1 | iex
-        ```
     steps:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -305,6 +299,44 @@ jobs:
           node scripts/check-release.mjs --source --publish --tag "$RELEASE_TAG"
           node scripts/check-release.mjs --artifacts dist --tag "$RELEASE_TAG"
 
+      - name: Seal the validated artifact receipt
+        run: |
+          set -euo pipefail
+          receipt_dir="$RUNNER_TEMP/validated-set"
+          remote_tip="$(git ls-remote --exit-code --heads origin "refs/heads/$DEFAULT_BRANCH" | awk 'NF == 2 { print $1 }')"
+          test "$remote_tip" = "$GITHUB_SHA"
+          node scripts/release-receipt.mjs create \
+            --artifacts dist \
+            --receipt "$receipt_dir" \
+            --tag "$RELEASE_TAG" \
+            --commit "$GITHUB_SHA" \
+            --default-tip "$remote_tip"
+
+      - name: Upload the sealed validation receipt
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: validated-set
+          path: ${{ runner.temp }}/validated-set/
+          if-no-files-found: error
+          retention-days: 3
+
+  smoke-release:
+    name: Smoke the immutable release binary without write authority
+    needs:
+      - validate-release
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    env:
+      RELEASE_TAG: ${{ inputs.version }}
+    steps:
+      - name: Download the immutable Linux release artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: release-x86_64-unknown-linux-musl
+          path: dist
+
       - name: Verify the built daemon reports the tag version
         run: |
           set -euo pipefail
@@ -319,156 +351,94 @@ jobs:
             exit 1
           }
 
+  publish:
+    name: Publish the sealed complete set atomically
+    needs:
+      - validate-release
+      - smoke-release
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    env:
+      RELEASE_TAG: ${{ inputs.version }}
+      DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      RELEASE_BODY: |
+        `jeliyad` is the Jeliya peer-to-peer daemon with the verified web UI embedded.
+
+        This technical preview intentionally publishes the daemon archives only. Native mobile and desktop packages remain unpublished until their platform gates are fully satisfied.
+
+        Each archive has a `.sha256` sidecar. The official Unix and Windows installers download and verify that checksum before extracting anything.
+
+        This release is intentionally marked as a prerelease, so the installers' unpinned `latest` path continues to select the latest stable release. Install this preview explicitly:
+
+        ```sh
+        curl -fsSL https://raw.githubusercontent.com/kortiene/jeliya/${{ inputs.version }}/packaging/install.sh | JELIYA_VERSION=${{ inputs.version }} sh
+        ```
+
+        ```powershell
+        $env:JELIYA_VERSION = '${{ inputs.version }}'
+        irm https://raw.githubusercontent.com/kortiene/jeliya/${{ inputs.version }}/packaging/install.ps1 | iex
+        ```
+    steps:
+      - name: Fetch trusted release verification code without credentials
+        run: |
+          set -euo pipefail
+          source_dir="$RUNNER_TEMP/release-source"
+          git init --quiet "$source_dir"
+          git -C "$source_dir" remote add origin \
+            "https://github.com/${GITHUB_REPOSITORY}.git"
+          git -c credential.helper= -C "$source_dir" fetch --quiet --depth=1 origin \
+            "refs/heads/$DEFAULT_BRANCH"
+          fetched="$(git -C "$source_dir" rev-parse FETCH_HEAD)"
+          test "$fetched" = "$GITHUB_SHA" || {
+            echo "public verification source does not match workflow commit" >&2
+            exit 1
+          }
+          git -C "$source_dir" checkout --quiet --detach FETCH_HEAD
+          echo "RELEASE_SOURCE=$source_dir" >> "$GITHUB_ENV"
+
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: '22.22.3'
+
+      - name: Download all daemon artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: release-*
+          path: dist
+          merge-multiple: true
+
+      - name: Download the sealed validation receipt
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: validated-set
+          path: validation
+
+      - name: Verify the sealed inputs without executing them
+        run: |
+          set -euo pipefail
+          node "$RELEASE_SOURCE/scripts/release-receipt.mjs" verify \
+            --artifacts dist \
+            --receipt validation \
+            --tag "$RELEASE_TAG" \
+            --expected-commit "$GITHUB_SHA" \
+            --expected-default-tip "$GITHUB_SHA"
+          remote_tip="$(git ls-remote --exit-code --heads \
+            "https://github.com/${GITHUB_REPOSITORY}.git" \
+            "refs/heads/$DEFAULT_BRANCH" | awk 'NF == 2 { print $1 }')"
+          test "$remote_tip" = "$GITHUB_SHA" || {
+            echo "default branch moved after validation; rerun release" >&2
+            exit 1
+          }
+
       # GitHub has no transaction spanning a Git tag and all release assets.
       # The complete artifact set is therefore built and verified privately
       # first. This final job creates the tag plus a private draft, verifies the
       # uploaded bytes, and exposes the release only with the final PATCH. Its
       # EXIT trap removes only the draft/tag this run created on failure.
       - name: Create, verify, and publish the complete release
-        run: |
-          set -euo pipefail
-          tag="$RELEASE_TAG"
-          created_tag=0
-          release_id=""
-          published=0
-          run_marker="jeliya-release-run:${GITHUB_RUN_ID}:${GITHUB_RUN_ATTEMPT}"
-          notes_file="$RUNNER_TEMP/jeliya-release-notes.md"
-          printf '%s\n\n<!-- %s -->\n' "$RELEASE_BODY" "$run_marker" > "$notes_file"
-
-          cleanup_failed_publication() {
-            status=$?
-            trap - EXIT INT TERM
-            if [ "$published" -ne 1 ]; then
-              candidate_id="$release_id"
-              release_lookup_ok=1
-              safe_to_delete_tag=1
-              if [ -z "$candidate_id" ]; then
-                if ! candidate_id="$(gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
-                  --jq ".[] | select(.tag_name == \"${tag}\") | .id" 2>/dev/null)"; then
-                  release_lookup_ok=0
-                  safe_to_delete_tag=0
-                fi
-              fi
-              if [ -n "$candidate_id" ]; then
-                draft_state="$(gh api "repos/${GITHUB_REPOSITORY}/releases/${candidate_id}" \
-                  --jq '.draft' 2>/dev/null || true)"
-                candidate_body="$(gh api "repos/${GITHUB_REPOSITORY}/releases/${candidate_id}" \
-                  --jq '.body // ""' 2>/dev/null || true)"
-                if [ "$draft_state" = "false" ]; then
-                  # The final PATCH may have succeeded immediately before this
-                  # shell was interrupted. Never remove the tag of a public
-                  # release merely because `published=1` was not assigned yet.
-                  published=1
-                  safe_to_delete_tag=0
-                elif [ "$draft_state" = "true" ]; then
-                  if [ "$created_tag" -ne 1 ] || \
-                     ! printf '%s' "$candidate_body" | grep -Fq "<!-- $run_marker -->"; then
-                    safe_to_delete_tag=0
-                    echo "warning: draft $candidate_id is not owned by this run; preserving it" >&2
-                  elif ! gh api "repos/${GITHUB_REPOSITORY}/releases/${candidate_id}" \
-                    --method DELETE >/dev/null 2>&1; then
-                    safe_to_delete_tag=0
-                    echo "warning: could not remove failed draft release $candidate_id" >&2
-                  fi
-                else
-                  safe_to_delete_tag=0
-                  echo "warning: could not confirm release state for $candidate_id" >&2
-                fi
-              fi
-              if [ "$published" -ne 1 ] && [ "$release_lookup_ok" -eq 1 ] && \
-                 [ "$safe_to_delete_tag" -eq 1 ] && [ "$created_tag" -eq 1 ]; then
-                current_sha="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${tag}" \
-                  --jq '.object.sha' 2>/dev/null || true)"
-                if [ "$current_sha" = "$GITHUB_SHA" ]; then
-                  gh api "repos/${GITHUB_REPOSITORY}/git/refs/tags/${tag}" \
-                    --method DELETE >/dev/null 2>&1 || \
-                    echo "warning: could not remove failed run-owned tag $tag" >&2
-                fi
-              fi
-            fi
-            exit "$status"
-          }
-          existing="$(gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
-            --jq ".[] | select(.tag_name == \"${tag}\") | .id")"
-          test -z "$existing" || {
-            echo "release $tag already exists (id $existing); refusing to mutate it" >&2
-            exit 1
-          }
-          if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null 2>&1; then
-            echo "tag $tag already exists; refusing to mutate it" >&2
-            exit 1
-          fi
-
-          assets=(dist/*)
-          test "${#assets[@]}" -eq 10
-          # No cleanup trap is active during the refusal checks above: this run
-          # does not own an existing draft or tag and must never delete either.
-          trap cleanup_failed_publication EXIT
-          trap 'exit 130' INT
-          trap 'exit 143' TERM
-          gh api "repos/${GITHUB_REPOSITORY}/git/refs" \
-            --method POST \
-            -f ref="refs/tags/${tag}" \
-            -f sha="$GITHUB_SHA" \
-            >/dev/null
-          created_tag=1
-          gh release create "$tag" "${assets[@]}" \
-            --verify-tag \
-            --target "$GITHUB_SHA" \
-            --title "Jeliya $tag — Evidence-Backed Technical Preview" \
-            --notes-file "$notes_file" \
-            --generate-notes \
-            --draft \
-            --prerelease \
-            --latest=false
-
-          release_id="$(gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
-            --jq ".[] | select(.tag_name == \"${tag}\" and .draft == true) | .id")"
-          test -n "$release_id" || {
-            echo "draft release $tag was not found after upload" >&2
-            exit 1
-          }
-
-          remote_count="$(gh api "repos/${GITHUB_REPOSITORY}/releases/${release_id}/assets?per_page=100" --jq 'length')"
-          test "$remote_count" -eq 10 || {
-            echo "draft has $remote_count assets; expected 10" >&2
-            exit 1
-          }
-          for file in "${assets[@]}"; do
-            name="$(basename "$file")"
-            local_size="$(stat -c '%s' "$file")"
-            remote_size="$(gh api "repos/${GITHUB_REPOSITORY}/releases/${release_id}/assets?per_page=100" \
-              --jq ".[] | select(.name == \"${name}\") | .size")"
-            test "$remote_size" = "$local_size" || {
-              echo "remote asset mismatch for $name: size '$remote_size', expected '$local_size'" >&2
-              exit 1
-            }
-            asset_id="$(gh api "repos/${GITHUB_REPOSITORY}/releases/${release_id}/assets?per_page=100" \
-              --jq ".[] | select(.name == \"${name}\") | .id")"
-            test -n "$asset_id" || {
-              echo "remote asset id missing for $name" >&2
-              exit 1
-            }
-            remote_copy="$RUNNER_TEMP/remote-${asset_id}"
-            gh api \
-              -H 'Accept: application/octet-stream' \
-              "repos/${GITHUB_REPOSITORY}/releases/assets/${asset_id}" \
-              > "$remote_copy"
-            cmp -s "$file" "$remote_copy" || {
-              echo "remote bytes differ for $name" >&2
-              exit 1
-            }
-          done
-
-          tag_sha="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${tag}" --jq '.object.sha')"
-          test "$tag_sha" = "$GITHUB_SHA" || {
-            echo "tag $tag moved during publication" >&2
-            exit 1
-          }
-
-          gh api "repos/${GITHUB_REPOSITORY}/releases/${release_id}" \
-            --method PATCH \
-            -F draft=false \
-            -F prerelease=true \
-            >/dev/null
-          published=1
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash "$RELEASE_SOURCE/scripts/finalize-release.sh" dist

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import {
   chmodSync,
   existsSync,
@@ -13,10 +13,12 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { PassThrough } from "node:stream";
 import { afterEach, test } from "node:test";
 
 import {
   assertEvidenceContainsNoSecrets,
+  attachLogCollectors,
   certificationEligible,
   classifyNetworks,
   commitPublishedAtOrigin,
@@ -38,11 +40,14 @@ import {
   remoteRunDir,
   joinRoomWithRetries,
   seedForeignIsolationFixture,
+  summarizeLogCollector,
   topologyClaim,
   parseRemoteBinaryVerification,
   validBuildDirectory,
   validRunId,
   validSshTarget,
+  waitForLogCollectors,
+  waitForReady,
 } from "./realnet-evidence.mjs";
 
 const temporary = [];
@@ -504,6 +509,67 @@ test("bounded log excerpts redact known and credential-shaped values", () => {
   assert.equal(excerpt.includes("short-sensitive-value"), false);
   assert.equal(excerpt.includes(longHex), false);
   assert.ok(excerpt.length <= 1_024);
+});
+
+test("log digests wait for stream completion and include late bytes", async () => {
+  const proc = { stdout: new PassThrough(), stderr: new PassThrough() };
+  const logs = attachLogCollectors(proc);
+  proc.stdout.write(Buffer.from("early "));
+  assert.throws(
+    () => summarizeLogCollector(logs.stdout),
+    /before its stream closes/,
+  );
+  setTimeout(() => {
+    proc.stdout.end(Buffer.from("late\n"));
+    proc.stderr.end(Buffer.from("error\n"));
+  }, 10);
+  assert.equal(await waitForLogCollectors(logs, 1_000), true);
+  const stdout = summarizeLogCollector(logs.stdout);
+  assert.deepEqual(stdout, {
+    lines: 1,
+    bytes: Buffer.byteLength("early late\n"),
+    sha256: createHash("sha256").update("early late\n").digest("hex"),
+  });
+  assert.equal(summarizeLogCollector(logs.stdout), stdout, "digest finalization must be idempotent");
+});
+
+test("ready parsing preserves raw non-UTF8 log bytes for hashing", async () => {
+  const readyLine = `${JSON.stringify({ event: "ready", port: 7420 })}\n`;
+  const raw = Buffer.concat([Buffer.from([0xff, 0x0a]), Buffer.from(readyLine)]);
+  const child = spawn(process.execPath, ["-e", [
+    `process.stdout.write(Buffer.from(${JSON.stringify([...raw])}));`,
+    "setTimeout(() => {}, 50);",
+  ].join("")], { stdio: ["ignore", "pipe", "pipe"] });
+  const readyPromise = waitForReady(child, "raw-log-fixture", 5_000);
+  const logs = attachLogCollectors(child);
+  const ready = await readyPromise;
+  assert.equal(ready.port, 7420);
+  assert.equal(await waitForLogCollectors(logs, 5_000), true);
+  const summary = summarizeLogCollector(logs.stdout);
+  assert.equal(summary.bytes, raw.length);
+  assert.equal(summary.sha256, createHash("sha256").update(raw).digest("hex"));
+});
+
+test("log collection times out fail-closed and freezes the digest", async () => {
+  const proc = { stdout: new PassThrough(), stderr: new PassThrough() };
+  const logs = attachLogCollectors(proc);
+  proc.stdout.write("partial");
+  assert.equal(await waitForLogCollectors(logs, 5), false);
+  assert.doesNotThrow(() => summarizeLogCollector(logs.stdout));
+  assert.equal(logs.stdout.stream.destroyed, true);
+  assert.equal(logs.stderr.stream.destroyed, true);
+});
+
+test("log collection rejects streams destroyed before readable end", async () => {
+  const proc = { stdout: new PassThrough(), stderr: new PassThrough() };
+  const logs = attachLogCollectors(proc);
+  proc.stdout.write("truncated");
+  proc.stdout.destroy();
+  proc.stderr.destroy();
+  assert.equal(await waitForLogCollectors(logs, 1_000), false);
+  assert.equal(logs.stdout.stream.readableEnded, false);
+  assert.equal(logs.stdout.stream.readableAborted, true);
+  assert.match(logs.stdout.streamError.message, /closed before its readable end/);
 });
 
 test("SIGTERM produces failed evidence and completes run-owned cleanup", { timeout: 60_000 }, async () => {

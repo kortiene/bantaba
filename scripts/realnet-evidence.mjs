@@ -43,6 +43,7 @@ import { createServer as createHttpServer } from "node:http";
 import { createConnection, createServer as createTcpServer, isIP } from "node:net";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
+import { StringDecoder } from "node:string_decoder";
 import { fileURLToPath } from "node:url";
 
 import { parseArgs, pollUntil } from "./realnet-lib.mjs";
@@ -394,44 +395,90 @@ export function redactLogExcerpt(value, secrets = new Set()) {
   return redacted.slice(0, 1_024);
 }
 
-function attachLogCollectors(proc) {
-  const make = () => ({
-    bytes: 0,
-    newlineCount: 0,
-    endsWithNewline: false,
-    hash: createHash("sha256"),
-    excerptRaw: "",
-    excerptInputBytes: 0,
-  });
-  const collectors = { stdout: make(), stderr: make() };
+export function attachLogCollectors(proc) {
+  const make = (stream) => {
+    let resolveDone;
+    const collector = {
+      bytes: 0,
+      newlineCount: 0,
+      endsWithNewline: false,
+      hash: createHash("sha256"),
+      stream,
+      settled: false,
+      streamError: null,
+      summary: null,
+      done: new Promise((resolvePromise) => { resolveDone = resolvePromise; }),
+      settle() {
+        if (collector.settled) return;
+        collector.settled = true;
+        resolveDone();
+      },
+    };
+    return collector;
+  };
+  const collectors = { stdout: make(proc.stdout), stderr: make(proc.stderr) };
   for (const [streamName, stream] of [["stdout", proc.stdout], ["stderr", proc.stderr]]) {
-    stream.on("data", (chunk) => {
-      const text = String(chunk);
-      const bytes = Buffer.byteLength(text);
-      const collector = collectors[streamName];
-      collector.bytes += bytes;
-      collector.newlineCount += (text.match(/\n/g) ?? []).length;
-      collector.endsWithNewline = text.endsWith("\n");
-      collector.hash.update(text);
-      if (collector.excerptRaw.length < 4_096) {
-        const remaining = 4_096 - collector.excerptRaw.length;
-        const accepted = text.slice(0, remaining);
-        collector.excerptRaw += accepted;
-        collector.excerptInputBytes += Buffer.byteLength(accepted);
+    if (!stream) throw new Error(`missing ${streamName} pipe for evidence log collection`);
+    const collector = collectors[streamName];
+    collector.onData = (chunk) => {
+      const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk));
+      collector.bytes += bytes.length;
+      for (const byte of bytes) if (byte === 0x0a) collector.newlineCount += 1;
+      if (bytes.length > 0) collector.endsWithNewline = bytes.at(-1) === 0x0a;
+      collector.hash.update(bytes);
+    };
+    stream.on("data", collector.onData);
+    stream.once("error", (error) => { collector.streamError = error; });
+    stream.once("end", () => collector.settle());
+    stream.once("close", () => {
+      if (!stream.readableEnded) {
+        collector.streamError ??= new Error(`${streamName} closed before its readable end`);
       }
+      collector.settle();
     });
+    if (stream.readableEnded || stream.destroyed) {
+      queueMicrotask(() => {
+        if (!stream.readableEnded) {
+          collector.streamError ??= new Error(`${streamName} was already destroyed before collection`);
+        }
+        collector.settle();
+      });
+    }
   }
   return collectors;
 }
 
-function summarizeLogCollector(collector, secrets) {
-  return {
+export async function waitForLogCollectors(collectors, timeoutMs = 5_000) {
+  const entries = [collectors.stdout, collectors.stderr];
+  let timer;
+  const completed = await Promise.race([
+    Promise.all(entries.map((collector) => collector.done)).then(() => true),
+    new Promise((resolvePromise) => {
+      timer = setTimeout(() => resolvePromise(false), timeoutMs);
+    }),
+  ]);
+  clearTimeout(timer);
+  if (!completed) {
+    for (const collector of entries) {
+      if (collector.settled) continue;
+      collector.stream.off("data", collector.onData);
+      collector.stream.destroy();
+      collector.settle();
+    }
+  }
+  return completed && entries.every((collector) => collector.streamError === null);
+}
+
+export function summarizeLogCollector(collector) {
+  if (!collector.settled) {
+    throw new Error("refusing to finalize a log digest before its stream closes");
+  }
+  collector.summary ??= {
     lines: collector.newlineCount + (collector.bytes > 0 && !collector.endsWithNewline ? 1 : 0),
     bytes: collector.bytes,
     sha256: collector.hash.digest("hex"),
-    redacted_excerpt: redactLogExcerpt(collector.excerptRaw, secrets),
-    excerpt_truncated: collector.bytes > collector.excerptInputBytes,
   };
+  return collector.summary;
 }
 
 function git(args) {
@@ -913,10 +960,12 @@ async function sshRun(target, command, options = {}) {
   return runCaptured("ssh", sshArgs(target, command), options);
 }
 
-function waitForReady(proc, label, timeoutMs = 60_000) {
+export function waitForReady(proc, label, timeoutMs = 60_000) {
   return new Promise((resolvePromise, rejectPromise) => {
     let stdoutBuffer = "";
     let stderrTail = "";
+    const stdoutDecoder = new StringDecoder("utf8");
+    const stderrDecoder = new StringDecoder("utf8");
     let settled = false;
     const finish = (fn, value) => {
       if (settled) return;
@@ -934,10 +983,8 @@ function waitForReady(proc, label, timeoutMs = 60_000) {
         }
       } catch {}
     };
-    proc.stdout.setEncoding("utf8");
-    proc.stderr.setEncoding("utf8");
     proc.stdout.on("data", (chunk) => {
-      stdoutBuffer += chunk;
+      stdoutBuffer += stdoutDecoder.write(chunk);
       for (;;) {
         const newline = stdoutBuffer.indexOf("\n");
         if (newline < 0) break;
@@ -946,7 +993,14 @@ function waitForReady(proc, label, timeoutMs = 60_000) {
       }
     });
     proc.stderr.on("data", (chunk) => {
-      stderrTail = `${stderrTail}${chunk}`.slice(-4_096);
+      stderrTail = `${stderrTail}${stderrDecoder.write(chunk)}`.slice(-4_096);
+    });
+    proc.stdout.on("end", () => {
+      stdoutBuffer += stdoutDecoder.end();
+      if (stdoutBuffer) inspect(stdoutBuffer);
+    });
+    proc.stderr.on("end", () => {
+      stderrTail = `${stderrTail}${stderrDecoder.end()}`.slice(-4_096);
     });
     proc.on("exit", (code, signal) => {
       finish(rejectPromise, new Error(`${label} exited before ready (code=${code} signal=${signal})`));
@@ -1067,6 +1121,7 @@ async function startLocalPeer({ role, binary, loopback, runId, resources, secret
   const args = ["--no-open", "--port", "0", "--data-dir", dataDir];
   if (loopback) args.unshift("--loopback");
   const proc = spawn(binary, args, { stdio: ["pipe", "pipe", "pipe"] });
+  const readyPromise = waitForReady(proc, `local peer ${role}`);
   const peer = {
     role,
     kind: "local",
@@ -1080,7 +1135,7 @@ async function startLocalPeer({ role, binary, loopback, runId, resources, secret
   };
   resources.peers.push(peer);
   try {
-    const ready = await waitForReady(proc, `local peer ${role}`);
+    const ready = await readyPromise;
     peer.ready = ready;
     const baseHttp = `http://127.0.0.1:${ready.port}`;
     peer.baseHttp = baseHttp;
@@ -1270,6 +1325,7 @@ async function startRemotePeer({
   const proc = spawn("ssh", [...SSH_BASE, "-T", target, command], {
     stdio: ["pipe", "pipe", "pipe"],
   });
+  const readyPromise = waitForReady(proc, `remote peer ${role}`);
   const peer = {
     role,
     kind: "remote",
@@ -1290,7 +1346,7 @@ async function startRemotePeer({
   // the WebSocket. Any failure after spawn must still be visible to cleanup.
   resources.peers.push(peer);
   remoteRun.daemonStarted = true;
-  const ready = await waitForReady(proc, `remote peer ${role}`);
+  const ready = await readyPromise;
   peer.ready = ready;
   const tunnel = await startSshTunnel(target, ready.port, resources);
   const baseHttp = `http://127.0.0.1:${tunnel.localPort}`;
@@ -1859,6 +1915,7 @@ async function closeRunOwnedServer(server) {
 
 async function stopResources(resources) {
   const failures = [];
+  const stoppedPeers = new Map();
   for (const peer of resources.peers) {
     if (peer.client) {
       try { await peer.client.call("daemon.shutdown", {}, 10_000); } catch { failures.push(`${peer.role}:shutdown`); }
@@ -1877,11 +1934,18 @@ async function stopResources(resources) {
   }
   for (const peer of resources.peers) {
     try { peer.proc.stdin.end(); } catch {}
-    if (!(await terminateChildProcess(peer.proc))) failures.push(`${peer.role}:process-remains`);
+    const stopped = await terminateChildProcess(peer.proc);
+    stoppedPeers.set(peer, stopped);
+    if (!stopped) failures.push(`${peer.role}:process-remains`);
+    if (!(await waitForLogCollectors(peer.logs))) failures.push(`${peer.role}:log-stream-incomplete`);
   }
   for (const peer of resources.peers) {
     if (peer.kind === "local") {
       if (peer.dataDir.includes(`jeliya-v050-${resources.runId}-`)) {
+        if (!stoppedPeers.get(peer)) {
+          failures.push(`${peer.role}:local-artifact-preserved`);
+          continue;
+        }
         try { rmSync(peer.dataDir, { recursive: true, force: true }); } catch { failures.push(`${peer.role}:local-artifact-cleanup`); }
         if (existsSync(peer.dataDir)) failures.push(`${peer.role}:local-artifact-remains`);
       }
@@ -2282,14 +2346,13 @@ async function main(argv = process.argv.slice(2)) {
     }
     evidence.cleanup = await lifecycle.cleanup();
     evidence.sanitized_logs = {
-      policy: "bounded excerpt with exact in-memory secrets, credential labels, and long hex/base64-like tokens redacted; no raw logs persisted",
-      excerpt_limit_characters: 1_024,
+      policy: "raw daemon logs are transient in run-owned data directories and removed after successful cleanup; retained log summaries store only per-stream line/byte counts and SHA-256 digests",
       roles: resources.peers.map((peer) => ({
         role: peer.role,
         transport: peer.kind === "remote" ? "supervised-ssh" : "local-child",
         streams: {
-          stdout: summarizeLogCollector(peer.logs.stdout, resources.secrets),
-          stderr: summarizeLogCollector(peer.logs.stderr, resources.secrets),
+          stdout: summarizeLogCollector(peer.logs.stdout),
+          stderr: summarizeLogCollector(peer.logs.stderr),
         },
       })),
     };

@@ -24,7 +24,7 @@ and has no public artifacts. A source build or passing test is not a release.
 | macOS x86_64 (`x86_64-apple-darwin`) | implemented | embedded-UI source build and direct/relay operator run pass; installer behavior passes | `v0.4.3` archive and sidecar | functional evidence only |
 | Linux arm64 musl (`aarch64-unknown-linux-musl`) | implemented | no candidate archive or platform run | `v0.4.3` archive and sidecar | required, pending |
 | Linux x86_64 musl (`x86_64-unknown-linux-musl`) | implemented | embedded-UI source build; direct and relay runs pass on Ubuntu 22.04 x86_64 under UID `65534`; installer behavior passes | `v0.4.3` archive and sidecar | functional evidence only |
-| Windows x86_64 MSVC (`x86_64-pc-windows-msvc`) | implemented | PowerShell structural checks only; Windows execution, smoke, and reparse behavior pending | `v0.4.3` archive and sidecar | required, pending |
+| Windows x86_64 MSVC (`x86_64-pc-windows-msvc`) | implemented | behavioral installer/checksum/tamper and simulated reparse gates plus native daemon smoke are configured; no hosted candidate result | `v0.4.3` archive and sidecar | required, pending execution |
 
 The two retained network manifests bind builds to Jeliya `fe870c7…`, local
 upstream `3702e8c…`, Rust `1.91.0`, Node `22.22.3`, verified Zig `0.15.2`, and
@@ -62,11 +62,14 @@ path.
 `v0.4.3` contains five daemon archives and a SHA-256 sidecar for each. Its
 installers do not automatically enforce those sidecars before extraction. The
 candidate Unix installer now passes behavioral fail-closed tests for sidecar
-verification. The PowerShell installer passes structural checks only; Windows
-and reparse-point behavior are pending.
+verification. Windows jobs now exercise the PowerShell installer, tamper
+rejection, a simulated reparse-point payload, and native daemon startup, but
+they have not run in a hosted Windows environment for this candidate.
 
 The candidate workflow pins third-party actions, verifies downloaded Zig,
-keeps build jobs read-only, validates the complete set before publication, and
-centralizes write permission in the final job. It has never been executed to
-publish `v0.5.0`, and no complete five-target candidate set has been built.
+keeps build jobs read-only, validates and seals the complete set without
+executing it, and runs smoke execution in a separate read-only job. The sole
+writer verifies the sealed receipt without executing candidate bytes and
+exposes its token only to the final publishing step. It has never been executed
+to publish `v0.5.0`, and no complete five-target candidate set has been built.
 See [Release versus main](release-vs-main.md).
