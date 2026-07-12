@@ -280,6 +280,12 @@ test("release promotion requires two clean CI runs before the sole write boundar
     2,
     "the evidence-gate checkouts need full history; matrix builds stay shallow",
   );
+  assert.doesNotMatch(releaseWorkflow, /git fetch[^\n]*--depth=1/);
+  assert.equal(
+    (releaseWorkflow.match(/git ls-remote --exit-code --heads origin/g) ?? []).length,
+    2,
+    "both release boundaries must compare the public default-branch tip without re-shallowing history",
+  );
   assert.match(
     releaseWorkflow,
     /embedded-ui:[\s\S]*?needs:\n      - verify-first\n      - verify-second/,

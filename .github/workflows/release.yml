@@ -56,8 +56,12 @@ jobs:
       - name: Validate tag, source versions, lockfiles, and changelog
         run: |
           set -euo pipefail
-          git fetch --no-tags origin "$DEFAULT_BRANCH" --depth=1
-          test "$GITHUB_SHA" = "$(git rev-parse FETCH_HEAD)" || {
+          remote_tip="$(git ls-remote --exit-code --heads origin "refs/heads/$DEFAULT_BRANCH" | awk 'NF == 2 { print $1 }')"
+          printf '%s' "$remote_tip" | grep -Eq '^[0-9a-f]{40}$' || {
+            echo "could not resolve exactly one immutable tip for $DEFAULT_BRANCH" >&2
+            exit 1
+          }
+          test "$GITHUB_SHA" = "$remote_tip" || {
             echo "release must promote the current tip of $DEFAULT_BRANCH" >&2
             exit 1
           }
@@ -289,8 +293,12 @@ jobs:
       - name: Validate source, names, archive members, and checksums
         run: |
           set -euo pipefail
-          git fetch --no-tags origin "$DEFAULT_BRANCH" --depth=1
-          test "$GITHUB_SHA" = "$(git rev-parse FETCH_HEAD)" || {
+          remote_tip="$(git ls-remote --exit-code --heads origin "refs/heads/$DEFAULT_BRANCH" | awk 'NF == 2 { print $1 }')"
+          printf '%s' "$remote_tip" | grep -Eq '^[0-9a-f]{40}$' || {
+            echo "could not resolve exactly one immutable tip for $DEFAULT_BRANCH" >&2
+            exit 1
+          }
+          test "$GITHUB_SHA" = "$remote_tip" || {
             echo "default branch moved after build; rerun release from its new tip" >&2
             exit 1
           }
