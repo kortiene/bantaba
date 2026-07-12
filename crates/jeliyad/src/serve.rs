@@ -164,7 +164,7 @@ async fn route(mut req: Request<Incoming>, state: AppState, ui: UiSource) -> Res
         if !token_ok(&req, &state) {
             return unauthorized(cors);
         }
-        return apply_cors(cors, local_file(req, state));
+        return apply_cors(cors, local_file(req, state).await);
     }
     if path.starts_with("/api/") {
         return text(StatusCode::NOT_FOUND, "not found");
@@ -395,7 +395,7 @@ fn ws_upgrade(req: &mut Request<Incoming>, state: AppState) -> Response<Full<Byt
 /// Serve a verified local file copy by `(room_id, file_id)`. The browser never
 /// supplies a filesystem path; the core maps protocol ids to a previously
 /// verified local copy.
-fn local_file(req: Request<Incoming>, state: AppState) -> Response<Full<Bytes>> {
+async fn local_file(req: Request<Incoming>, state: AppState) -> Response<Full<Bytes>> {
     let query = parse_query(req.uri().query().unwrap_or(""));
     let Some(room_id) = query.get("room_id").filter(|v| !v.trim().is_empty()) else {
         return json_error(
@@ -409,7 +409,7 @@ fn local_file(req: Request<Incoming>, state: AppState) -> Response<Full<Bytes>> 
             &CoreError::invalid("missing file_id for local file"),
         );
     };
-    let file = match state.supervisor.local_file(room_id, file_id) {
+    let file = match state.supervisor.local_file(room_id, file_id).await {
         Ok(file) => file,
         Err(err) => return json_error(StatusCode::BAD_REQUEST, &err),
     };
