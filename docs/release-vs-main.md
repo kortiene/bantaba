@@ -3,7 +3,7 @@ type: "Status Report"
 title: "Release versus main"
 description: "Exact boundary between the latest published Jeliya artifacts, the audited baseline, and the v0.5.0 candidate."
 tags: ["artifacts", "main", "release", "versions"]
-timestamp: "2026-07-12T18:47:00Z"
+timestamp: "2026-07-12T20:13:49Z"
 status: "canonical"
 implementation_status: "not-applicable"
 verification_status: "verified"
@@ -23,7 +23,8 @@ shipped.
 |---|---|---|---|---|
 | Latest public release | tag `v0.4.3` at `9d62c3cd98c7f21d9683815c28278b6ac8c0b97f` | release lockfile | five published daemon archives and five checksum sidecars | only behavior in those archives is released |
 | Audited baseline | `1285b42037a3713840955fa518f2b81b19f2929f` | pins vulnerable `iroh-rooms` `3cb9bfd…` | no artifact for this commit | baseline source behavior only |
-| Hardened candidate implementation | `4d0807a42ad79f7eb1b44edab48a62bf8813dd9c` on `hardening/v0.5.0-evidence-preview` before documentation reconciliation | public repository pin remains `3cb9bfd…` | local security, CI, release, and evidence hardening; no public artifacts | implemented and locally tested, not release-ready |
+| Initial hardening checkpoint | `4d0807a42ad79f7eb1b44edab48a62bf8813dd9c` | public repository pin remains `3cb9bfd…` | historical checkpoint before provenance, cache, and protocol-contract follow-ups | historical only; not the current candidate boundary |
+| Hardened candidate implementation | `b6c0fc8362ec255882e1bf3a4999f35f004db57c` on `hardening/v0.5.0-evidence-preview` before final documentation reconciliation | public repository pin remains `3cb9bfd…`; exact `atomicwrites 0.4.4` supplies durable state replacement semantics | local security, correctness, CI, release, evidence, and cross-runtime contract hardening; no public artifacts | implemented and locally tested, not release-ready |
 | Network verification branch | Jeliya `fe870c7c5b63f2bf52b031dd1bc8e27e83183be5` | local Git dependency `3702e8c…` | direct and relay functional pass; manifests retained, unsigned, `certifiable: false` | functional evidence only; cannot certify a release |
 | Upstream synchronization remediation | local `iroh-room` `3702e8cbcd5ac1808791124dd6bc44068be5f822` | clean and tested, but unpublished | no immutable public dependency revision | cannot support a Jeliya release claim |
 
@@ -32,6 +33,8 @@ network branch exists to test the local upstream remediation; it is not a
 publicly reproducible candidate. The retained manifests are
 [direct](evidence/v0.5.0/direct.json) and
 [relay](evidence/v0.5.0/relay.json).
+They also predate the runtime fixes between `fe870c7…` and `b6c0fc8…`; a fresh
+network run is required even after the upstream revision becomes public.
 
 ## Published `v0.4.3` artifact set
 
@@ -78,7 +81,7 @@ workflow is implemented locally but has never been used to publish `v0.5.0`.
 ## Evidence provenance
 
 This snapshot records repository and release inventory established on
-2026-07-12, the hardened implementation at `4d0807a…`, and the retained direct
+2026-07-12, the hardened implementation at `b6c0fc8…`, and the retained direct
 and relay manifests produced between 15:55 and 16:39 UTC. Neither tickets,
 tokens, identity material, nor public IP addresses are retained. See
 [Platform matrix](platform-matrix.md) and

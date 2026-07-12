@@ -3,7 +3,7 @@ type: "Status Report"
 title: "Capability status"
 description: "Evidence-aware capability matrix for the v0.5.0 technical-preview candidate and the latest public release."
 tags: ["capabilities", "release", "status", "verification"]
-timestamp: "2026-07-12T18:47:00Z"
+timestamp: "2026-07-12T20:13:49Z"
 status: "canonical"
 implementation_status: "partial"
 verification_status: "partial"
@@ -23,15 +23,19 @@ unpublished revision releasable.
 |---|---|
 | Candidate milestone | `v0.5.0 — Evidence-Backed Technical Preview` |
 | Audited baseline | `1285b42037a3713840955fa518f2b81b19f2929f` |
-| Hardened implementation snapshot | `4d0807a42ad79f7eb1b44edab48a62bf8813dd9c` on `hardening/v0.5.0-evidence-preview` |
+| Hardened implementation snapshot | `b6c0fc8362ec255882e1bf3a4999f35f004db57c` on `hardening/v0.5.0-evidence-preview` before final documentation reconciliation |
 | Public Jeliya `iroh-rooms` pin | `3cb9bfd1e43eb755c967315c37b6d4fd1c2bf020` (room-isolation defect remains) |
 | Local upstream remediation | `3702e8cbcd5ac1808791124dd6bc44068be5f822` (clean and tested, but unpublished) |
 | Network verification snapshot | Jeliya `fe870c7c5b63f2bf52b031dd1bc8e27e83183be5` with local upstream `3702e8c…` (clean, but unpublished) |
 | Latest public release | `v0.4.3` at `9d62c3cd98c7f21d9683815c28278b6ac8c0b97f` |
-| Status captured | 2026-07-12 18:47 UTC |
+| Status captured | 2026-07-12 20:13 UTC |
 
 See [Release versus main](release-vs-main.md) for the revision boundaries and
 [Verification evidence](verification-evidence.md) for the complete ledger.
+The retained network runs predate runtime changes after `fe870c7…`, including
+the provenance, snapshot-cache, and protocol-contract fixes. Those runs remain
+useful historical functional evidence, but none of their assertions transfer
+to the hardened implementation snapshot without a fresh qualifying run.
 
 ## Capability matrix
 

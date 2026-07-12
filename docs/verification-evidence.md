@@ -3,7 +3,7 @@ type: "Status Report"
 title: "Verification evidence"
 description: "Revision-bound verification ledger and evidence-recording contract for the v0.5.0 technical preview."
 tags: ["evidence", "networking", "release", "testing", "verification"]
-timestamp: "2026-07-12T18:47:00Z"
+timestamp: "2026-07-12T20:13:49Z"
 status: "canonical"
 implementation_status: "implemented"
 verification_status: "partial"
@@ -26,7 +26,7 @@ evidence, but they do **not** authorize publication.
 |---|---|
 | Milestone | `v0.5.0 — Evidence-Backed Technical Preview` |
 | Baseline commit | `1285b42037a3713840955fa518f2b81b19f2929f` |
-| Hardening implementation commit before documentation reconciliation | `4d0807a42ad79f7eb1b44edab48a62bf8813dd9c` |
+| Hardening implementation commit before final documentation reconciliation | `b6c0fc8362ec255882e1bf3a4999f35f004db57c` |
 | Current public `iroh-rooms` pin | `3cb9bfd1e43eb755c967315c37b6d4fd1c2bf020` — synchronization isolation is not remediated |
 | Network-test Jeliya commit | `fe870c7c5b63f2bf52b031dd1bc8e27e83183be5` — clean, local, and unpublished |
 | Candidate upstream remediation revision | `3702e8cbcd5ac1808791124dd6bc44068be5f822` — clean and tested locally, but unpublished |
@@ -45,6 +45,8 @@ the retained manifests correctly set `certifiable: false` and
 | Gate | Current evidence | Status |
 |---|---|---|
 | Public read-RPC authorization | centralized guard and local negative suite cover foreign timelines, members, agents, files, pipes, local-file HTTP, and aggregate projections; both remote runs denied all 17 room-scoped RPCs and filtered local-file and aggregate reads | functional PASS on recorded local revisions; release qualification blocked by source provenance |
+| Accepted-room provenance | create/join failure injection proves provenance is accepted before irreversible event publication; 24 concurrent mutations retain every room; direct reads reuse the authorized snapshot cache; Unix mode is pinned to `0600`; exact `atomicwrites 0.4.4` uses synchronized Unix directory replacement and Windows write-through replacement | local PASS; Windows semantics source-reviewed but not behaviorally executed on `windows-latest` |
+| Pre-identity protocol contract | `room.list` returns `identity_missing` consistently across the core engine and the TypeScript mock, Dart daemon, Dart FFI, and Dart mock golden-corpus oracles | local PASS |
 | Upstream synchronization isolation | malicious `WantEvents`, foreign-parent, and administrative-tip tests passed against local upstream `3702e8cbcd5ac1808791124dd6bc44068be5f822` | local PASS; BLOCKED until upstream publication and Jeliya repin |
 | Android backup exclusion | `allowBackup=false`, explicit cloud/device-transfer exclusion rules, and engine state under `noBackupFilesDir`; repository gate and six secret-storage tests pass | local PASS; this is app-private no-backup storage, not Android Keystore wrapping |
 | Agent secret location | platform data directory outside the checkout, deny-all state-directory Git guard, repository ignore rules, and commit-prevention validation | local PASS |
@@ -59,7 +61,7 @@ the retained manifests correctly set `certifiable: false` and
 | Installer integrity | Unix behavioral tests verify checksum-before-extraction; Windows jobs execute checksum/tamper behavior, simulate reparse rejection, and smoke the native daemon | Unix PASS; Windows gates configured but no hosted `windows-latest` result exists |
 | Atomic publication | an execution-free read-only job validates and seals the complete set, a separate read-only job performs smoke execution, and the sole writer verifies the receipt without candidate execution before its final token-bearing step | contract and negative receipt tests PASS; no five-archive set built and no publication executed |
 | Version consistency | local source checks bind daemon/UI/lockfile/changelog naming to `0.5.0` | local PASS; public tag and artifacts do not exist |
-| Documentation | required OKF pages and retained sanitized evidence are present | local docs gate PASS during reconciliation; rerun on the final commit |
+| Documentation | required OKF pages and retained sanitized evidence are present and bind the hardened checkpoint separately from the older network checkout | local docs gate PASS during reconciliation; rerun on the final commit |
 
 ## Dependency-risk exception register
 

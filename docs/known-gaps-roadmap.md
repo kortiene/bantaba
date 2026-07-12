@@ -3,7 +3,7 @@ type: "Status Report"
 title: "Known gaps and roadmap"
 description: "Release blockers, deferred risks, owners, and next actions for the v0.5.0 evidence-backed technical preview."
 tags: ["gaps", "release", "risks", "roadmap"]
-timestamp: "2026-07-12T18:47:00Z"
+timestamp: "2026-07-12T20:13:49Z"
 status: "canonical"
 implementation_status: "partial"
 verification_status: "partial"
@@ -21,6 +21,7 @@ alpha and remains **blocked for release** despite substantial local progress.
 | Area | Evidence now available | Remaining release condition | Owner | Status |
 |---|---|---|---|---|
 | Public room-scoped authorization | centralized guard; 17 negative RPCs, local-file denial, and aggregate filtering pass; foreign agent projection exercised | preserve gates on the final public candidate | core maintainer | locally closed |
+| Accepted-room provenance | failure-injected create/join ordering, serialized concurrent updates, cached reads, owner-only Unix state, and durable Unix/Windows replacement semantics pass locally | execute the configured Windows job and preserve these tests on the final public candidate | core maintainer | locally closed; hosted Windows proof pending |
 | Upstream synchronization isolation | local `3702e8c…` remediation is clean and its malicious-sync tests pass | review and publish upstream fix, pin it immutably in Jeliya, then rerun qualification | upstream and core maintainer | **blocked** |
 | Android and agent secrets | Android cloud/device-transfer exclusions, app-private no-backup identity storage, external agent data default, ignore and tracked-secret gates pass | keep controls in final candidate; Keystore wrapping is defense-in-depth, not a current claim | mobile and agent maintainers | locally closed |
 | Dependency security | Cargo and npm report zero vulnerabilities; four unmaintained/yanked warnings have owner, mitigation, and expiry records | rerun against final lockfiles; no high/critical exception may be implicit | dependency owner | locally closed |

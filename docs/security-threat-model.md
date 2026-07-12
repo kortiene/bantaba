@@ -3,7 +3,7 @@ type: "Architecture"
 title: "Security and threat model"
 description: "Trust boundaries, assets, threats, controls, and residual risks for the v0.5.0 Jeliya technical preview."
 tags: ["authorization", "privacy", "security", "threat-model"]
-timestamp: "2026-07-12T18:47:00Z"
+timestamp: "2026-07-12T20:13:49Z"
 status: "canonical"
 implementation_status: "partial"
 verification_status: "partial"
@@ -28,12 +28,15 @@ Security conclusions must name the source being evaluated:
 | Surface | Revision | Security meaning |
 |---|---|---|
 | Public Jeliya dependency | Iroh Rooms `3cb9bfd1e43eb755c967315c37b6d4fd1c2bf020` | still permits the synchronization behavior under remediation; unsafe for `v0.5.0` publication |
-| Hardening implementation | Jeliya `4d0807a42ad79f7eb1b44edab48a62bf8813dd9c` before documentation reconciliation | implements local RPC, secret, CI, evidence, and release controls |
+| Hardening implementation | Jeliya `b6c0fc8362ec255882e1bf3a4999f35f004db57c` before final documentation reconciliation | implements local RPC, durable provenance, secret, CI, evidence, and release controls |
 | Functional network verification | Jeliya `fe870c7c5b63f2bf52b031dd1bc8e27e83183be5` plus local Iroh Rooms `3702e8cbcd5ac1808791124dd6bc44068be5f822` | direct and forced-relay functional checks pass, but both revisions are local/unpublished and cannot certify a release |
 
 No result from the local verification checkout should be projected onto the
 current public dependency pin. Publication, immutable repinning, and a fresh
 signed evidence run are security requirements, not release administration.
+The retained network checkout also predates the provenance, read-cache, and
+cross-runtime contract changes in the hardened implementation, so it cannot
+qualify those changes independently of the unpublished dependency blocker.
 
 ## Assets
 

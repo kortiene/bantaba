@@ -3,7 +3,7 @@ type: "Status Report"
 title: "Platform matrix"
 description: "Implementation, verification, packaging, and release status for every Jeliya runtime and target platform."
 tags: ["packaging", "platforms", "release", "verification"]
-timestamp: "2026-07-12T18:47:00Z"
+timestamp: "2026-07-12T20:13:49Z"
 status: "canonical"
 implementation_status: "partial"
 verification_status: "partial"
