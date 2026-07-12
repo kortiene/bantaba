@@ -1,9 +1,9 @@
 ---
 type: "Runbook"
 title: "Real-network NAT runbook"
-description: "Operator procedure for collecting revision-bound direct and relay evidence across three distinct networks."
+description: "Operator procedure for collecting revision-bound direct and forced-relay evidence across three distinct public egress paths."
 tags: ["nat", "networking", "operations", "p2p"]
-timestamp: "2026-07-11T02:40:00Z"
+timestamp: "2026-07-12T16:40:00Z"
 status: "canonical"
 implementation_status: "implemented"
 verification_status: "partial"
@@ -13,307 +13,279 @@ audience: ["contributors", "maintainers", "operators"]
 
 # Real-network NAT runbook
 
-> Internal operator notes — the manual procedure behind the Gate A result
-> (`docs/gate-a-result.md`). Not needed to use or contribute to Jeliya.
+This is the canonical `v0.5.0` network-evidence procedure. It drives one local
+operator process and two supervised remote daemons through
+`scripts/realnet-evidence.mjs`. The older `gate-a.mjs` flow is retained only as
+a diagnostic and historical reference; it cannot qualify a `v0.5.0` release.
 
-The v0.5.0 evidence run uses an operator host plus two isolated Linux x86_64
-SSH hosts. All three roles must have distinct observed public egress
-addresses and resolve across at least two BGP origin ASNs. This proves distinct
-public routing domains without persisting the observed IPs; it does not claim
-independent VPC ownership. Everything runs `jeliyad` in **real network mode**
-(no `--loopback`): the Iroh N0 stack with public relays and DNS discovery.
+## Current evidence status
 
-## v0.5.0 evidence harness
+The 2026-07-12 direct and forced-relay executions both passed 36/36 functional
+assertions with three peers and complete cleanup:
 
-`scripts/realnet-evidence.mjs` is the only certifying path for the v0.5.0
-network gate. It builds both the local release binary and the static Linux
-musl binary itself, from the current clean commit and locked dependency graph.
-It records source and dependency revisions, binary hashes, build-tool versions,
-host OS/architecture, path observations, functional assertions, timestamps,
-and cleanup results in a sanitized JSON file under
-`.jeliya-gatea/v0.5.0/`.
+| Path | Run | UTC window | Evidence status |
+|---|---|---|---|
+| direct | `20260712T155534Z-d3d9ff69` | 15:55:34–16:15:24 | functionally passed; retained but unsigned and non-certifying |
+| forced relay | `20260712T161837Z-f1d9c149` | 16:18:37–16:38:54 | functionally passed; retained but unsigned and non-certifying |
 
-Prerequisites for a certifying run:
+Both runs used unpublished Jeliya
+`fe870c7c5b63f2bf52b031dd1bc8e27e83183be5` and a local `file://` checkout of
+unpublished Iroh Rooms
+`3702e8cbcd5ac1808791124dd6bc44068be5f822`. They therefore cannot certify the
+public candidate. The durable sanitized records are
+[`direct.json`](evidence/v0.5.0/direct.json) and
+[`relay.json`](evidence/v0.5.0/relay.json); their exact limits are documented in
+[`verification-evidence.md`](verification-evidence.md#retained-three-peer-network-evidence).
 
-- the Jeliya checkout is clean and committed, with that exact commit reachable
-  from a public repository ref;
-- Iroh Rooms is pinned to an immutable 40-hex revision reachable from its
-  public Git origin;
-- Node `22.22.3` and npm are available; the harness runs `npm ci` and
-  `npm run build` from the committed `ui/package-lock.json`, then embeds that
-  freshly built UI;
-- the exact Rust/Cargo `1.91.0` toolchain is installed through rustup, Zig is
-  exactly `0.15.2`, and
-  `cargo-zigbuild` is exactly `0.23.0`;
-- `--zig-sha256` is supplied from the independently verified Zig installation,
-  not calculated and trusted from the executable during the same run;
-- both SSH targets are Linux x86_64, distinct from each other, all three roles
-  use different public egress addresses, and the sanitized ASN lookup proves at
-  least two public routing domains.
+## Safety envelope
 
-Direct-path candidate:
+Apply these rules before running the harness:
+
+- begin with read-only SSH inventory and connectivity checks;
+- use only the generated `/tmp/jeliya-v050-<run-id>-<role>` directories and
+  dynamically allocated, loopback-only control ports;
+- do not change firewalls, routes, package repositories, SSH settings, user
+  accounts, persistent services, or other system configuration;
+- do not install build tools or Node on remote hosts; build on the trusted
+  operator host and transfer only the verified static daemon;
+- run remote daemons with the least privilege available; a root SSH session
+  must drop the daemon to a non-root UID/GID through `setpriv`;
+- never paste or persist tickets, bearer tokens, portfile tokens, identity
+  seeds, private keys, public IP addresses, or raw environment dumps;
+- let the harness stop only its recorded processes and remove only directories
+  bearing its nonce-bound ownership marker; do not perform broad manual cleanup;
+  and
+- treat incomplete cleanup, an unverifiable process identity, a reused path,
+  or an occupied required resource as a failed run.
+
+The harness supervises SSH sessions and loopback tunnels from the operator
+machine. It validates the remote PID, executable, binary digest, version, and
+execution UID before accepting evidence. Signals enter an idempotent cleanup
+path. Raw daemon logs are held only in memory and are never persisted.
+
+## Approved topology for the recorded runs
+
+| Role | Host | Platform | Execution boundary |
+|---|---|---|---|
+| A | operator host | macOS x86_64 | local source-built daemon |
+| B | `root@demo1` | Ubuntu 22.04.5 x86_64 | SSH as root; daemon UID/GID `65534` via `setpriv` |
+| C | `root@demo2` | Ubuntu 22.04.5 x86_64 | SSH as root; daemon UID/GID `65534` via `setpriv` |
+
+The three observed public egress values were pairwise different and were
+discarded after equality comparison. The sanitized BGP lookup recorded
+`AS11426` for A and `AS24940` for B/C, satisfying the requirement for at least
+two origin ASNs. This proves the run crossed the required public routing
+boundary; it does not establish ownership or administrative independence of
+the underlying infrastructure.
+
+`user@kilo` shared the operator's observed egress during inventory and was
+rejected for this three-role topology. Do not override that result with
+`--allow-shared-egress` for a certifying run.
+
+## Pinned toolchain and source prerequisites
+
+A release-qualifying run requires all of the following before any remote
+mutation:
+
+- clean Jeliya commit reachable from its public repository origin;
+- exact public HTTPS Iroh Rooms Git source and immutable 40-hex revision in
+  both `Cargo.toml` and `Cargo.lock`;
+- Node `22.22.3` and npm `10.9.8`;
+- Rust and Cargo `1.91.0` through rustup;
+- installed `x86_64-unknown-linux-musl` target for toolchain `1.91.0`;
+- Zig `0.15.2`, whose executable SHA-256 was verified independently before the
+  run and is supplied through `--zig-sha256`;
+- `cargo-zigbuild 0.23.0`;
+- clean, locked UI dependency install from the committed package lock; and
+- approved Ed25519 evidence-key custody, with only the canonical public SPKI
+  committed before the network-qualified source commit.
+
+The harness fixes Cargo build parallelism at two jobs, creates a Git archive of
+the recorded source, runs `npm ci` and `npm run build`, and builds the embedded
+web UI into both the native macOS x86_64 daemon and the Linux x86_64 musl
+daemon. It fails rather than silently using a missing target or tool.
+
+Run the local preflight from the candidate checkout:
+
+```sh
+git status --short
+git rev-parse HEAD
+node --version
+npm --version
+rustc +1.91.0 --version
+cargo +1.91.0 --version
+rustup target list --installed --toolchain 1.91.0
+zig version
+cargo zigbuild --version
+node --test scripts/realnet-evidence.test.mjs
+```
+
+Expected critical values are `v22.22.3`, `10.9.8`, `1.91.0`,
+`x86_64-unknown-linux-musl`, `0.15.2`, and `cargo-zigbuild 0.23.0`. An empty
+`git status --short` is mandatory. Verify publication of both exact Git
+revisions at their origins; a clean local commit is insufficient.
+
+Perform read-only remote inventory next:
+
+```sh
+ssh -o BatchMode=yes root@demo1 \
+  'uname -s; uname -m; id -u; command -v setpriv; command -v sha256sum'
+ssh -o BatchMode=yes root@demo2 \
+  'uname -s; uname -m; id -u; command -v setpriv; command -v sha256sum'
+```
+
+The harness repeats and extends this inventory before creating its isolated
+directories. Stop if either host is no longer Linux x86_64, required read-only
+tools are absent, root cannot be dropped to an unprivileged UID, or the host
+identity is unexpected.
+
+## Execute the direct-path run
+
+`ZIG_EXECUTABLE_SHA256` below is the independently established digest of the
+exact Zig executable selected on the operator host. It is not secret, but it
+must not be derived and trusted for the first time inside this invocation.
 
 ```sh
 node scripts/realnet-evidence.mjs \
-  --remote user@kilo \
-  --third-remote user@stargate-03 \
+  --remote root@demo1 \
+  --third-remote root@demo2 \
   --build-from-source \
-  --zig-sha256 <verified-zig-0.15.2-executable-sha256> \
+  --zig-sha256 "$ZIG_EXECUTABLE_SHA256" \
   --expect-path direct
 ```
 
-Forced relay candidate, after the reviewed relay-only Iroh Rooms feature has
-been published and revision-pinned:
+Accept the path gate only when roles A, B, and C each report `direct` for three
+consecutive observations. This demonstrates direct cross-network connectivity
+for the tested topology. A same-egress run, a single peer, `path=any`, or a
+prebuilt-binary diagnostic must not qualify it.
+
+## Execute the forced-relay run
+
+Run this only after the reviewed relay-only test seam is present in the exact
+published and pinned Iroh Rooms revision:
 
 ```sh
 node scripts/realnet-evidence.mjs \
-  --remote user@kilo \
-  --third-remote user@stargate-03 \
+  --remote root@demo1 \
+  --third-remote root@demo2 \
   --build-from-source \
-  --zig-sha256 <verified-zig-0.15.2-executable-sha256> \
+  --zig-sha256 "$ZIG_EXECUTABLE_SHA256" \
   --relay-only-build \
   --expect-path relay
 ```
 
-The relay verifier is a separate compile-time build. It must print the exact
-hidden build attestation before the harness will use it. There is no runtime
-flag that can convert an ordinary release binary into a relay-only binary.
+The relay verifier is a separate compile-time diagnostic build. Before any
+network assertion, the harness requires the hidden relay-only attestation from
+the local binary and from the hash-verified binary on both remote hosts. An
+ordinary release binary cannot be switched to relay-only mode at runtime.
 
-Prebuilt `--local-bin` / `--linux-bin` inputs are retained for diagnostics,
-with an independent `--linux-sha256`, but evidence from that mode is always
-`certifiable: false`: the harness cannot prove those bytes came from the
-recorded commit. A local dependency path or `file://` Git source is recorded
-honestly and is likewise never releaseable or certifiable. A clean but
-unpublished Jeliya commit, an unpublished dependency revision, or unproven ASN
-topology also forces `certifiable: false`.
+Accept the path gate only when A, B, and C each remain `relay` for three
+consecutive observations. This demonstrates working relay fallback under a
+deliberate application-level constraint without changing a firewall or route.
+It does **not** demonstrate that an ordinary direct-capable build naturally
+failed NAT hole punching.
 
-Remote daemons use unique `/tmp/jeliya-v050-<run>-<role>` directories and
-loopback-only control tunnels. Creation writes a nonce-bound owner marker; a
-colliding pre-existing path is never changed or deleted. Cleanup verifies the
-marker, the recorded remote PID and
-its exact `/proc/<pid>/exe` before signalling it, waits for process and tunnel
-termination, and only then deletes that run-owned directory. Any unconfirmed
-process or remaining artifact makes the evidence fail. `SIGINT` and `SIGTERM`
-enter the same idempotent cleanup path and write failed interruption evidence.
+## Required functional assertions
 
-Daemon logs are never persisted raw. For each role and stdout/stderr stream,
-the JSON stores only line and byte counts, a SHA-256 digest of the captured
-stream, and a 1,024-character maximum excerpt after exact in-memory secrets,
-credential-shaped fields, and long hex/base64-like values are redacted.
+Each path run must pass the same ordered 36 assertions:
 
-The verdict that matters is each side's `peers.status` **path** field:
+- three identities, targeted joins, opened rooms, and host-observed membership;
+- stable expected path for all three roles;
+- bidirectional messages and three-peer convergence;
+- candidate file sharing, availability, fetch, engine BLAKE3 verification, and
+  byte-identical SHA-256 result;
+- authorized one-peer pipe flow and an unauthorized third-peer attempt with
+  zero target connections and zero target requests;
+- session close, message authored while closed, reopen, offline-message
+  resynchronization, and reconnect over the expected path; and
+- isolated foreign-room fixture plus denial from all 17 room-scoped RPCs, the
+  local-file HTTP surface, and aggregate room/agent projections.
 
-- `path=direct` — NAT hole punching succeeded (or the machines could dial each
-  other directly). Traffic flows peer-to-peer over UDP.
-- `path=relay` — hole punching **did not** complete; the connection works, but
-  every byte is relayed through an n0 relay server. That is the designed
-  fallback, not a failure of the product — but it *is* a failure of NAT
-  traversal between those two specific networks, and worth recording.
-- Both scripts print the path on their own side. The two sides can legitimately
-  disagree for a short while (paths upgrade from relay to direct as hole
-  punching completes); the settled value is the one to record.
+Room joins retry only the transient `peer_unreachable` bootstrap result, at
+most five attempts. Authorization, ticket, and other errors fail immediately.
+The successful 2026-07-12 direct and relay runs each used two attempts for the
+isolated foreign-room fixture after the first 15-second bootstrap window.
 
-Honesty note: a run where **everything passes but both paths say `relay`**
-means "relay fallback works, hole punch failed" — the room, messages, files
-and invites all still work, at relay latency. A `direct` path on either side
-is the strong result. Same-network runs (both machines on one LAN) will
-trivially report `direct` and prove nothing about NAT traversal.
+Public-RPC non-disclosure is not upstream synchronization proof. Before release,
+also run the malicious Iroh Rooms `WantEvents`, foreign-parent, and
+administrative-tip tests on the exact revision resolved by Jeliya's public
+lockfile.
 
-## Legacy two-host diagnostic (`gate-a.mjs`)
+## Interpret and retain the result
 
-`scripts/gate-a.mjs` runs the older two-host diagnostic from machine A: it fingerprints both
-sides' public IPs, **refuses to certify a pass when they share one** (a
-same-NAT run cannot test hole punching), starts the host here, drives machine
-B, and prints a single Gate A verdict. It ships a static Linux `jeliyad` +
-the two scripts B needs, so a Linux B only needs **Node 22** — no Rust build.
-Its result is historical/diagnostic and does not satisfy the v0.5.0 evidence
-gate because it does not bind supplied binaries to the recorded source commit.
+The harness writes its initial sanitized record to
+`.jeliya-gatea/v0.5.0/<run-id>.json`. This local directory is gitignored. A
+successful functional result still fails release qualification when any source
+or dependency revision is local/unpublished, topology is insufficient, the
+working tree is dirty, or the build is not source-bound.
 
-**Recommended: a cloud VM as machine B.** A VM has a public IP that A can SSH
-to from any network, and it is genuinely on a different network — so you do
-not even have to move this Mac:
+For a release candidate:
 
-```sh
-cargo build --workspace                      # A: debug binary for the host side
-# (ship path is a static musl build; make it once:)
-rustup target add x86_64-unknown-linux-musl
-cargo zigbuild --release --target x86_64-unknown-linux-musl -p jeliyad
+1. confirm `result: "pass"`, `certifiable: true`, 36 ordered passing
+   assertions, complete path observations, exact public source/dependency
+   provenance, binary hashes/version/attestation, and successful cleanup;
+2. review the structured record for secrets and remove all log excerpts while
+   retaining per-role line count, byte count, and stream SHA-256 records;
+3. copy the final exact JSON bytes to
+   `docs/evidence/v0.5.0/direct.json` or
+   `docs/evidence/v0.5.0/relay.json`;
+4. sign those final bytes with the approved out-of-band Ed25519 private key and
+   retain the canonical base64 detached signature as the adjacent `.sig` file;
+5. never place the private key, its backup, or a private-key PEM in the
+   repository or CI artifacts; and
+6. run the documentation, secret, source, evidence-signature, ancestry, and
+   release-integrity gates before treating either run as qualified.
 
-node scripts/gate-a.mjs --remote user@<vm-public-ip>
-```
+Do not modify or reformat a manifest after signing it. The source gate requires
+both manifests to name the same network-qualified Jeliya commit and public
+upstream revision. That commit must be an ancestor of the release checkout,
+and only documentation paths may change after network qualification.
 
-**Phone-hotspot variant.** Tether this Mac to a hotspot (now A is on a
-different network from your home box B), and point `--remote` at a box you can
-still reach — e.g. over its public IPv6, or use a VM. If A cannot SSH to B
-from the hotspot, use manual mode:
+The currently retained manifests intentionally have no `.sig` files, and
+`release/evidence-ed25519-public.pem` is absent. They remain non-certifying
+until a maintainer establishes key authority and a future public-source run is
+performed; signing the existing local-source records would not make them
+releaseable.
 
-```sh
-node scripts/gate-a.mjs --manual --peer-identity <B id>
-# prints the exact `realnet-check.mjs` command — run it on B yourself
-```
+## Evidence and log hygiene
 
-**Dry-run the machinery** (same machine, no Gate A claim — verifies the
-plumbing and that the validity gate correctly withholds certification):
+For each role and stdout/stderr stream, retain only:
 
-```sh
-node scripts/gate-a.mjs --local-dryrun
-```
+- line count;
+- byte count; and
+- SHA-256 of the captured raw stream.
 
-Verdicts: `PASS` (direct path both sides — hole punch confirmed) · `PARTIAL`
-(connected across networks but via relay fallback) · `NOT A GATE A` /
-`UNVERIFIED NETWORK` (same network, or B's public IP unseen — nothing
-certified). Evidence JSON is written under `.jeliya-gatea/`.
+Do not retain raw streams or excerpts. Never record tickets, bearer tokens,
+portfile tokens, identity seeds, private keys, full public addresses, unrelated
+room contents, or raw environment dumps. Host aliases, OS/architecture,
+unprivileged execution UID, binary digest/version, source/dependency revisions,
+timestamps, path results, assertion names/results, topology equality/ASN
+summary, and cleanup results are the permitted evidence fields.
 
-The manual, step-by-step flow below is the fallback (and what `gate-a.mjs`
-automates); use it when B is a Mac, or when you want to drive each side by hand.
+## Cleanup verification
 
-## Prerequisites
+The run is incomplete until its manifest reports all of the following:
 
-| | machine A (host) | machine B (joiner) |
-|---|---|---|
-| OS | this Mac | macOS or Linux |
-| Rust | >= 1.91 (workspace `rust-version`) | >= 1.91 |
-| Node | >= 22 (global `WebSocket`, no npm deps) | >= 22 |
-| Network | internet (relays, DNS discovery) | internet, on a **different network** than A |
+- `cleanup.completed: true`;
+- `cleanup.processes_stopped: true`;
+- `cleanup.temporary_artifacts_removed: true`; and
+- an empty `cleanup.failure_codes` array.
 
-Machine B also needs `git`, and internet access to `github.com` + `crates.io`
-during `cargo build` (the workspace pins the `iroh-rooms` SDK as a git
-dependency: `https://github.com/kortiene/iroh-room`).
+The harness validates exact run ownership before signaling a process or
+removing a directory. If it cannot prove ownership, preserve the object and
+report the blocker; do not broaden a command or remove unrelated data. After
+the recorded runs, independent read-only checks found no run directories or
+processes remaining on `demo1` or `demo2`.
 
-Ports: the scripts default to WebSocket port **7431** on A and **7432** on B
-(both bind `127.0.0.1` only — the WS control port is never exposed to the
-network; the p2p traffic uses its own UDP sockets). Override with `--port`.
+## Legacy Gate A diagnostic
 
-## Step 0 — get the code onto machine B
+`scripts/gate-a.mjs`, `scripts/realnet-host.mjs`, and
+`scripts/realnet-check.mjs` remain useful for two-host diagnosis and manual
+connectivity exploration. Their records are not source-bound to the complete
+`v0.5.0` candidate and cannot satisfy the three-peer topology, forced-relay,
+authorization, retained-signature, or release-ancestry gates.
 
-The repo is public — if B can reach GitHub, clone it directly:
-
-```sh
-git clone https://github.com/kortiene/jeliya jeliya
-cd jeliya
-cargo build --workspace           # first build fetches the pinned SDK; takes a while
-```
-
-When B has no GitHub access, distribute a git bundle instead. On **A**:
-
-```sh
-scripts/make-bundle.sh            # writes ./jeliya.bundle from branch main
-```
-
-Copy `jeliya.bundle` to B (scp / AirDrop / USB). On **B**:
-
-```sh
-git clone -b main jeliya.bundle jeliya
-cd jeliya
-cargo build --workspace           # first build fetches the pinned SDK; takes a while
-```
-
-(Build on A too if you haven't: `cargo build --workspace`.)
-
-## Step 1 — machine B: create an identity
-
-```sh
-node scripts/realnet-check.mjs --identity-only
-```
-
-This starts a real-mode daemon, creates (or reuses) B's identity in
-`.jeliya-realnet-b/`, and prints:
-
-```
-check: identity_id = <64 hex chars>
-node scripts/realnet-host.mjs --peer-identity <64 hex chars>
-```
-
-Send that identity_id to whoever drives machine A (chat, email — it is public
-key material, not a secret).
-
-## Step 2 — machine A: host the room and mint the invite
-
-```sh
-node scripts/realnet-host.mjs --peer-identity <B_IDENTITY_FROM_STEP_1>
-```
-
-The script starts a real-mode daemon, creates A's identity (first run only), a
-**fresh room**, opens it, mints an invite bound to B's identity, and prints a
-block like:
-
-```
-host: ================= PASTE ON MACHINE B =================
-node scripts/realnet-check.mjs --ticket '<ticket>' --peer '<endpoint_id>@<ip:port,...>'
-host: =======================================================
-```
-
-It then waits (default 15 min, `--wait-mins` to change) and reports, in order:
-B's join, A→B and B→A messages, B's final PASS, and A's `peers.status` path.
-
-Send the printed one-liner to machine B verbatim. Notes:
-
-- The `--peer` addr contains A's known socket addrs (LAN + publicly observed).
-  Across a NAT the LAN ones are unreachable — that is fine; the invite ticket
-  also carries A's endpoint id, and real mode resolves it via DNS discovery
-  and the relay, then attempts the hole punch.
-- The invite has **no expiry** and is bound to B's identity; it is single-use
-  per room, and the host mints a fresh room + invite every run, so re-runs
-  never trip over an already-redeemed ticket.
-
-## Step 3 — machine B: join and run the check
-
-Paste the exact line printed by A:
-
-```sh
-node scripts/realnet-check.mjs --ticket '<ticket>' --peer '<addr>'
-```
-
-The check script starts B's real-mode daemon (reusing the Step 1 identity),
-joins with the ticket (retrying — the daemon's per-attempt join bootstrap
-window is 15 s and the first dial across a NAT can miss it while
-discovery/relay warm up), opens the room, then hard-asserts:
-
-1. `member_joined` for B is visible in **B's** synced timeline (the host
-   asserts the same event on **A's** timeline — both sides covered);
-2. message each way — B receives A's hello, B sends its own (receipt asserted
-   on A by the host);
-3. file transfer — A shared a 256 KiB random payload; B waits for
-   `file.list` to show it available, fetches it, and requires
-   `verified:true` (blake3 content verification) plus a byte count matching
-   the listed size;
-4. prints **B's** `peers.status` path (direct vs relay).
-
-On success it sends a final `realnet-check: PASS ...` room message (which the
-host waits for), prints its verdict, and exits 0. The host then prints **A's**
-path and exits 0. Record both paths.
-
-## Reading the result
-
-- **Both sides `path=direct`** — full NAT traversal: hole punch succeeded.
-- **`relay` on either side** — connectivity via relay fallback; hole punching
-  failed between these two networks (common with symmetric/CGNAT — e.g. some
-  phone hotspots and cloud NATs). Everything still works; latency is higher.
-- **Join times out on every retry** — check both machines actually have
-  internet, that UDP outbound isn't blocked entirely, and A's host script is
-  still running (the room only serves while A's daemon is up).
-
-## Re-runs and cleanup
-
-- Re-run = repeat Steps 2 and 3 (fresh room + invite each time). Identities in
-  `.jeliya-realnet-host/` (A) and `.jeliya-realnet-b/` (B) are reused.
-- Full reset: `rm -rf .jeliya-realnet-host` on A, `rm -rf .jeliya-realnet-b`
-  on B (Step 1 must then be repeated, since B's identity changes).
-- The scripts kill their own daemons on exit (success, failure, or Ctrl-C).
-
-## Same-host smoke test (no second machine)
-
-The whole flow can be dry-run on one machine with two terminals — useful for
-validating the scripts, though the path result (`direct`) proves nothing about
-NAT traversal:
-
-```sh
-# terminal 1
-node scripts/realnet-check.mjs --identity-only --data-dir /tmp/rn-b
-node scripts/realnet-host.mjs --peer-identity <printed id> --data-dir /tmp/rn-a   # keep running
-# terminal 2 — paste the line host printed, adding B's data dir:
-node scripts/realnet-check.mjs --ticket '<t>' --peer '<addr>' --data-dir /tmp/rn-b
-```
-
-There is also a full same-host real-mode e2e: `node scripts/e2e.mjs --mode real`
-(67 assertions, identical to the loopback suite).
+The 2026-07-04 result is historical only. See
+[`gate-a-result.md`](gate-a-result.md). Do not promote `.jeliya-gatea` output
+from the legacy flow into `docs/evidence/v0.5.0/` or use it to change the
+release-evidence gate to READY.

@@ -3,9 +3,9 @@ type: "Status Report"
 title: "Verification evidence"
 description: "Revision-bound verification ledger and evidence-recording contract for the v0.5.0 technical preview."
 tags: ["evidence", "networking", "release", "testing", "verification"]
-timestamp: "2026-07-12T12:21:59Z"
+timestamp: "2026-07-12T16:40:00Z"
 status: "canonical"
-implementation_status: "partial"
+implementation_status: "implemented"
 verification_status: "partial"
 release_status: "unreleased"
 audience: ["contributors", "maintainers", "operators", "release-engineers"]
@@ -13,10 +13,12 @@ audience: ["contributors", "maintainers", "operators", "release-engineers"]
 
 # Verification evidence
 
-This is the candidate's evidence ledger. `PASS` is permitted only when the
-record identifies the exact Jeliya commit, dependency revisions, environment,
-timestamp, assertions, and sanitized evidence location. A pass on another
-revision is `historical`, not transferable evidence.
+This ledger separates a functional test result from release-qualifying
+evidence. A result is transferable to a release candidate only when it binds
+the exact public Jeliya commit, public immutable dependency revisions,
+environment, timestamps, assertions, retained sanitized manifest, and detached
+signature. The current direct and forced-relay runs are valuable functional
+evidence, but they do **not** authorize publication.
 
 ## Candidate identity
 
@@ -24,159 +26,181 @@ revision is `historical`, not transferable evidence.
 |---|---|
 | Milestone | `v0.5.0 — Evidence-Backed Technical Preview` |
 | Baseline commit | `1285b42037a3713840955fa518f2b81b19f2929f` |
-| Baseline `iroh-rooms` revision | `3cb9bfd1e43eb755c967315c37b6d4fd1c2bf020` |
-| Candidate commit | pending; the working tree is not evidence |
-| Candidate upstream remediation revision | pending publication and pin |
+| Hardening implementation commit before documentation reconciliation | `9d554b93c3e17a6f8485f4937c652e0020ae096e` |
+| Current public `iroh-rooms` pin | `3cb9bfd1e43eb755c967315c37b6d4fd1c2bf020` — synchronization isolation is not remediated |
+| Network-test Jeliya commit | `fe870c7c5b63f2bf52b031dd1bc8e27e83183be5` — clean, local, and unpublished |
+| Candidate upstream remediation revision | `3702e8cbcd5ac1808791124dd6bc44068be5f822` — clean and tested locally, but unpublished |
+| Retained evidence signatures | absent; the release-evidence public SPKI is not provisioned |
 | Release evidence gate | BLOCKED |
-| Evidence window | opened 2026-07-12 UTC |
+| Evidence window | 2026-07-12 UTC |
+
+The network-test checkout uses a local `file://` Git source for the remediation
+revision. Main still resolves the public unsafe revision. Neither the test
+checkout nor the upstream remediation is published at its recorded origin, so
+the retained manifests correctly set `certifiable: false` and
+`source.releaseable: false`.
 
 ## Milestone evidence ledger
 
-| Gate | Required evidence | Current status |
+| Gate | Current evidence | Status |
 |---|---|---|
-| Public read-RPC authorization | negative tests for foreign timelines, members, agents, files, local file reads, and pipes; joined-then-left positive archive case | store-seeded never-joined-room regression passed locally; full candidate suite pending |
-| Upstream synchronization isolation | malicious `WantEvents` and foreign-parent tests on the exact pinned upstream revision | targeted test passed on local upstream candidate `3702e8cbcd5ac1808791124dd6bc44068be5f822`; publication and Jeliya pin pending |
-| Android backup exclusion | manifest and XML rule validation for cloud backup and device transfer | pending final candidate run |
-| Agent secret location | platform-default directory outside checkout plus Git ignore/commit-prevention validation | pending final candidate run |
-| Rust dependency audit | zero reachable high/critical advisories or approved, expiring exception record | pending final candidate run |
-| npm dependency audit | zero reachable high/critical advisories or approved, expiring exception record | pending final candidate run |
-| Complete CI | Rust, MSRV, TypeScript, Dart, Flutter, docs, smoke, sidecar, agent, fleet, and protocol gates with no silent skips | pending |
-| Repeatability | all required CI gates twice from clean environments | pending |
-| Direct different-network P2P | two authorized hosts, distinct networks, exact candidate, settled `direct` path, full assertions | pending |
-| Deliberately constrained relay | no firewall or system changes; settled `relay` path with full assertions | pending; requires an application-level safe constraint |
-| Join and resynchronization | targeted join, restart/reconnect, complete room resync | pending |
-| Messages, files, and pipes | bidirectional messages, byte-exact BLAKE3 file fetch, pipe flow | pending |
-| Absent-room public API non-disclosure over network | every room-scoped read plus aggregate reads omit a room ID that was never joined | local harness passed; source-bound remote rerun pending; this is not synchronization-isolation evidence |
-| Installer integrity | Unix and PowerShell installers fetch and verify the published checksum before extraction | pending |
-| Atomic publication | complete five-archive set validates before the sole write-enabled job publishes | pending; publication itself is not authorized |
-| Version consistency | tag, daemon version, changelog, archive names, and checksums agree | pending |
-| Documentation | metadata, links, capability claims, and evidence ledger pass the docs gate | local docs gate to be recorded after completion |
+| Public read-RPC authorization | centralized guard and local negative suite cover foreign timelines, members, agents, files, pipes, local-file HTTP, and aggregate projections; both remote runs denied all 17 room-scoped RPCs and filtered local-file and aggregate reads | functional PASS on recorded local revisions; release qualification blocked by source provenance |
+| Upstream synchronization isolation | malicious `WantEvents`, foreign-parent, and administrative-tip tests passed against local upstream `3702e8cbcd5ac1808791124dd6bc44068be5f822` | local PASS; BLOCKED until upstream publication and Jeliya repin |
+| Android backup exclusion | `allowBackup=false`, explicit cloud/device-transfer exclusion rules, and engine state under `noBackupFilesDir`; repository gate and six secret-storage tests pass | local PASS; this is app-private no-backup storage, not Android Keystore wrapping |
+| Agent secret location | platform data directory outside the checkout, deny-all state-directory Git guard, repository ignore rules, and commit-prevention validation | local PASS |
+| Rust dependency audit | zero vulnerability advisories; three unmaintained-crate warnings and one yanked-version warning remain in the register below | PASS for vulnerability threshold |
+| npm dependency audit | zero vulnerabilities | PASS |
+| Complete CI definition | Rust, MSRV, TypeScript, Dart, Flutter, docs, smoke, sidecar, agent, fleet, protocol, and dependency gates are configured with required-tool failures; manual dispatch is non-publishing and Gradle is checksum-verified | configured; no two hosted clean runs exist |
+| Repeatability | two complete hosted CI executions from clean environments | BLOCKED; repository was not pushed and hosted execution was not authorized |
+| Direct different-network P2P | three peers, three distinct observed egress values, two ASNs, stable direct paths on roles A/B/C, 36/36 assertions | functional PASS; non-certifying retained manifest |
+| Deliberately forced relay | compile-time relay-only diagnostic build, attestation on all execution hosts, stable relay paths on roles A/B/C, 36/36 assertions | functional PASS; proves relay fallback, not a naturally failed hole punch; non-certifying retained manifest |
+| Join, reconnect, and resynchronization | targeted joins, three-peer convergence, closed-session message, reopen, resynchronization, and settled reconnect path | functional PASS in direct and relay runs |
+| Messages, files, and pipes | bidirectional and three-peer messages, byte-identical engine-verified BLAKE3 file fetch, authorized pipe, and zero-target-connection unauthorized pipe | functional PASS in direct and relay runs |
+| Installer integrity | Unix installer behavioral tests verify checksum-before-extraction; PowerShell contract is structurally checked | Unix PASS; Windows behavioral execution pending |
+| Atomic publication | source/artifact gate and sole-write-job workflow are implemented | structurally verified only; no five-archive set built and no publication executed |
+| Version consistency | local source checks bind daemon/UI/lockfile/changelog naming to `0.5.0` | local PASS; public tag and artifacts do not exist |
+| Documentation | required OKF pages and retained sanitized evidence are present | local docs gate PASS during reconciliation; rerun on the final commit |
 
 ## Dependency-risk exception register
 
-The updated candidate lockfiles have **no high or critical vulnerability
-exception**. The entries below are `cargo audit` maintenance or yanked-version
-warnings, not advisories that identify a security vulnerability in the pinned
-code. They remain visible because the affected crates are present in reachable
-transitive dependency paths. “Reachable” here means compiled through the named
-dependency chain; it does not mean an exploit path has been demonstrated.
+The current `cargo audit` and `npm audit` results contain no vulnerability
+finding. The Rust entries below are maintenance or ecosystem-support warnings,
+not approved high/critical vulnerability exceptions. “Reachable” means the
+crate is compiled through the listed dependency path; no exploitability claim
+is inferred from compilation alone.
 
 | Advisory or warning | Reachable dependency path | Risk assessment | Mitigation | Owner | Review and expiry |
 |---|---|---|---|---|---|
-| `RUSTSEC-2023-0089` — `atomic-polyfill` unmaintained | `postcard` through `iroh` | Maintenance risk: future defects may not receive fixes; no vulnerability is identified by this advisory | keep the resolved lockfile pinned, fail CI on new vulnerability findings, and monitor `postcard`/`iroh` for removal or replacement | Jeliya maintainers | review and expire 2026-09-30 |
-| `RUSTSEC-2024-0436` — `paste` unmaintained | `netwatch` through `iroh` | Maintenance risk in a build-time macro dependency; no vulnerability is identified by this advisory | keep the resolved lockfile pinned, retain the automated audit gate, and monitor `netwatch`/`iroh` migration upstream | Jeliya maintainers | review and expire 2026-09-30 |
-| `RUSTSEC-2024-0370` — `proc-macro-error` unmaintained | `genawaiter` through `iroh-blobs` | Maintenance risk in a procedural-macro dependency; no vulnerability is identified by this advisory | keep the resolved lockfile pinned, retain the automated audit gate, and monitor `genawaiter`/`iroh-blobs` remediation upstream | Jeliya maintainers | review and expire 2026-09-30 |
-| yanked `num-bigint 0.4.7` | `x509-parser` and `rcgen` through `iroh` | Ecosystem support risk from a yanked version; the audit output does not identify a high or critical vulnerability for this version | keep the exact lockfile, prevent unreviewed resolution drift, run the audit gate on every change, and adopt the upstream `rcgen`/`iroh` resolution when compatible | Jeliya maintainers | review and expire 2026-09-30 |
+| `RUSTSEC-2023-0089` — `atomic-polyfill` unmaintained | `postcard` through `iroh` | future defects may not receive fixes; no vulnerability is identified | retain the exact lockfile, fail CI on vulnerability findings, and monitor `postcard`/`iroh` remediation | Jeliya maintainers | 2026-09-30 |
+| `RUSTSEC-2024-0436` — `paste` unmaintained | `netwatch` through `iroh` | maintenance risk in a build-time macro dependency | retain the audit gate and monitor `netwatch`/`iroh` migration | Jeliya maintainers | 2026-09-30 |
+| `RUSTSEC-2024-0370` — `proc-macro-error` unmaintained | `genawaiter` through `iroh-blobs` | maintenance risk in a procedural-macro dependency | retain the audit gate and monitor `genawaiter`/`iroh-blobs` remediation | Jeliya maintainers | 2026-09-30 |
+| yanked `num-bigint 0.4.7` | `x509-parser` and `rcgen` through `iroh` | ecosystem-support risk; the audit identifies no high/critical vulnerability for this version | keep resolution pinned and adopt the compatible upstream resolution when available | Jeliya maintainers | 2026-09-30 |
 
-Expiry means the warning must be removed, renewed with fresh evidence, or made
-release-blocking. It is not permanent acceptance. Any new reachable high or
-critical vulnerability remains a release blocker unless a separate, explicitly
-approved and time-bounded security exception is recorded.
+At expiry, each entry must be removed, renewed with fresh evidence, or made
+release-blocking. A new reachable high or critical vulnerability is a release
+blocker unless maintainers explicitly approve a separate, scoped, owned, and
+time-bounded exception.
 
-## Local upstream-candidate qualification — non-releaseable
+## Local upstream remediation qualification
 
-The local Iroh Rooms candidate
+The unpublished Iroh Rooms revision
 `3702e8cbcd5ac1808791124dd6bc44068be5f822` contains the room-scoped event
-lookup remediation and the compile-time relay-only verification seam. Targeted
-local checks passed:
+lookup remediation and the compile-time relay-only test seam. Local tests
+demonstrated that:
 
-- `WantEvents` could not serve a known event ID from another room, and that
-  foreign row remained missing when cited as a local causal parent;
-- Jeliya's store-seeded regression kept a never-joined foreign room out of
-  aggregate and room-scoped public reads;
-- the normal Jeliya build rejected the hidden relay attestation flag;
-- the public `3cb9bfd1e43eb755c967315c37b6d4fd1c2bf020` dependency failed the
-  relay verifier build closed;
-- an isolated build wired to
-  `3702e8cbcd5ac1808791124dd6bc44068be5f822` propagated the relay-only feature and
-  printed the exact fixed attestation without creating identity state.
+- `WantEvents` cannot serve a known event ID from another room;
+- a foreign row remains unavailable when cited as a local causal parent;
+- administrative-tip traversal remains room-scoped;
+- a normal Jeliya build rejects the hidden relay attestation check; and
+- the relay-only feature is compile-time, propagated through Jeliya and the
+  dependency, and attested before a forced-relay run starts.
 
-This is not release evidence. The upstream candidate exists only in a local
-worktree, Jeliya still pins public revision
-`3cb9bfd1e43eb755c967315c37b6d4fd1c2bf020`, and no relay network
-run used the candidate. Publication, immutable pinning, clean source-bound
-builds, and the remote direct/relay runs remain mandatory.
+This qualification is not release evidence. The revision must first be
+reviewed and published, then pinned through Jeliya's public `Cargo.toml` and
+`Cargo.lock` before the network suite is repeated.
 
-## Historical evidence that does not certify this candidate
+## Retained three-peer network evidence
 
-The 2026-07-04 Gate A run recorded a direct path, bidirectional messages, and a
-verified file transfer. Its evidence-record commit is
-`f2aea0959ee5bf0f91fee030bdd2e2466163671c` and its `iroh-rooms` pin is
-`1d2f014e783893ffeaea055c436370179a31110a`. Those revisions differ from the
-candidate baseline, and the raw local JSON was not committed. The result is
-useful historical evidence only; details are in
+The operator role ran on macOS x86_64. Roles B and C ran on `root@demo1` and
+`root@demo2`, both Ubuntu 22.04.5 x86_64. SSH connected as root, but the
+remote daemons executed through `setpriv` as UID/GID `65534`. No host firewall,
+route, account, package repository, SSH configuration, or persistent service
+was changed.
+
+The three observed public egress values were pairwise different and were not
+persisted. The sanitized ASN result was `AS11426` for the operator and
+`AS24940` for both remote roles, satisfying the harness's two-origin-ASN
+topology condition. `user@kilo` was rejected during inventory because it shared
+the operator's observed egress and therefore could not satisfy the three-role
+topology gate.
+
+| Path | Run and UTC window | Result | Retained evidence | Manifest SHA-256 |
+|---|---|---|---|---|
+| direct | `20260712T155534Z-d3d9ff69`, 15:55:34–16:15:24 | 36/36; A/B/C each remained direct for three consecutive observations | [`direct.json`](evidence/v0.5.0/direct.json) | `1283e7c9d806f136ec364c9d35ba2259bab4a909e896fe6c1a427e132c6f75dd` |
+| forced relay | `20260712T161837Z-f1d9c149`, 16:18:37–16:38:54 | 36/36; A/B/C each remained relay for three consecutive observations | [`relay.json`](evidence/v0.5.0/relay.json) | `ca770491d98c2236d057d25b146101bdf469e3b0640a635034786d2995b6f294` |
+
+Both runs used Jeliya
+`fe870c7c5b63f2bf52b031dd1bc8e27e83183be5`, Iroh Rooms
+`3702e8cbcd5ac1808791124dd6bc44068be5f822`, Node `22.22.3`, Rust/Cargo
+`1.91.0`, Zig `0.15.2`, `cargo-zigbuild 0.23.0`, locked source builds, and
+freshly built embedded web UI. The native macOS x86_64 and Linux x86_64 musl
+binaries were built from a Git archive of the recorded source with two Cargo
+jobs. Each transferred Linux binary was hash- and version-checked on both
+remote hosts before execution.
+
+Each run covered targeted room join; three-peer membership and message
+convergence; messages in both directions; file listing, fetch, engine BLAKE3
+verification, and byte equality; authorized and unauthorized pipes; closed
+session, offline message, reopen, resynchronization, and reconnect; all 17
+room-scoped RPC denials; local-file denial; and foreign room/agent filtering
+from aggregates. The foreign fixture join required two attempts in each
+successful run because the first 15-second bootstrap window ended with the
+transient `peer_unreachable` condition. The bounded retry did not weaken
+authorization or retry credential failures.
+
+Cleanup passed in both runs: all run-owned processes stopped and all exact
+run-owned temporary directories were removed. The retained manifests omit log
+excerpts and raw logs; they keep only per-role stream line counts, byte counts,
+and SHA-256 digests. They contain no invite tickets, bearer tokens, portfile
+tokens, identity seeds, private keys, or public IP addresses.
+
+### Qualification limits
+
+The direct result demonstrates cross-network direct connectivity for this
+topology. The forced-relay result demonstrates that the same workflows operate
+when a compile-time diagnostic build disables direct transport. It does not
+show that ordinary direct-capable binaries naturally failed hole punching.
+
+Both manifests remain unsigned because the approved release-evidence Ed25519
+public SPKI and its out-of-band private-key custody have not been established.
+The release gate intentionally rejects unsigned evidence. Adding a signature
+now would still not qualify these runs because their Jeliya and Iroh Rooms
+commits are unpublished.
+
+## Failed runs retained as investigation history
+
+| Run suffix | Outcome | Cleanup |
+|---|---|---|
+| `46658a13` | topology rejected before functional assertions because the proposed remote shared the operator egress; 0 assertions | passed |
+| `262fe069` | 33 assertions passed, then the isolated foreign-room join exhausted its single bootstrap attempt | passed |
+| `a75f8796` | 32 assertions passed, then the same transient join bootstrap condition recurred | passed |
+
+These attempts do not count toward the milestone. They explain the host change
+and the bounded retry used by the successful runs; they were not converted
+into optimistic pass records.
+
+## Historical evidence
+
+The 2026-07-04 Gate A result used evidence-record commit
+`f2aea0959ee5bf0f91fee030bdd2e2466163671c` and Iroh Rooms revision
+`1d2f014e783893ffeaea055c436370179a31110a`. It proves behavior only for those
+older revisions and remains historical. See
 [`gate-a-result.md`](gate-a-result.md).
 
-The Android 13 device smoke similarly proves local engine lifecycle, room
-operations, pushes, persistence, and UI integration with `loopback: false`.
-It did not involve a remote peer or measure a direct/relay path, so it is not
-Android real-network evidence.
+The Android 13 smoke proves local engine lifecycle, room operations, pushes,
+persistence, and UI integration with `loopback: false`. It did not communicate
+with a remote peer or measure a direct/relay path, so it is not Android
+real-network evidence.
 
-## Local harness qualification — non-certifying
+## Exact release blockers
 
-The replacement network harness completed a three-peer loopback qualification
-run before any remote mutation:
+The evidence gate remains **BLOCKED** until all of the following are complete:
 
-| Field | Value |
-|---|---|
-| Run ID | `20260712T133929Z-be17800a` |
-| Mode | local loopback machinery check |
-| Source | baseline `1285b42037a3713840955fa518f2b81b19f2929f` with an intentionally dirty hardening worktree |
-| `iroh-rooms` revision | `3cb9bfd1e43eb755c967315c37b6d4fd1c2bf020` |
-| Local binary | `jeliyad 0.5.0`, SHA-256 `1583a2dca44fcd352135c3f23ffcec7ad402dd1062523d88dce39c22af27db07` |
-| Peers | three local macOS x86_64 processes in isolated temporary directories |
-| Assertions | 36 passed: targeted joins, three-peer convergence, direct loopback paths, bidirectional messages, BLAKE3 fetch plus byte-identical SHA-256, authorized pipe flow, unauthorized pipe zero-target-connection denial, one offline message resynchronized after reopen, absent-room-ID non-disclosure across read RPCs (including `peers.status`), and aggregate filtering |
-| Cleanup | all harness processes stopped and all run-owned temporary directories removed |
-| Log evidence | per-role stdout/stderr line and byte counts, raw-stream SHA-256, and bounded redacted excerpts; no raw logs persisted |
-| Sanitized local evidence | `.jeliya-gatea/v0.5.0/20260712T133929Z-be17800a.json` (gitignored) |
+1. review and publish upstream remediation
+   `3702e8cbcd5ac1808791124dd6bc44068be5f822`, or an equivalent reviewed
+   successor;
+2. repin Jeliya's public `Cargo.toml` and `Cargo.lock` to that immutable public
+   revision and publish the exact Jeliya candidate commit;
+3. establish out-of-band Ed25519 private-key custody and commit only the
+   canonical public SPKI before the network-qualified commit;
+4. repeat direct and forced-relay runs from that public commit and dependency,
+   retain the exact sanitized manifests, and attach valid detached signatures;
+5. pass every required hosted CI gate twice from clean environments;
+6. behaviorally execute the Windows installer integrity gate, build and verify
+   the complete five-archive daemon artifact set, and recheck version/tag/name
+   consistency; and
+7. invoke the atomic publishing workflow only after explicit release authority
+   is granted.
 
-This run qualifies the orchestration, provenance reporting, assertion, and
-cleanup machinery only. It is explicitly `certifiable: false`: the source was
-uncommitted, the diagnostic binary was not built by the harness, all peers
-shared one machine, and no public relay was involved. It does not satisfy the
-direct different-network or forced-relay milestone gates.
-
-## Authorized remote inventory
-
-Read-only SSH inventory found the proposed least-privilege pair below. This is
-connectivity and environment inventory, not a P2P test result.
-
-| Host alias | Intended role | Observed platform | Tooling constraint | Test status |
-|---|---|---|---|---|
-| `user@kilo` | remote peer B | Ubuntu 22.04 x86_64 | no Rust or Node toolchain; receive only the source-built, verified static binary | inventory only |
-| `user@stargate-03` | remote peer C | Ubuntu 22.04 x86_64 | no Rust or Node toolchain; receive only the source-built, verified static binary | inventory only |
-| `user@zulu` | alternate remote peer | Ubuntu 22.04 x86_64 | use only if one selected host cannot establish distinct public egress or a required path | inventory only |
-
-Before certifying direct connectivity, record only whether all observed public
-egress addresses differ, never the addresses themselves. This comparison does
-not prove independent VPCs or routing domains, so do not label it as network
-topology proof. The relay test must constrain the application transport
-without changing host firewalls, routes, services, or system configuration.
-
-## Required record for each remote run
-
-```text
-run_id: non-secret unique identifier
-started_at_utc / ended_at_utc
-jeliya_commit / tag
-iroh_rooms_revision and resolved Cargo.lock source
-artifact filename / sha256
-host aliases and roles
-OS / architecture
-isolated temporary directories and allocated local control ports
-distinct_public_egress: sanitized pairwise comparison and explicit topology caveat
-observed peer path: direct | relay
-assertions: join, offline-message resync, messages, file hash, pipes, reconnect,
-            absent-room-ID non-disclosure
-sync isolation: upstream WantEvents/foreign-parent tests plus Jeliya store-seeded test
-result: pass | fail | blocked
-sanitized logs: per role/stream line count, byte count, SHA-256, bounded redacted excerpt
-cleanup: processes stopped and only run-owned temporary artifacts removed
-```
-
-Never record invite tickets, bearer tokens, portfile tokens, identity seeds,
-private keys, full public addresses, room contents unrelated to the test, or
-raw environment dumps. Raw logs are never persisted. Only the structured,
-bounded summaries above may become CI or documentation artifacts; their
-excerpts redact all secrets held in memory, credential-shaped labels, and long
-hex/base64-like values.
+Until then, `v0.5.0` is an unreleased technical-preview candidate, regardless
+of the local functional successes recorded above.

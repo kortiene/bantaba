@@ -3,7 +3,7 @@ type: "Status Report"
 title: "Known gaps and roadmap"
 description: "Release blockers, deferred risks, owners, and next actions for the v0.5.0 evidence-backed technical preview."
 tags: ["gaps", "release", "risks", "roadmap"]
-timestamp: "2026-07-12T12:21:59Z"
+timestamp: "2026-07-12T16:40:00Z"
 status: "canonical"
 implementation_status: "partial"
 verification_status: "partial"
@@ -13,83 +13,83 @@ audience: ["contributors", "maintainers", "product", "release-engineers"]
 
 # Known gaps and roadmap
 
-The `NOW` phase adds no product capability. It closes trust, evidence, and
-release-integrity gaps around the existing engineering alpha. Any new feature
-proposal waits until this milestone is either ready or explicitly stopped.
+The `NOW` phase adds no product capability. It hardens the existing engineering
+alpha and remains **blocked for release** despite substantial local progress.
 
-## NOW — `v0.5.0` release blockers
+## NOW — closure status
 
-| Gap | Risk | Required closure | Owner | Status |
+| Area | Evidence now available | Remaining release condition | Owner | Status |
 |---|---|---|---|---|
-| Public read RPCs can expose foreign-room projections | cross-room confidentiality breach | centralized guard plus negative tests for timelines, members, agents, files, local-file reads, and pipes | core maintainer | implementation in progress; final evidence pending |
-| Pinned upstream synchronization is not room-scoped for known event IDs and parents | malicious peer can extract or contaminate foreign-room state | publish reviewed upstream fix, pin immutable revision, rerun malicious synchronization tests | upstream and core maintainer | local fix only; release blocked |
-| Android and agent identity state can escape intended storage boundaries | backup or accidental Git disclosure | explicit backup/data-extraction rules, safer default data directory, ignore and commit-prevention tests | mobile and agent maintainers | implementation present; validation pending |
-| Reachable cargo/npm advisories | supply-chain or runtime compromise | resolve high/critical findings or record an approved expiring exception with reachability and mitigation | dependency owner | audits pending final lockfiles |
-| CI omits or silently skips required surfaces | false confidence | enforce Rust, MSRV, TypeScript, Dart, Flutter, docs, smoke, sidecar, agent, fleet, and protocol jobs; fail on missing prerequisites | CI maintainer | workflow hardening pending |
-| Agent E2E assertion is flaky | nondeterministic release gate | compare post-idle event IDs against a baseline and assert no new intruder-authored execution | agent maintainer | stabilization pending |
-| Candidate direct and relay behavior lacks revision-bound evidence | unknown real-network behavior | two-host direct run and safely constrained relay run with full functional and authorization assertions | verification owner | remote inventory complete; runs pending |
-| Installers do not guarantee archive integrity before extraction | modified binary execution | fetch exact checksum sidecar, validate format/name/hash, fail closed before extraction on Unix and Windows | release maintainer | implementation present; adversarial tests pending |
-| Release jobs can publish incrementally or from mutable tooling | partial or compromised release | immutable action pins, verified Zig, read-only builders, complete artifact validation, one final publisher | release maintainer | workflow hardening pending |
-| Tag, daemon, changelog, and filenames can drift | irreproducible or misleading release | one consistency gate over the complete artifact set | release maintainer | pending version bump and gate |
-| Evidence and capability documentation can outrun code | governance failure | update all status pages from final evidence, run docs gate, review the diff | documentation owner | initial profile present; final reconciliation pending |
+| Public room-scoped authorization | centralized guard; 17 negative RPCs, local-file denial, and aggregate filtering pass; foreign agent projection exercised | preserve gates on the final public candidate | core maintainer | locally closed |
+| Upstream synchronization isolation | local `3702e8c…` remediation is clean and its malicious-sync tests pass | review and publish upstream fix, pin it immutably in Jeliya, then rerun qualification | upstream and core maintainer | **blocked** |
+| Android and agent secrets | Android cloud/device-transfer exclusions, app-private no-backup identity storage, external agent data default, ignore and tracked-secret gates pass | keep controls in final candidate; Keystore wrapping is defense-in-depth, not a current claim | mobile and agent maintainers | locally closed |
+| Dependency security | Cargo and npm report zero vulnerabilities; four unmaintained/yanked warnings have owner, mitigation, and expiry records | rerun against final lockfiles; no high/critical exception may be implicit | dependency owner | locally closed |
+| CI completeness | all required matrix jobs and fail-closed prerequisites are defined; manual dispatch does not publish; Gradle is checksum-verified before execution | push authority and two clean hosted runs on the final public commit | CI maintainer | **blocked** |
+| Agent/fleet reliability | agent E2E passes; fleet stability passed 5/5; Linux orphan/zombie cleanup verified on `demo1` under UID `65534` | repeat in final hosted gates | agent maintainer | locally closed |
+| Direct network behavior | run `d3d9ff69`, three peers, distinct egress, two ASNs, 36/36 and cleanup pass | rerun on published Jeliya/upstream revisions with valid retained-evidence signature | verification owner | functional pass; **not certifiable** |
+| Forced relay behavior | run `f1d9c149`, relay-only attestation, 36/36 and cleanup pass | same public-revision and signature qualification as direct | verification owner | functional pass; **not certifiable** |
+| Evidence authenticity | release gate validates detached Ed25519 evidence signatures | authorize key custody and commit only the canonical public key before the qualifying run; never commit the private key | release authority | **blocked, fails closed** |
+| Unix installer integrity | behavioral checksum-before-extraction tests pass | rerun against final artifacts | release maintainer | locally closed |
+| Windows installer integrity | PowerShell structural checks pass | execute installer, checksum, smoke, and reparse-point behavior on Windows | release maintainer | **blocked** |
+| Atomic publication | immutable actions, verified Zig, read-only builders, complete-set validation, and one writer are implemented | execute only after all gates pass and explicit release authority is granted | release authority | implemented, never executed |
+| Complete artifact set | `v0.4.3` has five published archives | build and verify all five `v0.5.0` daemon-plus-embedded-UI archives and sidecars together | release maintainer | **blocked; complete set absent** |
+| Documentation alignment | status pages and retained manifests reflect current evidence | final reconciliation after public pins, hosted runs, signatures, and artifact verification | documentation owner | current for this snapshot |
 
-There is no standing exception for a reachable high or critical dependency
-advisory. If an upgrade proves unsafe, the exception must identify the advisory,
-reachable path, compensating control, owner, approval, and an expiry date no
-later than 2026-08-12. Expiry is a reassessment deadline, not permanent
-acceptance.
+No reachable high or critical advisory is currently unresolved. The four
+maintenance/yank warnings are tracked with mitigation and an expiry of
+2026-09-30; expiry requires reassessment, not silent acceptance.
 
-## Preview limitations that must be explicit
+## Explicit preview limitations
 
-These gaps do not expand the `v0.5.0` artifact scope, but documentation and
-release notes must not hide them:
-
-- the macOS Flutter application is not a published artifact and its bundled
-  sidecar remains loopback-only;
-- Android has local device-smoke evidence but no different-network direct,
-  relay, or NAT-traversal evidence and no published APK/AAB;
+- the macOS Flutter application is unpublished and its bundled sidecar remains
+  loopback-only;
+- Android has local device-smoke evidence, not direct, relay, NAT, reconnect,
+  or cross-network evidence; its identity is app-private and backup-excluded,
+  not Keystore-backed;
 - iOS has no application scaffold or engine build;
-- bare daemon binaries are unsigned, and macOS notarization and Windows
-  Authenticode are not active;
-- WCAG 2.1 AA is a design target with partial automated coverage, not a
-  complete conformance certification;
-- mobile background availability and native local-file open remain incomplete;
-- member removal cannot recall data already copied by a previously authorized
-  peer; revocation semantics require a separate product and protocol decision.
+- macOS arm64, Linux arm64 musl, and Windows have no complete `v0.5.0`
+  candidate artifact evidence;
+- bare daemon binaries are unsigned; macOS notarization and Windows
+  Authenticode are inactive;
+- WCAG 2.1 AA remains a design target with targeted checks, not enforced or
+  certified conformance;
+- member removal cannot recall data already copied by an authorized peer;
+  revocation semantics require a separate protocol and product decision.
 
 ## Exit criteria for NOW
 
-`v0.5.0` is ready for a release-authority decision only when:
+`v0.5.0` reaches a release-authority decision only when:
 
-1. the upstream room-isolation fix is published, pinned, and verified;
-2. every required local and CI gate passes twice from clean environments;
-3. direct different-network and deliberately constrained relay runs pass on
-   the exact candidate and are recorded without secrets;
-4. five daemon-plus-embedded-UI archives build, verify, and agree on version;
-5. installers verify their matching published checksums before extraction;
-6. the release workflow can publish atomically but has not published without
-   explicit authorization;
-7. [`capability-status.md`](capability-status.md),
-   [`platform-matrix.md`](platform-matrix.md),
-   [`release-vs-main.md`](release-vs-main.md), and
-   [`verification-evidence.md`](verification-evidence.md) match the final
-   evidence.
+1. upstream `3702e8c…` or its reviewed successor is published and pinned by the
+   final public Jeliya commit;
+2. the approved evidence public key predates qualification, and signed direct
+   and relay manifests pass the release gate with `certifiable: true`;
+3. every required hosted CI gate passes twice from clean environments;
+4. Windows behavioral checks and the other target-specific gates pass;
+5. all five daemon-plus-embedded-UI archives and sidecars are built and
+   verified before publication begins;
+6. tag, daemon, changelog, and public names agree on `v0.5.0`;
+7. [Capability status](capability-status.md),
+   [Platform matrix](platform-matrix.md),
+   [Release versus main](release-vs-main.md), and
+   [Verification evidence](verification-evidence.md) match that final commit;
+8. explicit release authority is granted to the sole publishing job.
 
 ## NEXT — after the preview
 
-Only after NOW exits, prioritize operational hardening that increases trust
-without reopening the product surface:
-
-- obtain and operate signing/notarization credentials with a documented
-  rotation and incident process;
+- operate signing, notarization, and evidence keys with documented custody,
+  rotation, and incident response;
 - add comprehensive accessibility automation and scheduled manual audits;
-- verify Android direct, relay, reconnect, and background behavior across
+- verify Android direct, relay, reconnect, background, and NAT behavior across
   representative devices and networks;
+- evaluate Android Keystore-backed identity wrapping without weakening backup
+  exclusions or recoverability;
 - define member removal and key-rotation semantics before promising revocation;
-- publish retained, privacy-reviewed evidence bundles for each release.
+- automate privacy-reviewed retained evidence publication after a successful
+  release.
 
 ## LATER — separate product decisions
 
 iOS support, hosted agents, an agent marketplace, new protocol event types,
-and other user-facing capabilities require their own product, security, and
-architecture decisions. They are intentionally outside this milestone.
+and other user-facing capabilities require separate product, security, and
+architecture decisions. They remain outside this milestone.

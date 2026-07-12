@@ -3,7 +3,7 @@ type: "Status Report"
 title: "Platform matrix"
 description: "Implementation, verification, packaging, and release status for every Jeliya runtime and target platform."
 tags: ["packaging", "platforms", "release", "verification"]
-timestamp: "2026-07-12T12:21:59Z"
+timestamp: "2026-07-12T16:40:00Z"
 status: "canonical"
 implementation_status: "partial"
 verification_status: "partial"
@@ -13,53 +13,60 @@ audience: ["contributors", "maintainers", "operators", "release-engineers"]
 
 # Platform matrix
 
-This matrix distinguishes code that can be built from code that has been
-verified and from artifacts that have actually been published. The latest
-public release is `v0.4.3`; the `v0.5.0` candidate remains unreleased.
+The latest public release is `v0.4.3`. The `v0.5.0` candidate remains blocked
+and has no public artifacts. A source build or passing test is not a release.
 
 ## Daemon and embedded web UI
 
-| Target | Implementation | Candidate verification | Latest public artifact | `v0.5.0` scope |
+| Target | Implementation | `v0.5.0` evidence | Latest public artifact | Preview status |
 |---|---|---|---|---|
-| macOS arm64 (`aarch64-apple-darwin`) | implemented | local build, smoke, and installer verification pending | `v0.4.3` daemon archive plus checksum sidecar | included |
-| macOS x86_64 (`x86_64-apple-darwin`) | implemented | local build, smoke, and installer verification pending | `v0.4.3` daemon archive plus checksum sidecar | included |
-| Linux arm64 musl (`aarch64-unknown-linux-musl`) | implemented | cross-build, checksum, and smoke pending | `v0.4.3` daemon archive plus checksum sidecar | included |
-| Linux x86_64 musl (`x86_64-unknown-linux-musl`) | implemented | cross-build, remote smoke, checksum, and installer verification pending | `v0.4.3` daemon archive plus checksum sidecar | included |
-| Windows x86_64 MSVC (`x86_64-pc-windows-msvc`) | implemented | build, PowerShell installer, checksum, and smoke pending | `v0.4.3` daemon archive plus checksum sidecar | included |
+| macOS arm64 (`aarch64-apple-darwin`) | implemented | no candidate archive or platform run | `v0.4.3` archive and sidecar | required, pending |
+| macOS x86_64 (`x86_64-apple-darwin`) | implemented | embedded-UI source build and direct/relay operator run pass; installer behavior passes | `v0.4.3` archive and sidecar | functional evidence only |
+| Linux arm64 musl (`aarch64-unknown-linux-musl`) | implemented | no candidate archive or platform run | `v0.4.3` archive and sidecar | required, pending |
+| Linux x86_64 musl (`x86_64-unknown-linux-musl`) | implemented | embedded-UI source build; direct and relay runs pass on Ubuntu 22.04 x86_64 under UID `65534`; installer behavior passes | `v0.4.3` archive and sidecar | functional evidence only |
+| Windows x86_64 MSVC (`x86_64-pc-windows-msvc`) | implemented | PowerShell structural checks only; Windows execution, smoke, and reparse behavior pending | `v0.4.3` archive and sidecar | required, pending |
 
-The embedded React UI is built before Rust and compiled into each daemon
-archive. There is no separately released web bundle. `v0.5.0` must not publish
-a daemon archive unless the embedded UI and its provenance match the candidate
-commit.
+The two retained network manifests bind builds to Jeliya `fe870c7…`, local
+upstream `3702e8c…`, Rust `1.91.0`, Node `22.22.3`, verified Zig `0.15.2`, and
+the embedded UI. They cover only macOS x86_64 and Linux x86_64 musl, are
+unsigned, and set `certifiable: false`. See
+[Verification evidence](verification-evidence.md).
 
 ## Native applications and source-only tools
 
 | Surface | Implementation | Verification evidence | Release status | `v0.5.0` decision |
 |---|---|---|---|---|
-| macOS Flutter app | feature implementation and DMG pipeline exist | Flutter tests and packaging checks are incomplete for the candidate; Developer ID and notarization are not active | no DMG or app release has been published | excluded |
-| Android Flutter app with in-process Rust engine | app and three ABI library build path exist | one Android 13 local engine/UI smoke; no different-network peer, direct path, relay path, or NAT evidence | no APK or AAB published | excluded |
+| macOS Flutter app | application and DMG pipeline exist | local tests only; current app sidecar is loopback-only; signing/notarization inactive | no DMG published | excluded |
+| Android Flutter app with in-process Rust engine | application and three-ABI build path exist | Android 13 local lifecycle/FFI smoke only; no cross-network, NAT, direct, or relay evidence | no APK/AAB published | excluded |
+| Android identity storage | app-private no-backup storage with cloud and device-transfer exclusions | rules and validation pass | unreleased | included security control; not Keystore-backed |
 | iOS app | no scaffold or engine build | none | none | excluded |
-| Agent runner and fleet launcher | JavaScript source scripts exist | candidate agent E2E and fleet E2E pending; no separate package conformance gate | distributed as source only | no separate artifact |
-| Dart protocol package | source package exists | unit, FFI host replay, and Flutter integration gates pending for candidate | not published as a package artifact | source only |
+| Agent runner and fleet launcher | JavaScript scripts exist | agent E2E pass; fleet stability 5/5; Linux orphan/zombie cleanup verified remotely | source only | no separate artifact |
+| Dart protocol package | source package exists | candidate unit, replay, and integration gates are implemented locally; hosted result pending | not published separately | source only |
 
-## Network claims by platform
+## Network claims by runtime
 
-| Platform/runtime | Local protocol | Cross-network direct | Forced relay | Reconnect/resync |
+| Runtime | Local protocol | Cross-network direct | Forced relay | Reconnect/resync |
 |---|---|---|---|---|
-| `jeliyad` on desktop/server | implemented; candidate rerun pending | historical evidence only; candidate pending | candidate pending | candidate pending |
-| Android in-process engine | device-smoke evidence for local operations | unverified | unverified | app-resume resync implementation exists; cross-peer evidence pending |
-| macOS Flutter sidecar | local loopback mode | not supported by the current app configuration | not supported by the current app configuration | local sidecar lifecycle tests only |
+| `jeliyad` on macOS x86_64 and Linux x86_64 | implemented | 36/36 functional pass across three distinct egresses and two ASNs | 36/36 functional pass with relay-only attestation | pass in both retained runs |
+| Other daemon targets | implemented | no candidate evidence | no candidate evidence | no candidate evidence |
+| Android in-process engine | local device-smoke evidence | unverified | unverified | local lifecycle only; cross-peer unverified |
+| macOS Flutter sidecar | loopback-only configuration | unsupported by current app configuration | unsupported by current app configuration | local sidecar lifecycle only |
 
-The phrase “real networking enabled” means only that the engine was configured
-with `loopback: false`. It is not evidence of a successful remote peer path.
+The daemon runs are not release-qualifying because their Jeliya and upstream
+revisions are unpublished and their manifests are unsigned. “Real networking
+enabled” on Android means only `loopback: false`; it is not evidence of a peer
+path.
 
 ## Packaging trust status
 
-`v0.4.3` publishes five unsigned daemon archives and one SHA-256 sidecar per
-archive. Those sidecars enable manual verification, but installer code at the
-`v0.4.3` tag does not verify them automatically before extraction. The
-candidate installers now fail closed on a missing, malformed, mismatched, or
-incorrect sidecar before extraction; adversarial tests and final release
-artifacts remain pending. Immutable workflow dependencies, verified downloaded
-build tools, atomic publication, and tag/version/name consistency are mandatory
-candidate gates, not properties attributed retroactively to `v0.4.3`.
+`v0.4.3` contains five daemon archives and a SHA-256 sidecar for each. Its
+installers do not automatically enforce those sidecars before extraction. The
+candidate Unix installer now passes behavioral fail-closed tests for sidecar
+verification. The PowerShell installer passes structural checks only; Windows
+and reparse-point behavior are pending.
+
+The candidate workflow pins third-party actions, verifies downloaded Zig,
+keeps build jobs read-only, validates the complete set before publication, and
+centralizes write permission in the final job. It has never been executed to
+publish `v0.5.0`, and no complete five-target candidate set has been built.
+See [Release versus main](release-vs-main.md).
