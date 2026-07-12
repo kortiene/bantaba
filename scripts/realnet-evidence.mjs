@@ -1365,6 +1365,26 @@ async function foreignLocalFileIsDenied(peer, roomId, fileId) {
   return !response.ok && body?.error?.code === "room_unknown";
 }
 
+export async function joinRoomWithRetries(client, params, {
+  attempts = 5,
+  timeoutMs = WAIT_MS,
+  retryDelayMs = 2_000,
+  wait = sleep,
+} = {}) {
+  let lastError = null;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      const result = await client.call("room.join", params, timeoutMs);
+      return { result, attempts_used: attempt };
+    } catch (error) {
+      lastError = error;
+      if (error?.code !== "peer_unreachable" || attempt === attempts) throw error;
+      await wait(retryDelayMs);
+    }
+  }
+  throw lastError ?? new Error("room.join retry loop ended without a result");
+}
+
 export async function seedForeignIsolationFixture({
   owner,
   agent = null,
@@ -1376,6 +1396,7 @@ export async function seedForeignIsolationFixture({
   const opened = await owner.client.call("room.open", { room_id: foreign.room_id });
   const agentLabel = `foreign-agent-${runId}`;
   const agentMessage = `foreign-agent-message-${runId}`;
+  let joinAttempts = 0;
 
   // room.join bootstrap currently requires a membership-only event log. Join
   // the foreign agent before seeding messages, statuses, files, or pipes, or
@@ -1388,7 +1409,11 @@ export async function seedForeignIsolationFixture({
     });
     resources.secrets.add(invite.ticket);
     const hints = typeof opened.endpoint?.addr === "string" ? [opened.endpoint.addr] : [];
-    await agent.client.call("room.join", { ticket: invite.ticket, peers: hints }, WAIT_MS);
+    const joined = await joinRoomWithRetries(
+      agent.client,
+      { ticket: invite.ticket, peers: hints },
+    );
+    joinAttempts = joined.attempts_used;
     await agent.client.call("room.open", { room_id: foreign.room_id, peers: hints });
   }
 
@@ -1420,7 +1445,7 @@ export async function seedForeignIsolationFixture({
     pipeId = pipe.pipe_id;
   }
 
-  return { foreign, file, pipeId, agentLabel, agentMessage };
+  return { foreign, file, pipeId, agentLabel, agentMessage, joinAttempts };
 }
 
 async function pipeHttpThroughPeer(peer, localAddr, resources) {
@@ -1486,10 +1511,10 @@ async function runFlow({ peers, expectedPath, runId, resources, record }) {
       role: "member",
     });
     resources.secrets.add(invite.ticket);
-    await record(`${peer.role}: targeted room join`, () => peer.client.call("room.join", {
+    await record(`${peer.role}: targeted room join`, () => joinRoomWithRetries(peer.client, {
       ticket: invite.ticket,
       peers: aDialHints,
-    }, WAIT_MS));
+    }));
     await record(`${peer.role}: joined room opened`, () => peer.client.call("room.open", {
       room_id: roomId,
       peers: aDialHints,
@@ -1774,6 +1799,7 @@ async function runFlow({ peers, expectedPath, runId, resources, record }) {
         local_file_http_denied: true,
         aggregate_reads_filtered: true,
         foreign_agent_projection_exercised: Boolean(c),
+        foreign_agent_join_attempts: foreignFixture.joinAttempts,
         synchronization_isolation_claimed: false,
       },
       multi_peer: c ? { peers: 3, convergence_verified: true } : { peers: 2, convergence_verified: true },

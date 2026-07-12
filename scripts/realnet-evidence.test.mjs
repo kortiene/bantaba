@@ -36,6 +36,7 @@ import {
   remoteDaemonCommand,
   remoteOwnedDirectoryCleanupCommand,
   remoteRunDir,
+  joinRoomWithRetries,
   seedForeignIsolationFixture,
   topologyClaim,
   parseRemoteBinaryVerification,
@@ -443,7 +444,43 @@ test("foreign-room security fixtures join the agent before non-membership events
   assert.equal(result.foreign.room_id, "foreign-room");
   assert.equal(result.file.file_id, "foreign-file");
   assert.equal(result.pipeId, "foreign-pipe");
+  assert.equal(result.joinAttempts, 1);
   assert.deepEqual([...resources.secrets], ["fixture-ticket"]);
+});
+
+test("room joins retry only bounded peer-unreachable failures", async () => {
+  let calls = 0;
+  const waits = [];
+  const client = {
+    async call() {
+      calls += 1;
+      if (calls < 3) {
+        const error = new Error("transient dial window missed");
+        error.code = "peer_unreachable";
+        throw error;
+      }
+      return { room_id: "joined-room" };
+    },
+  };
+  const joined = await joinRoomWithRetries(client, { ticket: "test" }, {
+    attempts: 3,
+    retryDelayMs: 7,
+    wait: async (delay) => waits.push(delay),
+  });
+  assert.equal(joined.result.room_id, "joined-room");
+  assert.equal(joined.attempts_used, 3);
+  assert.deepEqual(waits, [7, 7]);
+
+  const denied = new Error("invalid invite");
+  denied.code = "invite_denied";
+  let deniedCalls = 0;
+  await assert.rejects(() => joinRoomWithRetries({
+    async call() {
+      deniedCalls += 1;
+      throw denied;
+    },
+  }, {}, { attempts: 5, retryDelayMs: 0 }), /invalid invite/);
+  assert.equal(deniedCalls, 1);
 });
 
 test("evidence writer rejects secret values and forbidden secret-shaped keys", () => {
