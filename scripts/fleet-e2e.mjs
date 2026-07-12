@@ -47,6 +47,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { Client, parseArgs, sleep, startRealDaemon } from "./realnet-lib.mjs";
+import { recordOwnedProcess, signalOwnedProcessGroup } from "./e2e-process-ownership.mjs";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const AGENT_SCRIPT = join(repoRoot, "scripts", "jeliya-agent.mjs");
@@ -75,8 +76,8 @@ const daemons = [];
 const clients = [];
 const runners = []; // { proc, exited }
 const scratchDirs = [];
-const ownedListenerPids = new Map();
 let tearingDown = false;
+const cleanupErrors = [];
 
 function portListenerPids(port) {
   try {
@@ -127,16 +128,8 @@ function ownedDaemonListenerPid(port, dataDir) {
   return pid;
 }
 
-function killOwnedListener(port) {
-  const pid = ownedListenerPids.get(port);
-  if (!pid) return;
-  try {
-    process.kill(pid, "SIGKILL");
-  } catch {}
-  ownedListenerPids.delete(port);
-}
-
 function teardown() {
+  if (tearingDown) return cleanupErrors;
   tearingDown = true;
   for (const c of clients) {
     try {
@@ -146,21 +139,34 @@ function teardown() {
   for (const r of runners) {
     if (!r.exited) {
       try {
-        r.proc.kill("SIGKILL");
-      } catch {}
+        if (r.group) {
+          signalOwnedProcessGroup(r.group, "SIGKILL");
+        } else if (!r.proc.kill("SIGKILL")) {
+          cleanupErrors.push(`could not signal unregistered run-owned runner ${r.proc.pid}`);
+        }
+      } catch (error) {
+        cleanupErrors.push(error.message);
+      }
     }
   }
   for (const d of daemons) {
     try {
-      d.kill("SIGKILL");
-    } catch {}
+      if (d.exitCode === null && d.signalCode === null && !d.kill("SIGKILL")) {
+        cleanupErrors.push(`could not signal run-owned daemon ${d.pid}`);
+      }
+    } catch (error) {
+      cleanupErrors.push(`could not signal run-owned daemon ${d.pid}: ${error?.code ?? error}`);
+    }
   }
-  for (const port of ownedListenerPids.keys()) killOwnedListener(port);
   for (const dir of scratchDirs) {
     try {
       rmSync(dir, { recursive: true, force: true });
-    } catch {}
+    } catch (error) {
+      cleanupErrors.push(`could not remove run-owned scratch directory: ${error?.code ?? error}`);
+    }
   }
+  for (const error of cleanupErrors) console.error(`fleet-e2e: cleanup failure — ${error}`);
+  return cleanupErrors;
 }
 process.on("exit", teardown);
 for (const sig of ["SIGINT", "SIGTERM"]) {
@@ -332,9 +338,11 @@ try {
         "--allow-sender", humanId,
         "--loopback",
       ],
-      { stdio: ["ignore", "pipe", "pipe"] },
+      { detached: true, stdio: ["ignore", "pipe", "pipe"] },
     );
-    const rec = { proc, exited: false, log: "" };
+    const rec = { proc, group: null, exited: false, log: "" };
+    runners.push(rec);
+    rec.group = recordOwnedProcess(proc.pid);
     proc.stdout.on("data", (d) => {
       rec.log += d;
       process.stdout.write(`[${label}] ${d}`);
@@ -349,7 +357,6 @@ try {
         fail(`${label} runner exited early (code=${code} signal=${signal})`);
       }
     });
-    runners.push(rec);
     return rec;
   }
 
@@ -366,7 +373,7 @@ try {
       `${label}'s run-owned daemon listener`,
       100,
     );
-    ownedListenerPids.set(port, pid);
+    assert(Number.isInteger(pid), `${label}'s daemon exposes one owned listener PID`);
   }
   assert(true, "both runner daemon listeners are identified as run-owned before cleanup");
 
@@ -568,8 +575,13 @@ try {
   side.closedByUs = true; // agent1's daemon is about to die
   side.close();
   runner1.expectExit = true;
-  runner1.proc.kill("SIGKILL");
-  killOwnedListener(PORT_AGENT1); // reap only the daemon identified above
+  signalOwnedProcessGroup(runner1.group, "SIGKILL");
+  await pollUntil(
+    () => portListenerPids(PORT_AGENT1).length === 0,
+    5_000,
+    "the deliberately killed agent1 process group to release its port",
+    100,
+  );
   console.log("fleet-e2e: SIGKILLed agent1 runner + daemon while it was 'working'");
 
   // Wait for the human to detect the dead peer, then assert the derivation
@@ -604,7 +616,8 @@ try {
   console.log(`fleet-e2e: PASS — ${assertions} assertions green`);
   console.log(`fleet-e2e: COLLISION RESULT: ${collisionResult}`);
   console.log(`fleet-e2e: LIVENESS RESULT: ${livenessResult}`);
-  teardown();
+  const cleanup = teardown();
+  if (cleanup.length > 0) throw new Error(`cleanup failed: ${cleanup.join("; ")}`);
   process.exit(0);
 } catch (err) {
   fail(String(err?.stack ?? err));

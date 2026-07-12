@@ -46,6 +46,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { Client, parseArgs, sleep, startRealDaemon } from "./realnet-lib.mjs";
+import { recordOwnedProcess, signalOwnedProcessGroup } from "./e2e-process-ownership.mjs";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const AGENT_SCRIPT = join(repoRoot, "scripts", "jeliya-agent.mjs");
@@ -68,10 +69,11 @@ const SCRATCH = typeof args.scratch === "string"
 const daemons = [];
 const clients = [];
 const scratchDirs = [];
-const ownedListenerPids = new Set();
 let runner = null;
+let runnerGroup = null;
 let runnerExited = false;
 let tearingDown = false;
+const cleanupErrors = [];
 
 function portListenerPids(port) {
   try {
@@ -123,34 +125,39 @@ function ownedDaemonListenerPid(port, dataDir) {
   return pid;
 }
 
-function killOwnedListeners() {
-  for (const pid of ownedListenerPids) {
-    try {
-      process.kill(pid, "SIGKILL");
-    } catch {}
-  }
-  ownedListenerPids.clear();
-}
-
 function teardown() {
+  if (tearingDown) return cleanupErrors;
   tearingDown = true;
   for (const c of clients) c.close();
   if (runner && !runnerExited) {
     try {
-      runner.kill("SIGKILL");
-    } catch {}
+      if (runnerGroup) {
+        signalOwnedProcessGroup(runnerGroup, "SIGKILL");
+      } else if (!runner.kill("SIGKILL")) {
+        cleanupErrors.push(`could not signal unregistered run-owned runner ${runner.pid}`);
+      }
+    } catch (error) {
+      cleanupErrors.push(error.message);
+    }
   }
   for (const d of daemons) {
     try {
-      d.kill("SIGKILL");
-    } catch {}
+      if (d.exitCode === null && d.signalCode === null && !d.kill("SIGKILL")) {
+        cleanupErrors.push(`could not signal run-owned daemon ${d.pid}`);
+      }
+    } catch (error) {
+      cleanupErrors.push(`could not signal run-owned daemon ${d.pid}: ${error?.code ?? error}`);
+    }
   }
-  killOwnedListeners();
   for (const dir of scratchDirs) {
     try {
       rmSync(dir, { recursive: true, force: true });
-    } catch {}
+    } catch (error) {
+      cleanupErrors.push(`could not remove run-owned scratch directory: ${error?.code ?? error}`);
+    }
   }
+  for (const error of cleanupErrors) console.error(`agent-e2e: cleanup failure — ${error}`);
+  return cleanupErrors;
 }
 process.on("exit", teardown);
 for (const sig of ["SIGINT", "SIGTERM"]) {
@@ -315,8 +322,9 @@ try {
       "--trigger", TRIGGER,
       "--loopback",
     ],
-    { stdio: ["ignore", "pipe", "pipe"] },
+    { detached: true, stdio: ["ignore", "pipe", "pipe"] },
   );
+  runnerGroup = recordOwnedProcess(runner.pid);
   let runnerLog = "";
   runner.stdout.on("data", (d) => {
     runnerLog += d;
@@ -341,7 +349,7 @@ try {
     "the run-owned agent daemon listener",
     100,
   );
-  ownedListenerPids.add(agentDaemonPid);
+  assert(Number.isInteger(agentDaemonPid), "runner daemon exposes one owned listener PID");
   assert(true, "runner daemon listener is identified as run-owned before cleanup");
 
   await pollUntil(
@@ -541,7 +549,8 @@ try {
   assert(Boolean(offlineEv), 'agent posted the best-effort "offline" status on SIGTERM');
 
   console.log(`agent-e2e: PASS — ${assertions} assertions green`);
-  teardown();
+  const cleanup = teardown();
+  if (cleanup.length > 0) throw new Error(`cleanup failed: ${cleanup.join("; ")}`);
   process.exit(0);
 } catch (err) {
   fail(String(err?.stack ?? err));

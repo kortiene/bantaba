@@ -5,6 +5,11 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 
+import {
+  recordOwnedProcess,
+  signalOwnedProcessGroup,
+} from "./e2e-process-ownership.mjs";
+
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 function listen(port) {
@@ -73,3 +78,42 @@ for (const { script, port } of [
     }
   });
 }
+
+test("owned process groups are signalled only while the leader identity matches", () => {
+  const signals = [];
+  const record = recordOwnedProcess(4242, { readIdentity: () => "start-token command" });
+  assert.equal(signalOwnedProcessGroup(record, "SIGKILL", {
+    readIdentity: () => "start-token command",
+    signalProcess: (pid, signal) => signals.push({ pid, signal }),
+  }), "signalled");
+  assert.deepEqual(signals, [{ pid: -4242, signal: "SIGKILL" }]);
+
+  assert.throws(() => signalOwnedProcessGroup(record, "SIGKILL", {
+    readIdentity: () => "different-start-token unrelated-command",
+    signalProcess: () => assert.fail("a recycled process must not be signalled"),
+  }), /recycled process-group leader/);
+  assert.equal(signalOwnedProcessGroup(record, "SIGKILL", {
+    readIdentity: () => null,
+    signalProcess: () => assert.fail("an exited process must not be signalled"),
+  }), "already-exited");
+});
+
+test("owned process-group signal failures are never silent", () => {
+  const record = recordOwnedProcess(4343, { readIdentity: () => "stable identity" });
+  assert.throws(() => signalOwnedProcessGroup(record, "SIGKILL", {
+    readIdentity: () => "stable identity",
+    signalProcess: () => {
+      const error = new Error("not permitted");
+      error.code = "EPERM";
+      throw error;
+    },
+  }), /EPERM/);
+  assert.equal(signalOwnedProcessGroup(record, "SIGKILL", {
+    readIdentity: () => "stable identity",
+    signalProcess: () => {
+      const error = new Error("gone");
+      error.code = "ESRCH";
+      throw error;
+    },
+  }), "already-exited");
+});
