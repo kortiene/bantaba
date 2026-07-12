@@ -76,6 +76,7 @@ const daemons = [];
 const clients = [];
 const runners = []; // { proc, exited }
 const scratchDirs = [];
+const ownedPorts = new Set();
 let tearingDown = false;
 const cleanupErrors = [];
 
@@ -128,6 +129,17 @@ function ownedDaemonListenerPid(port, dataDir) {
   return pid;
 }
 
+function waitForPortsReleased(ports, timeoutMs = 5_000) {
+  const sleeper = new Int32Array(new SharedArrayBuffer(4));
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const occupied = ports.filter((port) => portListenerPids(port).length > 0);
+    if (occupied.length === 0) return [];
+    if (Date.now() >= deadline) return occupied;
+    Atomics.wait(sleeper, 0, 0, 100);
+  }
+}
+
 function teardown() {
   if (tearingDown) return cleanupErrors;
   tearingDown = true;
@@ -137,11 +149,15 @@ function teardown() {
     } catch {}
   }
   for (const r of runners) {
-    if (!r.exited) {
+    if (r.group) {
       try {
-        if (r.group) {
-          signalOwnedProcessGroup(r.group, "SIGKILL");
-        } else if (!r.proc.kill("SIGKILL")) {
+        signalOwnedProcessGroup(r.group, "SIGKILL");
+      } catch (error) {
+        cleanupErrors.push(error.message);
+      }
+    } else if (!r.exited) {
+      try {
+        if (!r.proc.kill("SIGKILL")) {
           cleanupErrors.push(`could not signal unregistered run-owned runner ${r.proc.pid}`);
         }
       } catch (error) {
@@ -158,11 +174,21 @@ function teardown() {
       cleanupErrors.push(`could not signal run-owned daemon ${d.pid}: ${error?.code ?? error}`);
     }
   }
-  for (const dir of scratchDirs) {
-    try {
-      rmSync(dir, { recursive: true, force: true });
-    } catch (error) {
-      cleanupErrors.push(`could not remove run-owned scratch directory: ${error?.code ?? error}`);
+  try {
+    const occupied = waitForPortsReleased([...ownedPorts]);
+    if (occupied.length > 0) {
+      cleanupErrors.push(`run-owned ports did not close: ${occupied.join(", ")}`);
+    }
+  } catch (error) {
+    cleanupErrors.push(`could not verify port release: ${error.message}`);
+  }
+  if (cleanupErrors.length === 0) {
+    for (const dir of scratchDirs) {
+      try {
+        rmSync(dir, { recursive: true, force: true });
+      } catch (error) {
+        cleanupErrors.push(`could not remove run-owned scratch directory: ${error?.code ?? error}`);
+      }
     }
   }
   for (const error of cleanupErrors) console.error(`fleet-e2e: cleanup failure — ${error}`);
@@ -217,6 +243,7 @@ function startHumanDaemon(label, port, dataDir) {
     },
   });
   daemons.push(proc);
+  ownedPorts.add(port);
   return proc;
 }
 
@@ -225,6 +252,7 @@ function startHumanDaemon(label, port, dataDir) {
 function startTempDaemon(label, port, dataDir) {
   const proc = startRealDaemon({ port, dataDir, label, loopback: true, onExit: () => {} });
   daemons.push(proc);
+  ownedPorts.add(port);
   return proc;
 }
 
@@ -373,6 +401,7 @@ try {
       `${label}'s run-owned daemon listener`,
       100,
     );
+    ownedPorts.add(port);
     assert(Number.isInteger(pid), `${label}'s daemon exposes one owned listener PID`);
   }
   assert(true, "both runner daemon listeners are identified as run-owned before cleanup");
