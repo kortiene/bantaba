@@ -40,6 +40,33 @@ pub const PROTOCOL_VERSION: u32 = 1;
 /// let drift.
 const PUSH_TICK: Duration = Duration::from_millis(300);
 
+/// Every public RPC that accepts a room id must cross the same default-deny
+/// preflight before method-specific validation or data access. `room.join` is
+/// intentionally absent: its authorization object is the key-bound ticket,
+/// and the caller is not a room member until redemption succeeds.
+fn requires_room_access_preflight(method: &str) -> bool {
+    matches!(
+        method,
+        "room.open"
+            | "room.close"
+            | "room.leave"
+            | "room.timeline"
+            | "room.members"
+            | "invite.create"
+            | "message.send"
+            | "status.post"
+            | "file.share"
+            | "file.list"
+            | "file.fetch"
+            | "pipe.expose"
+            | "pipe.list"
+            | "pipe.connect"
+            | "pipe.close"
+            | "agent.history"
+            | "peers.status"
+    )
+}
+
 /// This crate's own version, for hosts that report the engine's version in
 /// `daemon.status` (the FFI shim); `jeliyad` passes its own crate version.
 pub const CORE_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -155,6 +182,14 @@ impl Engine {
         // or the push loop. The supervisor guards its own session map internally,
         // only for the span of a map lookup, never across a network await.
         let sup = &self.supervisor;
+        if requires_room_access_preflight(method) {
+            // Preserve the normal schema error for a missing/non-string field;
+            // when a syntactically valid room id is present, deny it before
+            // method-specific checks can reveal whether foreign rows exist.
+            if let Some(room_id) = raw_params.get("room_id").and_then(Value::as_str) {
+                sup.require_public_room_access(room_id).await?;
+            }
+        }
         match method {
             // ---- Daemon & identity -------------------------------------------
             "daemon.status" => Ok(daemon_status(sup, &self.config)),
