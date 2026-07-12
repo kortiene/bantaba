@@ -94,8 +94,23 @@ test("owned process groups are signalled only while the leader identity matches"
   }), /recycled process-group leader/);
   assert.equal(signalOwnedProcessGroup(record, "SIGKILL", {
     readIdentity: () => null,
-    signalProcess: () => assert.fail("an exited process must not be signalled"),
+    signalProcess: (_pid, signal) => {
+      assert.equal(signal, 0);
+      const error = new Error("group absent");
+      error.code = "ESRCH";
+      throw error;
+    },
   }), "already-exited");
+
+  const orphanSignals = [];
+  assert.equal(signalOwnedProcessGroup(record, "SIGKILL", {
+    readIdentity: () => null,
+    signalProcess: (pid, signal) => orphanSignals.push({ pid, signal }),
+  }), "signalled");
+  assert.deepEqual(orphanSignals, [
+    { pid: -4242, signal: 0 },
+    { pid: -4242, signal: "SIGKILL" },
+  ]);
 });
 
 test("owned process-group signal failures are never silent", () => {
@@ -116,4 +131,36 @@ test("owned process-group signal failures are never silent", () => {
       throw error;
     },
   }), "already-exited");
+});
+
+test("an owned process group is reaped after its leader exits", {
+  skip: process.platform === "win32",
+  timeout: 10_000,
+}, async () => {
+  const leader = spawn("sh", ["-c", "sleep 0.25; sleep 30 & exit 0"], {
+    detached: true,
+    stdio: "ignore",
+  });
+  const record = recordOwnedProcess(leader.pid);
+  try {
+    await new Promise((resolveExit, reject) => {
+      leader.once("error", reject);
+      leader.once("exit", resolveExit);
+    });
+    assert.doesNotThrow(() => process.kill(-record.pid, 0));
+    assert.equal(signalOwnedProcessGroup(record, "SIGKILL"), "signalled");
+    const deadline = Date.now() + 5_000;
+    for (;;) {
+      try {
+        process.kill(-record.pid, 0);
+      } catch (error) {
+        if (error?.code === "ESRCH") break;
+        throw error;
+      }
+      if (Date.now() > deadline) assert.fail("orphaned process group remained alive");
+      await new Promise((resolveWait) => setTimeout(resolveWait, 50));
+    }
+  } finally {
+    try { process.kill(-record.pid, "SIGKILL"); } catch {}
+  }
 });
