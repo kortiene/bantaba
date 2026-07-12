@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {
   mkdtempSync,
   mkdirSync,
+  readFileSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -373,4 +374,32 @@ test('duplicate titles and documents absent from every index are reported', () =
       ['docs/b.md', 'title-duplicate'],
     ],
   );
+});
+
+test('developer documentation matches the MSRV and complete CI job matrix', () => {
+  const cargo = readFileSync(new URL('../Cargo.toml', import.meta.url), 'utf8');
+  const readme = readFileSync(new URL('../README.md', import.meta.url), 'utf8');
+  const contributing = readFileSync(new URL('../CONTRIBUTING.md', import.meta.url), 'utf8');
+  const ci = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8');
+  const msrv = cargo.match(/^rust-version\s*=\s*"([^"]+)"$/m)?.[1];
+  assert.ok(msrv);
+  const displayMsrv = /^\d+\.\d+$/.test(msrv) ? `${msrv}.0` : msrv;
+  const escapedMsrv = displayMsrv.replaceAll('.', '\\.');
+  assert.match(readme, new RegExp(`\\*\\*${escapedMsrv}`));
+  assert.match(readme, new RegExp(`want ${escapedMsrv}\\+`));
+  assert.match(ci, new RegExp(`Setup Rust ${escapedMsrv}`));
+  assert.doesNotMatch(readme, /\b1\.80\b/);
+
+  const jobs = [...ci.matchAll(/^  ([a-z][a-z0-9-]+):\n    name:/gm)]
+    .map((match) => match[1]);
+  assert.deepEqual(jobs, [
+    'docs-ui',
+    'flutter',
+    'rust-runtime',
+    'msrv',
+    'windows-installer',
+    'dependency-security',
+  ]);
+  for (const job of jobs) assert.match(contributing, new RegExp('`' + job + '`'));
+  assert.match(contributing, /manually without publishing a release/);
 });

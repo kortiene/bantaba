@@ -67,8 +67,9 @@ prove all of the following:
 5. all five daemon-plus-embedded-UI archives and sidecars exist and verify,
    including Windows behavioral gates;
 6. tag, daemon version, changelog, and artifact names all say `v0.5.0`;
-7. only the final publishing job can write, and it receives explicit release
-   authority.
+7. only the final publishing job can write; it verifies the sealed receipt
+   without executing candidate bytes, and only its final step receives the
+   token after explicit release authority.
 
 The evidence key is intentionally absent today. The release check therefore
 fails closed; an unsigned local PASS cannot open publication. The atomic

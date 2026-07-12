@@ -54,8 +54,10 @@ jobs:
       - name: Verify release and installer contracts
         run: |
           set -euo pipefail
-          node --test scripts/check-release.test.mjs scripts/check-installers.test.mjs
+          node --test scripts/check-release.test.mjs scripts/check-installers.test.mjs \
+            scripts/release-receipt.test.mjs scripts/finalize-release.test.mjs
           node scripts/check-release.mjs --source
+          shellcheck scripts/finalize-release.sh
           shellcheck packaging/install.sh
 
       - name: Install TypeScript dependencies
@@ -343,6 +345,45 @@ jobs:
           }
           if (-not $rejected) { throw 'tampered archive was not rejected' }
           if (Test-Path $installed) { throw 'tampered archive produced an installed executable' }
+
+          Remove-Item -LiteralPath $global:JeliyaFixtureArchive -Force
+          Compress-Archive -LiteralPath $payloadExe -DestinationPath $global:JeliyaFixtureArchive
+          $digest = (Get-FileHash -LiteralPath $global:JeliyaFixtureArchive -Algorithm SHA256).Hash.ToLowerInvariant()
+          Set-Content -LiteralPath $global:JeliyaFixtureChecksum -Value "$digest  $asset" -Encoding ascii
+          $global:JeliyaSimulateReparse = $true
+          function global:Expand-Archive {
+            param(
+              [string]$LiteralPath,
+              [string]$DestinationPath,
+              [switch]$Force
+            )
+            New-Item -ItemType Directory -Force -Path $DestinationPath | Out-Null
+            Set-Content -LiteralPath (Join-Path $DestinationPath 'jeliyad.exe') `
+              -Value 'simulated reparse payload' -NoNewline
+          }
+          function global:Get-ChildItem {
+            param(
+              [string]$LiteralPath,
+              [switch]$Recurse,
+              [switch]$File
+            )
+            if ($global:JeliyaSimulateReparse) {
+              return [pscustomobject]@{
+                Name = 'jeliyad.exe'
+                Attributes = [System.IO.FileAttributes]::ReparsePoint
+              }
+            }
+            Microsoft.PowerShell.Management\Get-ChildItem @PSBoundParameters
+          }
+          $reparseRejected = $false
+          try {
+            & $installer
+          } catch {
+            if ($_.Exception.Message -notmatch 'reparse point') { throw }
+            $reparseRejected = $true
+          }
+          if (-not $reparseRejected) { throw 'reparse-point payload was not rejected' }
+          if (Test-Path $installed) { throw 'reparse-point payload produced an installed executable' }
 
   dependency-security:
     name: dependency security (Cargo + npm)
