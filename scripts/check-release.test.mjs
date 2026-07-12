@@ -16,6 +16,10 @@ import {
   validateNetworkEvidenceManifest,
   validateSourceVersions,
 } from "./check-release.mjs";
+import {
+  SOURCE_BUILD_ALLOWED_AMBIENT_NAMES,
+  SOURCE_BUILD_ENVIRONMENT_POLICY,
+} from "./realnet-evidence.mjs";
 
 const ciWorkflow = readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
 const releaseWorkflow = readFileSync(
@@ -85,7 +89,7 @@ function networkManifest(path, commit, upstream) {
     "peers.status", "agent.history",
   ];
   return {
-    schema: 1,
+    schema: 2,
     run_id: `20260712T12000${relay ? "1" : "0"}Z-0123abcd`,
     started_at_utc: "2026-07-12T12:00:00.000Z",
     ended_at_utc: "2026-07-12T12:10:00.000Z",
@@ -117,6 +121,17 @@ function networkManifest(path, commit, upstream) {
       source_bound: true,
       source_snapshot_commit: commit,
       locked: true,
+      environment: {
+        policy: SOURCE_BUILD_ENVIRONMENT_POLICY,
+        allowed_names: [...SOURCE_BUILD_ALLOWED_AMBIENT_NAMES],
+        inherited_names: [],
+        isolated_home: true,
+        isolated_cargo_home: true,
+        isolated_temp: true,
+        controlled_path: true,
+        ambient_build_controls_rejected: true,
+        unlisted_ambient_removed: true,
+      },
       embedded_ui: {
         built_from_source: true,
         package_lock_sha256: "ab".repeat(32),
@@ -124,13 +139,17 @@ function networkManifest(path, commit, upstream) {
       features,
       targets: ["x86_64-apple-darwin", "x86_64-unknown-linux-musl"],
       commands: [
+        "git clone --bare --no-local <candidate repository>",
         `git archive ${commit}`,
-        "npm ci",
-        "npm run build",
-        `cargo +1.91.0 build --locked --release -p jeliyad --features ${featureArgument}`,
-        `cargo +1.91.0 zigbuild --locked --release -p jeliyad --features ${featureArgument} --target x86_64-unknown-linux-musl`,
+        "node <recorded npm-cli> ci",
+        "node <recorded npm-cli> run build",
+        `cargo build --locked --release -p jeliyad --features ${featureArgument}`,
+        `cargo-zigbuild zigbuild --locked --release -p jeliyad --features ${featureArgument} --target x86_64-unknown-linux-musl`,
       ],
       toolchain: {
+        identity_policy: "tools execute by resolved absolute path; evidence records filename, version, and observed SHA-256; the complete Zig installation archive is independently digest-verified",
+        independently_verified: ["zig-installation-archive"],
+        execution_binding: "npm is executed by the recorded Node binary; cargo-zigbuild is invoked directly with recorded Cargo and Zig paths; Python ziglang discovery is disabled",
         rustc: {
           filename: "rustc",
           version: [
@@ -149,20 +168,30 @@ function networkManifest(path, commit, upstream) {
           version: "cargo 1.91.0 (ea2d97820 2025-10-10)",
           sha256: toolDigest,
         },
+        rustup: {
+          filename: "rustup",
+          version: "rustup 1.28.2 (e4f3ad6f8 2025-04-28)",
+          sha256: toolDigest,
+        },
         node: { filename: "node", version: "v22.22.3", sha256: toolDigest },
         npm: { filename: "npm", version: "10.9.8", sha256: toolDigest },
         zig: {
           filename: "zig",
           version: "0.15.2",
           sha256: toolDigest,
-          expected_sha256: toolDigest,
-          integrity_verified: true,
+          archive_sha256: "375b6909fc1495d16fc2c7db9538f707456bfc3373b14ee83fdd3e22b3d43f7f",
+          expected_archive_sha256: "375b6909fc1495d16fc2c7db9538f707456bfc3373b14ee83fdd3e22b3d43f7f",
+          archive_integrity_verified: true,
+          installation_root_bound: true,
+          lib_dir_bound: true,
         },
         cargo_zigbuild: {
           filename: "cargo-zigbuild",
           version: "cargo-zigbuild 0.23.0",
           sha256: toolDigest,
         },
+        git: { filename: "git", version: "git version 2.50.1", sha256: toolDigest },
+        tar: { filename: "tar", version: "bsdtar 3.7.7", sha256: toolDigest },
         cargo_build_jobs: 2,
         installed_cross_target: "x86_64-unknown-linux-musl",
       },
@@ -329,6 +358,52 @@ test("certifying network evidence has a closed, secret-free schema", () => {
       error: /closed evidence schema: missing embedded_ui/,
     },
     {
+      name: "legacy schema cannot certify",
+      mutate: (manifest) => {
+        manifest.schema = 1;
+        delete manifest.build.environment;
+        for (const name of [
+          "identity_policy",
+          "independently_verified",
+          "execution_binding",
+          "rustup",
+          "git",
+          "tar",
+        ]) {
+          delete manifest.build.toolchain[name];
+        }
+        const zigSha256 = manifest.build.toolchain.zig.sha256;
+        manifest.build.toolchain.zig = {
+          filename: "zig",
+          version: "0.15.2",
+          sha256: zigSha256,
+          expected_sha256: zigSha256,
+          integrity_verified: true,
+        };
+      },
+      error: /certifying evidence requires the isolated-build schema 2/,
+    },
+    {
+      name: "missing isolated build environment",
+      mutate: (manifest) => { delete manifest.build.environment; },
+      error: /closed evidence schema: missing environment/,
+    },
+    {
+      name: "expanded ambient allowlist",
+      mutate: (manifest) => { manifest.build.environment.allowed_names.push("AWS_SECRET_ACCESS_KEY"); },
+      error: /required isolated source-build environment/,
+    },
+    {
+      name: "unapproved inherited environment name",
+      mutate: (manifest) => { manifest.build.environment.inherited_names.push("GITHUB_TOKEN"); },
+      error: /required isolated source-build environment/,
+    },
+    {
+      name: "uncontrolled build path",
+      mutate: (manifest) => { manifest.build.environment.controlled_path = false; },
+      error: /required isolated source-build environment/,
+    },
+    {
       name: "non-HTTPS Jeliya provenance",
       mutate: (manifest) => { manifest.source.origin = "git@github.com:kortiene/jeliya.git"; },
       error: /releaseable network-qualified commit/,
@@ -407,56 +482,68 @@ test("certifying network evidence has a closed, secret-free schema", () => {
     {
       name: "wrong Rust version",
       mutate: (manifest) => { manifest.build.toolchain.rustc.version = "rustc 1.92.0"; },
-      error: /exact verified release toolchain/,
+      error: /pinned and fully identified release toolchain/,
     },
     {
       name: "wrong Cargo version",
       mutate: (manifest) => { manifest.build.toolchain.cargo.version = "cargo 1.92.0"; },
-      error: /exact verified release toolchain/,
+      error: /pinned and fully identified release toolchain/,
     },
     {
       name: "wrong Node version",
       mutate: (manifest) => { manifest.build.toolchain.node.version = "v22.22.2"; },
-      error: /exact verified release toolchain/,
+      error: /pinned and fully identified release toolchain/,
     },
     {
       name: "wrong npm version",
       mutate: (manifest) => { manifest.build.toolchain.npm.version = "10.9.7"; },
-      error: /exact verified release toolchain/,
+      error: /pinned and fully identified release toolchain/,
     },
     {
       name: "wrong Zig version",
       mutate: (manifest) => { manifest.build.toolchain.zig.version = "0.15.1"; },
-      error: /exact verified release toolchain/,
+      error: /pinned and fully identified release toolchain/,
     },
     {
-      name: "mismatched Zig digest",
-      mutate: (manifest) => { manifest.build.toolchain.zig.expected_sha256 = "34".repeat(32); },
-      error: /exact verified release toolchain/,
+      name: "mismatched Zig archive digest",
+      mutate: (manifest) => {
+        manifest.build.toolchain.zig.expected_archive_sha256 = "34".repeat(32);
+      },
+      error: /pinned and fully identified release toolchain/,
     },
     {
       name: "malformed tool digest",
       mutate: (manifest) => { manifest.build.toolchain.cargo.sha256 = "00"; },
-      error: /exact verified release toolchain/,
+      error: /pinned and fully identified release toolchain/,
     },
     {
       name: "wrong cargo-zigbuild version",
       mutate: (manifest) => {
         manifest.build.toolchain.cargo_zigbuild.version = "cargo-zigbuild 0.24.0";
       },
-      error: /exact verified release toolchain/,
+      error: /pinned and fully identified release toolchain/,
+    },
+    {
+      name: "missing archive tool identity",
+      mutate: (manifest) => { delete manifest.build.toolchain.tar; },
+      error: /closed evidence schema: missing tar/,
+    },
+    {
+      name: "malformed git tool identity",
+      mutate: (manifest) => { manifest.build.toolchain.git.sha256 = "00"; },
+      error: /pinned and fully identified release toolchain/,
     },
     {
       name: "wrong build jobs",
       mutate: (manifest) => { manifest.build.toolchain.cargo_build_jobs = 3; },
-      error: /exact verified release toolchain/,
+      error: /pinned and fully identified release toolchain/,
     },
     {
       name: "wrong cross target",
       mutate: (manifest) => {
         manifest.build.toolchain.installed_cross_target = "aarch64-unknown-linux-musl";
       },
-      error: /exact verified release toolchain/,
+      error: /pinned and fully identified release toolchain/,
     },
   ];
 
@@ -501,7 +588,7 @@ test("retained local network evidence remains explicitly non-certifying", () => 
       expectedPath: path,
       candidateCommit: manifest.source.commit,
       upstreamRevision: manifest.source.iroh_rooms_revision,
-    }), /not a passing certifiable schema-1 run/);
+    }), /not a passing certifying run/);
 
     const unsafe = structuredClone(manifest);
     unsafe.sanitized_logs.raw_logs = [];
@@ -610,6 +697,15 @@ verification_status: "verified"
       /UI lockfile digest does not match the network-qualified commit/,
     );
     writeSignedManifest("direct");
+
+    const relayToolDrift = networkManifest("relay", commit, upstream);
+    relayToolDrift.build.toolchain.git.sha256 = "34".repeat(32);
+    writeSignedManifest("relay", relayToolDrift);
+    assert.throws(
+      () => validateEvidenceReadiness({ root, context }),
+      /not built with the same recorded toolchain/,
+    );
+    writeSignedManifest("relay");
 
     writeFileSync(
       join(root, "docs", "evidence", "v0.5.0", "direct.json"),

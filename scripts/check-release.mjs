@@ -176,6 +176,10 @@ export function validateEvidenceReadiness({
   if (manifests.direct.source.commit !== manifests.relay.source.commit) {
     fail("direct and relay evidence refer to different Jeliya commits");
   }
+  if (JSON.stringify(manifests.direct.build.toolchain)
+      !== JSON.stringify(manifests.relay.build.toolchain)) {
+    fail("direct and relay evidence were not built with the same recorded toolchain");
+  }
   for (const [path, manifest] of Object.entries(manifests)) {
     if (manifest.build.embedded_ui.package_lock_sha256
         !== releaseContext.candidatePackageLockSha256) {
@@ -263,7 +267,7 @@ function localFileGitUrl(value) {
 const SANITIZED_LOG_POLICY = "raw daemon logs are transient in run-owned data directories and removed after successful cleanup; retained log summaries store only per-stream line/byte counts and SHA-256 digests";
 const LOCAL_CHECKOUT_SCHEMA = Symbol("local-checkout-schema");
 
-const CERTIFYING_NETWORK_SCHEMA = {
+const CERTIFYING_NETWORK_SCHEMA_V1 = {
   schema: null,
   run_id: null,
   started_at_utc: null,
@@ -412,6 +416,59 @@ const CERTIFYING_NETWORK_SCHEMA = {
   },
 };
 
+const CERTIFYING_NETWORK_SCHEMA_V2 = {
+  ...CERTIFYING_NETWORK_SCHEMA_V1,
+  build: {
+    ...CERTIFYING_NETWORK_SCHEMA_V1.build,
+    environment: {
+      policy: null,
+      allowed_names: [],
+      inherited_names: [],
+      isolated_home: null,
+      isolated_cargo_home: null,
+      isolated_temp: null,
+      controlled_path: null,
+      ambient_build_controls_rejected: null,
+      unlisted_ambient_removed: null,
+    },
+    toolchain: {
+      ...CERTIFYING_NETWORK_SCHEMA_V1.build.toolchain,
+      identity_policy: null,
+      independently_verified: [],
+      execution_binding: null,
+      rustup: { filename: null, version: null, sha256: null },
+      git: { filename: null, version: null, sha256: null },
+      tar: { filename: null, version: null, sha256: null },
+      zig: {
+        filename: null,
+        version: null,
+        sha256: null,
+        archive_sha256: null,
+        expected_archive_sha256: null,
+        archive_integrity_verified: null,
+        installation_root_bound: null,
+        lib_dir_bound: null,
+      },
+    },
+  },
+};
+
+const SOURCE_BUILD_ALLOWED_AMBIENT_NAMES = [
+  "ALL_PROXY",
+  "HTTP_PROXY",
+  "HTTPS_PROXY",
+  "NODE_EXTRA_CA_CERTS",
+  "NO_PROXY",
+  "SSL_CERT_DIR",
+  "SSL_CERT_FILE",
+  "SystemRoot",
+  "WINDIR",
+  "all_proxy",
+  "http_proxy",
+  "https_proxy",
+  "no_proxy",
+];
+
 const ASSERTION_SCHEMA = { name: null, result: null, duration_ms: null };
 const OPERATOR_HOST_SCHEMA = {
   role: null,
@@ -522,7 +579,10 @@ function rejectSecretBearingEvidence(value, path) {
 }
 
 function validateClosedEvidenceSchema(manifest, relativePath) {
-  closedSchema(manifest, CERTIFYING_NETWORK_SCHEMA, relativePath);
+  const schema = manifest?.schema === 2
+    ? CERTIFYING_NETWORK_SCHEMA_V2
+    : CERTIFYING_NETWORK_SCHEMA_V1;
+  closedSchema(manifest, schema, relativePath);
   for (const [index, assertion] of manifest.assertions.entries()) {
     closedSchema(assertion, ASSERTION_SCHEMA, `${relativePath}.assertions[${index}]`);
   }
@@ -668,12 +728,15 @@ export function validateNetworkEvidenceManifest(manifest, {
   }
   rejectSecretBearingEvidence(manifest, relativePath);
   validateClosedEvidenceSchema(manifest, relativePath);
-  if (manifest?.schema !== 1
+  if (![1, 2].includes(manifest?.schema)
       || manifest.result !== "pass"
       || typeof manifest.certifiable !== "boolean") {
-    fail(`${relativePath} is not a passing certifiable schema-1 run`);
+    fail(`${relativePath} is not a passing evidence schema-1 or schema-2 run`);
   }
   const certifying = manifest.certifiable === true;
+  if (certifying && manifest.schema !== 2) {
+    fail(`${relativePath} certifying evidence requires the isolated-build schema 2`);
+  }
   if (manifest.expected_path !== expectedPath) {
     fail(`${relativePath} expected_path is not ${expectedPath}`);
   }
@@ -727,13 +790,24 @@ export function validateNetworkEvidenceManifest(manifest, {
     ? ["embed-ui", "relay-only-test"]
     : ["embed-ui"];
   const featureArgument = expectedFeatures.join(",");
-  const expectedBuildCommands = [
+  const expectedBuildCommandsV1 = [
     `git archive ${candidateCommit}`,
     "npm ci",
     "npm run build",
     `cargo +1.91.0 build --locked --release -p jeliyad --features ${featureArgument}`,
     `cargo +1.91.0 zigbuild --locked --release -p jeliyad --features ${featureArgument} --target x86_64-unknown-linux-musl`,
   ];
+  const expectedBuildCommandsV2 = [
+    "git clone --bare --no-local <candidate repository>",
+    `git archive ${candidateCommit}`,
+    "node <recorded npm-cli> ci",
+    "node <recorded npm-cli> run build",
+    `cargo build --locked --release -p jeliyad --features ${featureArgument}`,
+    `cargo-zigbuild zigbuild --locked --release -p jeliyad --features ${featureArgument} --target x86_64-unknown-linux-musl`,
+  ];
+  const expectedBuildCommands = manifest.schema === 2
+    ? expectedBuildCommandsV2
+    : expectedBuildCommandsV1;
   if (manifest.build?.mode !== "from-source"
       || manifest.build?.source_bound !== true
       || manifest.build?.source_snapshot_commit !== candidateCommit
@@ -746,6 +820,27 @@ export function validateNetworkEvidenceManifest(manifest, {
       || JSON.stringify(manifest.build?.commands) !== JSON.stringify(expectedBuildCommands)) {
     fail(`${relativePath} was not built source-bound with the lockfile`);
   }
+  if (manifest.schema === 2) {
+    const environment = manifest.build?.environment;
+    const inheritedNames = environment?.inherited_names;
+    const inheritedNamesValid = Array.isArray(inheritedNames)
+      && JSON.stringify(inheritedNames)
+        === JSON.stringify(SOURCE_BUILD_ALLOWED_AMBIENT_NAMES.filter(
+          (name) => inheritedNames.includes(name),
+        ));
+    if (environment?.policy !== "isolated-allowlist-v1"
+        || JSON.stringify(environment?.allowed_names)
+          !== JSON.stringify(SOURCE_BUILD_ALLOWED_AMBIENT_NAMES)
+        || !inheritedNamesValid
+        || environment?.isolated_home !== true
+        || environment?.isolated_cargo_home !== true
+        || environment?.isolated_temp !== true
+        || environment?.controlled_path !== true
+        || environment?.ambient_build_controls_rejected !== true
+        || environment?.unlisted_ambient_removed !== true) {
+      fail(`${relativePath} lacks the required isolated source-build environment`);
+    }
+  }
   const toolchain = manifest.build.toolchain;
   const toolDigestValid = (tool) => /^[0-9a-f]{64}$/.test(tool?.sha256 ?? "");
   const expectedRustcVersion = [
@@ -757,6 +852,36 @@ export function validateNetworkEvidenceManifest(manifest, {
     "release: 1.91.0",
     "LLVM version: 21.1.2",
   ].join("\n");
+  if (manifest.schema === 2 && (
+    toolchain.identity_policy
+      !== "tools execute by resolved absolute path; evidence records filename, version, and observed SHA-256; the complete Zig installation archive is independently digest-verified"
+      || JSON.stringify(toolchain.independently_verified)
+        !== JSON.stringify(["zig-installation-archive"])
+      || toolchain.execution_binding
+        !== "npm is executed by the recorded Node binary; cargo-zigbuild is invoked directly with recorded Cargo and Zig paths; Python ziglang discovery is disabled"
+      || toolchain.rustup.filename !== "rustup"
+      || !/^rustup 1\.\d+\.\d+ \([0-9a-f]+ \d{4}-\d{2}-\d{2}\)$/.test(toolchain.rustup.version)
+      || !toolDigestValid(toolchain.rustup)
+      || toolchain.git.filename !== "git"
+      || !/^git version \d+\.\d+(?:\.\d+)*(?: .+)?$/.test(toolchain.git.version)
+      || !toolDigestValid(toolchain.git)
+      || toolchain.tar.filename !== "tar"
+      || typeof toolchain.tar.version !== "string"
+      || toolchain.tar.version.length < 3
+      || toolchain.tar.version.length > 1_024
+      || !toolDigestValid(toolchain.tar)
+      || toolchain.zig.filename !== "zig"
+      || toolchain.zig.version !== "0.15.2"
+      || !toolDigestValid(toolchain.zig)
+      || toolchain.zig.archive_sha256
+        !== "375b6909fc1495d16fc2c7db9538f707456bfc3373b14ee83fdd3e22b3d43f7f"
+      || toolchain.zig.expected_archive_sha256 !== toolchain.zig.archive_sha256
+      || toolchain.zig.archive_integrity_verified !== true
+      || toolchain.zig.installation_root_bound !== true
+      || toolchain.zig.lib_dir_bound !== true
+  )) {
+    fail(`${relativePath} lacks the pinned and fully identified release toolchain`);
+  }
   if (toolchain.rustc.filename !== "rustc"
       || toolchain.rustc.version !== expectedRustcVersion
       || !toolDigestValid(toolchain.rustc)
@@ -769,17 +894,19 @@ export function validateNetworkEvidenceManifest(manifest, {
       || toolchain.npm.filename !== "npm"
       || toolchain.npm.version !== "10.9.8"
       || !toolDigestValid(toolchain.npm)
-      || toolchain.zig.filename !== "zig"
-      || toolchain.zig.version !== "0.15.2"
-      || !toolDigestValid(toolchain.zig)
-      || toolchain.zig.sha256 !== toolchain.zig.expected_sha256
-      || toolchain.zig.integrity_verified !== true
+      || (manifest.schema === 1 && (
+        toolchain.zig.filename !== "zig"
+        || toolchain.zig.version !== "0.15.2"
+        || !toolDigestValid(toolchain.zig)
+        || toolchain.zig.sha256 !== toolchain.zig.expected_sha256
+        || toolchain.zig.integrity_verified !== true
+      ))
       || toolchain.cargo_zigbuild.filename !== "cargo-zigbuild"
       || toolchain.cargo_zigbuild.version !== "cargo-zigbuild 0.23.0"
       || !toolDigestValid(toolchain.cargo_zigbuild)
       || toolchain.cargo_build_jobs !== 2
       || toolchain.installed_cross_target !== "x86_64-unknown-linux-musl") {
-    fail(`${relativePath} lacks the exact verified release toolchain`);
+    fail(`${relativePath} lacks the pinned and fully identified release toolchain`);
   }
   const topology = manifest.distinct_public_egress;
   const pairwise = topology?.pairwise;
@@ -937,7 +1064,7 @@ export function validateNetworkEvidenceManifest(manifest, {
     fail(`${relativePath} binary versions or direct-build attestations are inconsistent`);
   }
   if (!certifying) {
-    fail(`${relativePath} is not a passing certifiable schema-1 run`);
+    fail(`${relativePath} is not a passing certifying run`);
   }
   return { valid: true };
 }

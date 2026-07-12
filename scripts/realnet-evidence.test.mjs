@@ -9,21 +9,25 @@ import {
   readFileSync,
   readdirSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, delimiter, join } from "node:path";
 import { PassThrough } from "node:stream";
 import { afterEach, test } from "node:test";
 
 import {
   assertEvidenceContainsNoSecrets,
   attachLogCollectors,
+  bindSourceBuildTools,
   certificationEligible,
   classifyNetworks,
   commitPublishedAtOrigin,
+  createIsolatedSourceArchive,
   dependencyIdentity,
   isPublicGitSource,
+  installVerifiedZig,
   parseExpectedSha256,
   parseCli,
   parseRelayBuildAttestation,
@@ -38,16 +42,23 @@ import {
   remoteDaemonCommand,
   remoteOwnedDirectoryCleanupCommand,
   remoteRunDir,
+  resolveExecutableFromPath,
   joinRoomWithRetries,
   seedForeignIsolationFixture,
+  SOURCE_BUILD_ALLOWED_AMBIENT_NAMES,
+  SOURCE_BUILD_ENVIRONMENT_POLICY,
+  sourceBuildEnvironment,
   summarizeLogCollector,
   topologyClaim,
+  validateSourceBuildToolVersions,
   parseRemoteBinaryVerification,
   validBuildDirectory,
   validRunId,
   validSshTarget,
+  validateZigInstallationBinding,
   waitForLogCollectors,
   waitForReady,
+  zigArchiveMembersValid,
 } from "./realnet-evidence.mjs";
 
 const temporary = [];
@@ -243,22 +254,54 @@ test("certifying remote mode requires two distinct SSH targets", () => {
   assert.equal(config.thirdRemote, "user@stargate-03");
 });
 
-test("source-build mode rejects ambiguous binaries and requires Zig integrity input", () => {
+test("source-build mode rejects ambiguous binaries and requires a verified Zig archive", () => {
   const remote = ["--remote", "user@kilo", "--third-remote", "user@stargate-03"];
   assert.throws(() => parseCli([...remote, "--build-from-source"]));
   assert.throws(() => parseCli([
     ...remote,
     "--build-from-source",
     "--zig-sha256", "ab".repeat(32),
+  ]), /cannot authenticate Zig's external installation resources/);
+  assert.throws(() => parseCli([
+    ...remote,
+    "--build-from-source",
+    "--zig-archive", "/tmp/zig.tar.xz",
+    "--zig-archive-sha256", "ab".repeat(32),
     "--linux-bin", "/tmp/jeliyad",
   ]));
   const config = parseCli([
     ...remote,
     "--build-from-source",
-    "--zig-sha256", "ab".repeat(32),
+    "--zig-archive", "/tmp/zig.tar.xz",
+    "--zig-archive-sha256", "ab".repeat(32),
   ]);
   assert.equal(config.buildFromSource, true);
   assert.equal(config.linuxBin, null);
+  assert.equal(config.zigArchive, "/tmp/zig.tar.xz");
+});
+
+test("certifying source builds fail fast on every pinned tool version", () => {
+  const exact = {
+    rustcVersion: "rustc 1.91.0 (f8297e351 2025-10-28)\nbinary: rustc",
+    cargoVersion: "cargo 1.91.0 (ea2d97820 2025-10-10)",
+    nodeVersion: "v22.22.3",
+    npmVersion: "10.9.8",
+    cargoZigbuildVersion: "cargo-zigbuild 0.23.0",
+  };
+  assert.doesNotThrow(() => validateSourceBuildToolVersions(exact));
+  for (const [name, value, expected] of [
+    ["rustcVersion", "rustc 1.92.0", /rustc 1\.91\.0 is required/],
+    ["cargoVersion", "cargo 1.92.0", /cargo 1\.91\.0 is required/],
+    ["nodeVersion", "v22.22.2", /Node v22\.22\.3 is required/],
+    ["npmVersion", "10.9.7", /npm 10\.9\.8 is required/],
+    ["cargoZigbuildVersion", "cargo-zigbuild 0.22.1", /cargo-zigbuild 0\.23\.0 is required/],
+  ]) {
+    assert.throws(
+      () => validateSourceBuildToolVersions({ ...exact, [name]: value }),
+      expected,
+      name,
+    );
+  }
 });
 
 test("local dependency sources and build directories are never release provenance", () => {
@@ -273,6 +316,276 @@ test("local dependency sources and build directories are never release provenanc
   const runId = "20260712T120000Z-0123abcd";
   assert.equal(validBuildDirectory(join(tmpdir(), `jeliya-v050-${runId}-build-abc123`), runId), true);
   assert.equal(validBuildDirectory("/tmp/unrelated", runId), false);
+});
+
+test("certifying source builds use an isolated allowlisted environment", () => {
+  const root = mkdtempSync(join(tmpdir(), "jeliya-source-build-env-"));
+  temporary.push(root);
+  const cargoTargetDir = join(root, "target");
+  const rustcPath = join(root, "tools", "rustc");
+  const cargoPath = join(root, "tools", "cargo");
+  const source = {
+    PATH: "/untrusted/bin",
+    HOME: "/untrusted/home",
+    CARGO_HOME: "/untrusted/cargo",
+    UNRELATED_VALUE: "must-not-reach-build",
+    CI_REGISTRY_PASSWORD: "must-not-reach-build-either",
+    SSH_AUTH_SOCK: "/private/tmp/agent.sock",
+    HTTPS_PROXY: "https://proxy.example.test:8443",
+    NO_PROXY: "localhost,.example.test",
+    SSL_CERT_FILE: "/etc/ssl/cert.pem",
+  };
+  const result = sourceBuildEnvironment(source, {
+    targetDir: root,
+    cargoTargetDir,
+    rustcPath,
+    toolPaths: [rustcPath, cargoPath],
+  });
+
+  assert.equal(result.evidence.policy, SOURCE_BUILD_ENVIRONMENT_POLICY);
+  assert.deepEqual(
+    result.evidence.allowed_names,
+    [...SOURCE_BUILD_ALLOWED_AMBIENT_NAMES],
+  );
+  assert.deepEqual(
+    result.evidence.inherited_names,
+    ["HTTPS_PROXY", "NO_PROXY", "SSL_CERT_FILE"],
+  );
+  assert.equal(result.env.HTTPS_PROXY, source.HTTPS_PROXY);
+  assert.equal(result.env.NO_PROXY, source.NO_PROXY);
+  assert.equal(result.env.SSL_CERT_FILE, source.SSL_CERT_FILE);
+  assert.equal(result.env.UNRELATED_VALUE, undefined);
+  assert.equal(result.env.CI_REGISTRY_PASSWORD, undefined);
+  assert.equal(result.env.SSH_AUTH_SOCK, undefined);
+  assert.equal(result.env.HOME, join(root, "home"));
+  assert.equal(result.env.CARGO_HOME, join(root, "cargo-home"));
+  assert.equal(result.env.CARGO_TARGET_DIR, cargoTargetDir);
+  assert.equal(result.env.RUSTC, rustcPath);
+  assert.equal(result.env.TMPDIR, join(root, "tmp"));
+  assert.doesNotMatch(result.env.PATH, /untrusted/);
+  assert.match(result.env.PATH, new RegExp(join(root, "tools").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+});
+
+test("executable discovery ignores ambient Windows extension overrides", () => {
+  const root = mkdtempSync(join(tmpdir(), "jeliya-tool-path-"));
+  temporary.push(root);
+  const executable = join(root, "tool.EXE");
+  writeFileSync(executable, "#!/bin/sh\nexit 0\n", { mode: 0o700 });
+  chmodSync(executable, 0o700);
+  const resolved = resolveExecutableFromPath(
+    "tool",
+    { PATH: root, PATHEXT: ".\\..\\..\\EVIL" },
+    "win32",
+  );
+  assert.equal(basename(resolved), "tool.EXE");
+});
+
+test("absolute build bindings defeat symlinked PATH duplicate substitution", () => {
+  const root = mkdtempSync(join(tmpdir(), "jeliya-tool-order-"));
+  temporary.push(root);
+  const first = join(root, "first");
+  const second = join(root, "second");
+  const zigReal = join(root, "zig-real");
+  const nodeReal = join(root, "node-real");
+  for (const directory of [first, second, zigReal, nodeReal]) mkdirSync(directory);
+  for (const path of [
+    join(zigReal, "zig"),
+    join(nodeReal, "node"),
+    join(nodeReal, "zig"),
+    join(nodeReal, "npm-cli.js"),
+    join(nodeReal, "cargo"),
+    join(nodeReal, "python3"),
+  ]) {
+    writeFileSync(path, "#!/bin/sh\nexit 0\n", { mode: 0o700 });
+    chmodSync(path, 0o700);
+  }
+  symlinkSync(join(zigReal, "zig"), join(first, "zig"));
+  symlinkSync(join(nodeReal, "node"), join(second, "node"));
+  const discoveredZig = resolveExecutableFromPath(
+    "zig",
+    { PATH: [first, second].join(delimiter) },
+  );
+  const result = sourceBuildEnvironment(
+    { PATH: [first, second].join(delimiter) },
+    {
+      targetDir: root,
+      cargoTargetDir: join(root, "target"),
+      rustcPath: join(nodeReal, "cargo"),
+      toolPaths: [join(nodeReal, "node"), join(nodeReal, "cargo")],
+    },
+  );
+  // PATH now contains a different `zig` in node-real before any system tool.
+  assert.notEqual(resolveExecutableFromPath("zig", result.env), discoveredZig);
+  bindSourceBuildTools(result.env, {
+    nodePath: join(nodeReal, "node"),
+    npmPath: join(nodeReal, "npm-cli.js"),
+    cargoPath: join(nodeReal, "cargo"),
+    zigPath: discoveredZig,
+  });
+  assert.equal(result.env.CARGO_ZIGBUILD_ZIG_PATH, discoveredZig);
+  assert.equal(
+    result.env.CARGO_ZIGBUILD_PYTHON_PATH,
+    "/dev/null/jeliya-python-zig-discovery-disabled",
+  );
+  if (process.platform !== "win32") {
+    assert.throws(
+      () => writeFileSync(result.env.CARGO_ZIGBUILD_PYTHON_PATH, "cannot exist"),
+      /ENOTDIR|not a directory/i,
+    );
+  }
+  assert.equal(result.env.NODE, join(nodeReal, "node"));
+});
+
+test("certifying source builds reject ambient controls by name only", () => {
+  const root = mkdtempSync(join(tmpdir(), "jeliya-source-build-reject-"));
+  temporary.push(root);
+  const options = {
+    targetDir: root,
+    cargoTargetDir: join(root, "target"),
+    rustcPath: join(root, "tools", "rustc"),
+    toolPaths: [join(root, "tools", "cargo")],
+  };
+  for (const name of [
+    "RUSTFLAGS",
+    "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER",
+    "CC_x86_64_unknown_linux_musl",
+    "NODE_OPTIONS",
+    "npm_config_registry",
+    "GIT_CONFIG_COUNT",
+  ]) {
+    const secret = "opaque-secret-value";
+    assert.throws(
+      () => sourceBuildEnvironment({ [name]: secret }, options),
+      (error) => error.message.includes(name) && !error.message.includes(secret),
+      name,
+    );
+  }
+  assert.throws(
+    () => sourceBuildEnvironment({ HTTPS_PROXY: "https://user:password@proxy.example" }, options),
+    /unsafe HTTPS_PROXY/,
+  );
+  for (const value of [
+    "https://proxy.example/?token=secret",
+    "https://proxy.example/path",
+    "file:///tmp/proxy",
+  ]) {
+    assert.throws(
+      () => sourceBuildEnvironment({ HTTPS_PROXY: value }, options),
+      /unsafe HTTPS_PROXY/,
+    );
+  }
+});
+
+test("source archives ignore checkout-local attributes and bind the committed tree", () => {
+  const repository = mkdtempSync(join(tmpdir(), "jeliya-archive-source-"));
+  const target = mkdtempSync(join(tmpdir(), "jeliya-archive-target-"));
+  temporary.push(repository, target);
+  execFileSync("git", ["init", "-q"], { cwd: repository });
+  writeFileSync(join(repository, "bound.txt"), "committed bytes\n");
+  execFileSync("git", ["add", "bound.txt"], { cwd: repository });
+  execFileSync("git", [
+    "-c", "user.name=Jeliya Test",
+    "-c", "user.email=test@localhost",
+    "-c", "core.hooksPath=/dev/null",
+    "commit", "-qm", "candidate",
+  ], { cwd: repository });
+  mkdirSync(join(repository, ".git", "info"), { recursive: true });
+  writeFileSync(join(repository, ".git", "info", "attributes"), "bound.txt export-ignore\n");
+
+  const sourceCommit = execFileSync(
+    "git",
+    ["rev-parse", "HEAD"],
+    { cwd: repository, encoding: "utf8" },
+  ).trim();
+  const gitPath = execFileSync("which", ["git"], { encoding: "utf8" }).trim();
+  const attributesFile = join(target, "empty-attributes");
+  writeFileSync(attributesFile, "");
+  const archive = createIsolatedSourceArchive({
+    gitPath,
+    gitEnv: {
+      PATH: process.env.PATH,
+      HOME: target,
+      GIT_CONFIG_GLOBAL: attributesFile,
+      GIT_CONFIG_NOSYSTEM: "1",
+      GIT_ATTR_NOSYSTEM: "1",
+      GIT_TERMINAL_PROMPT: "0",
+      LC_ALL: "C",
+      LANG: "C",
+    },
+    repositoryRoot: repository,
+    targetDir: target,
+    sourceCommit,
+    attributesFile,
+  });
+  const extracted = join(target, "extracted");
+  mkdirSync(extracted);
+  execFileSync("tar", ["-xf", archive, "-C", extracted]);
+  assert.equal(readFileSync(join(extracted, "bound.txt"), "utf8"), "committed bytes\n");
+});
+
+test("Zig archive verification fails before extraction on a digest mismatch", () => {
+  const root = mkdtempSync(join(tmpdir(), "jeliya-zig-digest-"));
+  temporary.push(root);
+  const archive = join(root, "untrusted.tar.xz");
+  writeFileSync(archive, "not the reviewed Zig archive");
+  assert.throws(() => installVerifiedZig({
+    archivePath: archive,
+    expectedArchiveSha256: "375b6909fc1495d16fc2c7db9538f707456bfc3373b14ee83fdd3e22b3d43f7f",
+    targetDir: root,
+    tarPath: join(root, "tar-must-not-run"),
+    env: {},
+  }), /does not match the reviewed SHA-256/);
+  assert.equal(existsSync(join(root, "zig-installation")), false);
+});
+
+test("Zig archive layout and installation roots fail closed", () => {
+  assert.equal(zigArchiveMembersValid([
+    "zig-x86_64-macos-0.15.2/",
+    "zig-x86_64-macos-0.15.2/zig",
+    "zig-x86_64-macos-0.15.2/lib/zig/std/std.zig",
+  ]), true);
+  for (const members of [
+    ["other-root/zig"],
+    ["zig-x86_64-macos-0.15.2/../../outside"],
+    ["zig-x86_64-macos-0.15.2\\outside"],
+  ]) {
+    assert.equal(zigArchiveMembersValid(members), false);
+  }
+
+  const root = mkdtempSync(join(tmpdir(), "jeliya-zig-root-"));
+  const outside = mkdtempSync(join(tmpdir(), "jeliya-zig-outside-"));
+  temporary.push(root, outside);
+  const executable = join(root, "zig");
+  const library = join(root, "lib", "zig");
+  writeFileSync(executable, "verified executable", { mode: 0o700 });
+  mkdirSync(library, { recursive: true });
+  const binding = validateZigInstallationBinding({
+    installationRoot: root,
+    executablePath: executable,
+    reportedExecutable: executable,
+    libDir: library,
+    version: "0.15.2",
+  });
+  assert.equal(basename(binding.executable), "zig");
+  assert.equal(basename(binding.libDir), "zig");
+  assert.throws(() => validateZigInstallationBinding({
+    installationRoot: root,
+    executablePath: executable,
+    reportedExecutable: executable,
+    libDir: outside,
+    version: "0.15.2",
+  }), /root-bound 0.15.2 installation/);
+  const externalExecutable = join(outside, "zig");
+  writeFileSync(externalExecutable, "external executable", { mode: 0o700 });
+  const linkedExecutable = join(root, "zig-link");
+  symlinkSync(externalExecutable, linkedExecutable);
+  assert.throws(() => validateZigInstallationBinding({
+    installationRoot: root,
+    executablePath: linkedExecutable,
+    reportedExecutable: externalExecutable,
+    libDir: library,
+    version: "0.15.2",
+  }), /root-bound 0.15.2 installation/);
 });
 
 test("local git dependency URLs record their exact checkout but remain non-releaseable", () => {
