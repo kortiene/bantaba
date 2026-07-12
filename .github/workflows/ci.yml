@@ -9,6 +9,9 @@ on:
     branches:
       - main
   pull_request:
+  # Maintainers can run the same complete matrix twice on one immutable SHA
+  # without entering the write-capable release workflow.
+  workflow_dispatch:
   workflow_call:
 
 permissions:
@@ -84,6 +87,12 @@ jobs:
         with:
           node-version: '22.22.3'
 
+      - name: Setup Java
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
+        with:
+          distribution: temurin
+          java-version: '17'
+
       - name: Setup Flutter
         uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
         with:
@@ -105,11 +114,29 @@ jobs:
           flutter test
           node ../scripts/i18n-gate.mjs
 
+      - name: Install verified Gradle
+        env:
+          GRADLE_VERSION: '8.14'
+          GRADLE_DISTRIBUTION_SHA256: 61ad310d3c7d3e5da131b76bbf22b5a4c0786e9d892dae8c1658d4b484de3caa
+        run: |
+          set -euo pipefail
+          archive="gradle-${GRADLE_VERSION}-bin.zip"
+          curl --proto '=https' --tlsv1.2 --fail --location \
+            --retry 3 --retry-all-errors \
+            "https://services.gradle.org/distributions/$archive" \
+            --output "$RUNNER_TEMP/$archive"
+          printf '%s  %s\n' \
+            "$GRADLE_DISTRIBUTION_SHA256" \
+            "$RUNNER_TEMP/$archive" | sha256sum -c -
+          unzip -q "$RUNNER_TEMP/$archive" -d "$RUNNER_TEMP"
+          printf '%s\n' "$RUNNER_TEMP/gradle-$GRADLE_VERSION/bin" >> "$GITHUB_PATH"
+
       - name: Compile Android protected-storage bridge
         working-directory: app
         run: |
           set -euo pipefail
-          ./android/gradlew -p android \
+          command -v gradle >/dev/null
+          gradle -p android \
             :app:compileDebugKotlin \
             :app:processDebugMainManifest \
             --no-daemon
