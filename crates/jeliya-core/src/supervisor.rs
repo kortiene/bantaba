@@ -19,6 +19,8 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+#[cfg(test)]
+use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex as StdMutex, MutexGuard};
 use std::time::Duration;
@@ -170,6 +172,8 @@ pub struct RoomSupervisor {
     /// maintains the same fold incrementally (`Node::snapshot`), so the cache
     /// can never go stale against a growing open room.
     snapshot_cache: StdMutex<HashMap<RoomId, (u64, MembershipSnapshot)>>,
+    #[cfg(test)]
+    fold_invocations: AtomicUsize,
 }
 
 fn internal(context: &str, err: impl std::fmt::Display) -> CoreError {
@@ -193,6 +197,8 @@ impl RoomSupervisor {
             sessions: StdMutex::new(HashMap::new()),
             structural: TokioMutex::new(()),
             snapshot_cache: StdMutex::new(HashMap::new()),
+            #[cfg(test)]
+            fold_invocations: AtomicUsize::new(0),
         })
     }
 
@@ -348,6 +354,8 @@ impl RoomSupervisor {
         store: &EventStore,
         room_id: &RoomId,
     ) -> CoreResult<(RoomMembership, MembershipSnapshot)> {
+        #[cfg(test)]
+        self.fold_invocations.fetch_add(1, Ordering::Relaxed);
         let ids = store
             .room_event_ids(room_id)
             .map_err(|e| internal("could not read room events", e))?;
@@ -375,6 +383,11 @@ impl RoomSupervisor {
         let membership = RoomMembership::from_events(*room_id, validated);
         let snapshot = membership.snapshot();
         Ok((membership, snapshot))
+    }
+
+    #[cfg(test)]
+    fn fold_invocation_count(&self) -> usize {
+        self.fold_invocations.load(Ordering::Relaxed)
     }
 
     /// A room's current [`MembershipSnapshot`] — byte-for-byte the SAME
@@ -482,11 +495,12 @@ impl RoomSupervisor {
 
     /// Cheap prefilter backed by the daemon-local accepted-room index.
     ///
-    /// `remember_room` is written only after local room creation or a
-    /// successfully accepted join. Sync alone never adds an entry. This lets
-    /// us reject a foreign room before folding or decoding any of its shared
-    /// store rows; the membership snapshot remains the authoritative second
-    /// check, so a corrupt/tampered local index cannot grant access.
+    /// Local provenance is written before `room.created` becomes durable, or
+    /// after a proposed join passes its local fold but before `member.joined`
+    /// is published. Sync alone never adds an entry. This lets us reject a
+    /// foreign room before folding or decoding any of its shared store rows;
+    /// the membership snapshot remains the authoritative second check, so an
+    /// inert or tampered index entry cannot grant access.
     fn require_locally_known_room(&self, room_id: &RoomId) -> CoreResult<()> {
         let known = localstate::load(&self.data_dir)?
             .rooms
@@ -845,25 +859,25 @@ impl RoomSupervisor {
                 },
             )?;
 
+        // Provenance is the first durable mutation. If state.json cannot be
+        // updated, no genesis is committed that the public read guard would
+        // later hide. A later SQLite failure can leave only an inert index
+        // entry; the authoritative membership/device-binding check still
+        // denies it and room.list skips it.
+        localstate::remember_room(&self.data_dir, &room_id.to_string(), Some(name))?;
         let mut store = self.open_store()?;
         store
             .insert(&validated)
             .map_err(|e| internal("could not persist the room genesis", e))?;
-        localstate::remember_room(&self.data_dir, &room_id.to_string(), Some(name))?;
         Ok(room_id.to_string())
     }
 
     /// `room.list`: every locally known room with name/role/member count/open.
     pub async fn list_rooms(&self) -> CoreResult<Vec<Value>> {
+        let self_key = self.local_identity_key()?;
         if !self.db_path().exists() {
             return Ok(Vec::new());
         }
-        let self_key = crate::identity::load_profile(&self.data_dir)?
-            .map(|p| p.identity_id)
-            .and_then(|id| id.parse::<IdentityKey>().ok());
-        let Some(self_key) = self_key else {
-            return Ok(Vec::new());
-        };
         // Enumerate only the daemon-local accepted-room index. Sync can place
         // foreign rows in the shared store, but it cannot add an index entry;
         // therefore even a membership fold is delayed until local provenance
@@ -1398,17 +1412,12 @@ impl RoomSupervisor {
         }
 
         let outcome = self
-            .bootstrap_and_join(&node, &secret, &ticket, display_name)
+            .bootstrap_and_join(&node, &secret, &ticket, display_name, peers)
             .await;
         let shutdown = node.shutdown().await;
         let joined = outcome?;
         shutdown.map_err(|e| internal("could not shut the join node down", e))?;
 
-        // Local room index: the join-time name override wins; else the pulled
-        // genesis name resolves on read. The supplied peer addresses persist
-        // as the room's dial hints so `room.open` can reach the inviter.
-        localstate::remember_room(&self.data_dir, &room_id.to_string(), display_name)?;
-        localstate::add_peer_hints(&self.data_dir, &room_id.to_string(), peers)?;
         Ok(joined.to_string())
     }
 
@@ -1420,6 +1429,7 @@ impl RoomSupervisor {
         secret: &SecretKeys,
         ticket: &RoomInviteTicket,
         display_name: Option<&str>,
+        peers: &[String],
     ) -> CoreResult<RoomId> {
         let room_id = ticket.room_id;
         let self_id = secret.identity.identity_key();
@@ -1494,6 +1504,19 @@ impl RoomSupervisor {
                 }
             }
         }
+
+        // The proposed member.joined is now locally accepted, but has not been
+        // published. Persist room provenance, display name, and dial hints in
+        // one state transaction at this exact boundary. If the write fails the
+        // invite remains redeemable; bootstrap may have stored genesis/invite
+        // rows, but no device-bound membership exists and every public read
+        // remains default-denied.
+        localstate::remember_room_with_peer_hints(
+            &self.data_dir,
+            &room_id.to_string(),
+            display_name,
+            peers,
+        )?;
 
         node.publish(wire.to_bytes())
             .await
@@ -1969,23 +1992,11 @@ impl RoomSupervisor {
 
     /// A previously verified local copy addressed by protocol identifiers, never
     /// by a browser-supplied filesystem path.
-    pub fn local_file(&self, room_id_str: &str, file_id_str: &str) -> CoreResult<LocalFile> {
+    pub async fn local_file(&self, room_id_str: &str, file_id_str: &str) -> CoreResult<LocalFile> {
         let room_id = parse_room_id(room_id_str)?;
+        self.readable_snapshot(&room_id).await?;
         let file_id = parse_file_id(file_id_str)?;
         let store = self.open_store()?;
-        let self_id = self.local_identity_key()?;
-        let (_, snapshot) = self.fold(&store, &room_id)?;
-        Self::require_local_room_access(&snapshot, &self_id)?;
-        if store
-            .count(&room_id)
-            .map_err(|e| internal("could not count the room's stored events", e))?
-            == 0
-        {
-            return Err(CoreError::new(
-                ErrorKind::RoomUnknown,
-                format!("no room {room_id} in {}", self.data_dir.display()),
-            ));
-        }
         let events = store
             .by_type(&room_id, EventType::FileShared)
             .map_err(|e| internal("could not read file.shared events", e))?;
@@ -2088,23 +2099,10 @@ impl RoomSupervisor {
 
     /// `pipe.list`: the room's pipes from the local log, with open/closed
     /// state and whether this daemon currently forwards or serves them.
-    pub fn pipe_list(&self, room_id_str: &str) -> CoreResult<Vec<Value>> {
+    pub async fn pipe_list(&self, room_id_str: &str) -> CoreResult<Vec<Value>> {
         let room_id = parse_room_id(room_id_str)?;
+        self.readable_snapshot(&room_id).await?;
         let store = self.open_store()?;
-        let self_id = self.local_identity_key()?;
-        let (_, snapshot) = self.fold(&store, &room_id)?;
-        Self::require_local_room_access(&snapshot, &self_id)?;
-        // Authorization and existence were established by the fold above.
-        if store
-            .count(&room_id)
-            .map_err(|e| internal("could not count the room's stored events", e))?
-            == 0
-        {
-            return Err(CoreError::new(
-                ErrorKind::RoomUnknown,
-                format!("no room {room_id} in {}", self.data_dir.display()),
-            ));
-        }
         let profile = crate::identity::load_profile(&self.data_dir)?;
         let session = self.session_opt(&room_id);
 
@@ -2747,32 +2745,18 @@ impl RoomSupervisor {
     /// `identity_id` in `room_id`, chronological — the newest `limit` events
     /// (default 100). The daemon never interpolates, smooths, or fabricates
     /// intermediate points; an identity with no statuses returns `[]`.
-    pub fn agent_history(
+    pub async fn agent_history(
         &self,
         room_id_str: &str,
         identity_hex: &str,
         limit: Option<u32>,
     ) -> CoreResult<Value> {
         let room_id = parse_room_id(room_id_str)?;
+        self.readable_snapshot(&room_id).await?;
         let identity: IdentityKey = identity_hex.trim().parse().map_err(|e| {
             CoreError::invalid(format!("invalid identity_id (expected 64-char hex): {e}"))
         })?;
         let store = self.open_store()?;
-        let self_id = self.local_identity_key()?;
-        let (_, snapshot) = self.fold(&store, &room_id)?;
-        Self::require_local_room_access(&snapshot, &self_id)?;
-        // The history rows decode independently below, but the full fold above
-        // is intentionally the shared read-authorization boundary.
-        if store
-            .count(&room_id)
-            .map_err(|e| internal("could not count the room's stored events", e))?
-            == 0
-        {
-            return Err(CoreError::new(
-                ErrorKind::RoomUnknown,
-                format!("no room {room_id} in {}", self.data_dir.display()),
-            ));
-        }
         let rows = store
             .room_tail(&room_id, u32::MAX)
             .map_err(|e| internal("could not read the timeline", e))?;
@@ -3454,7 +3438,7 @@ mod tests {
 
         // agent.history: one point per real event, chronological; `limit`
         // selects the newest; progress is the event's value or null.
-        let history = sup.agent_history(&room_id, &agent_hex, None).unwrap();
+        let history = sup.agent_history(&room_id, &agent_hex, None).await.unwrap();
         let points = history["points"].as_array().unwrap();
         assert_eq!(points.len(), 2);
         assert_eq!(points[0]["label"], "working");
@@ -3462,7 +3446,10 @@ mod tests {
         assert_eq!(points[0]["ts"], t1);
         assert_eq!(points[1]["label"], "idle");
         assert!(points[1]["progress"].is_null());
-        let limited = sup.agent_history(&room_id, &agent_hex, Some(1)).unwrap();
+        let limited = sup
+            .agent_history(&room_id, &agent_hex, Some(1))
+            .await
+            .unwrap();
         assert_eq!(limited["points"].as_array().unwrap().len(), 1);
         assert_eq!(limited["points"][0]["label"], "idle");
 
@@ -3471,14 +3458,20 @@ mod tests {
             .unwrap()
             .unwrap()
             .identity_id;
-        let empty = sup.agent_history(&room_id, &owner_hex, None).unwrap();
+        let empty = sup.agent_history(&room_id, &owner_hex, None).await.unwrap();
         assert_eq!(empty["points"].as_array().unwrap().len(), 0);
 
         // Error taxonomy: unknown room, malformed identity.
         let unknown = format!("blake3:{}", "ee".repeat(32));
-        let err = sup.agent_history(&unknown, &agent_hex, None).unwrap_err();
+        let err = sup
+            .agent_history(&unknown, &agent_hex, None)
+            .await
+            .unwrap_err();
         assert_eq!(err.kind, ErrorKind::RoomUnknown);
-        let err = sup.agent_history(&room_id, "not-hex", None).unwrap_err();
+        let err = sup
+            .agent_history(&room_id, "not-hex", None)
+            .await
+            .unwrap_err();
         assert_eq!(err.kind, ErrorKind::InvalidParams);
     }
 
@@ -3913,6 +3906,118 @@ mod tests {
         assert_eq!(err.kind, ErrorKind::IdentityMissing);
     }
 
+    #[test]
+    fn create_room_requires_durable_provenance_before_genesis() {
+        let dir = tempdir().unwrap();
+        crate::identity::create(dir.path()).unwrap();
+        let sup = RoomSupervisor::new(dir.path().to_path_buf(), true).unwrap();
+        let state_path = dir.path().join(crate::localstate::STATE_FILE);
+        std::fs::create_dir(&state_path).unwrap();
+
+        let err = sup.create_room("No Partial Room").unwrap_err();
+        assert_eq!(err.kind, ErrorKind::Internal);
+
+        let store = sup.open_store().unwrap();
+        assert!(
+            store.room_ids().unwrap().is_empty(),
+            "a failed provenance write must happen before the genesis becomes durable"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn join_requires_durable_provenance_before_network_mutation() {
+        let owner_dir = tempdir().unwrap();
+        crate::identity::create(owner_dir.path()).unwrap();
+        let owner = RoomSupervisor::new(owner_dir.path().to_path_buf(), true).unwrap();
+        let room_id = owner.create_room("No Partial Join").unwrap();
+        let opened = owner.open_room(&room_id, &[]).await.unwrap();
+        let owner_addr = opened["endpoint"]["addr"].as_str().unwrap().to_owned();
+
+        let member_dir = tempdir().unwrap();
+        let member_profile = crate::identity::create(member_dir.path()).unwrap();
+        let member = RoomSupervisor::new(member_dir.path().to_path_buf(), true).unwrap();
+        let ticket = owner
+            .create_invite(&room_id, &member_profile.identity_id, "member", None)
+            .await
+            .unwrap();
+        let state_path = member_dir.path().join(crate::localstate::STATE_FILE);
+        std::fs::create_dir(&state_path).unwrap();
+
+        let err = member
+            .join_room(&ticket, Some("member"), std::slice::from_ref(&owner_addr))
+            .await
+            .unwrap_err();
+        assert_eq!(err.kind, ErrorKind::Internal);
+
+        let typed: RoomId = room_id.parse().unwrap();
+        let store = member.open_store().unwrap();
+        let (_, snapshot) = member.fold(&store, &typed).unwrap();
+        let local_id: iroh_rooms::identity::IdentityKey =
+            member_profile.identity_id.parse().unwrap();
+        assert!(
+            RoomSupervisor::require_local_room_access(&snapshot, &local_id).is_err(),
+            "a failed provenance write must happen before member.joined is published"
+        );
+        drop(store);
+
+        std::fs::remove_dir(&state_path).unwrap();
+        member
+            .join_room(&ticket, Some("member"), std::slice::from_ref(&owner_addr))
+            .await
+            .expect("the same ticket remains redeemable after the local write is repaired");
+        owner.close_room(&room_id).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn authorized_direct_reads_reuse_the_snapshot_cache() {
+        let dir = tempdir().unwrap();
+        let profile = crate::identity::create(dir.path()).unwrap();
+        let sup = RoomSupervisor::new(dir.path().to_path_buf(), true).unwrap();
+        let room_id = sup.create_room("Cached Reads").unwrap();
+        let typed: RoomId = room_id.parse().unwrap();
+
+        sup.readable_snapshot(&typed).await.unwrap();
+        let warm_count = sup.fold_invocation_count();
+
+        let err = sup
+            .local_file(&room_id, &format!("file_{}", "00".repeat(16)))
+            .await
+            .unwrap_err();
+        assert_eq!(err.kind, ErrorKind::FileUnavailable);
+        assert!(sup.pipe_list(&room_id).await.unwrap().is_empty());
+        assert!(sup
+            .agent_history(&room_id, &profile.identity_id, None)
+            .await
+            .unwrap()["points"]
+            .as_array()
+            .unwrap()
+            .is_empty());
+
+        assert_eq!(
+            sup.fold_invocation_count(),
+            warm_count,
+            "warm authorized reads must not bypass snapshot_cache and re-fold the room"
+        );
+
+        sup.open_room(&room_id, &[]).await.unwrap();
+        let open_count = sup.fold_invocation_count();
+        let _ = sup
+            .local_file(&room_id, &format!("file_{}", "00".repeat(16)))
+            .await
+            .unwrap_err();
+        assert!(sup.pipe_list(&room_id).await.unwrap().is_empty());
+        let _ = sup
+            .agent_history(&room_id, &profile.identity_id, None)
+            .await
+            .unwrap();
+        assert_eq!(
+            sup.fold_invocation_count(),
+            open_count,
+            "open-room reads must use the live node snapshot without a persisted re-fold"
+        );
+        sup.close_room(&room_id).await.unwrap();
+    }
+
     #[tokio::test]
     async fn create_room_then_offline_reads_work() {
         let dir = tempdir().unwrap();
@@ -4069,14 +4174,24 @@ mod tests {
             .await
             .unwrap_err();
         assert_eq!(err.kind, ErrorKind::RoomUnknown);
-        let err = sup.local_file(&room_id, &foreign_file_id).unwrap_err();
+        let direct_read_fold_count = sup.fold_invocation_count();
+        let err = sup
+            .local_file(&room_id, &foreign_file_id)
+            .await
+            .unwrap_err();
         assert_eq!(err.kind, ErrorKind::RoomUnknown);
-        let err = sup.pipe_list(&room_id).unwrap_err();
+        let err = sup.pipe_list(&room_id).await.unwrap_err();
         assert_eq!(err.kind, ErrorKind::RoomUnknown);
         let err = sup
             .agent_history(&room_id, &foreign_agent.identity_key().to_string(), None)
+            .await
             .unwrap_err();
         assert_eq!(err.kind, ErrorKind::RoomUnknown);
+        assert_eq!(
+            sup.fold_invocation_count(),
+            direct_read_fold_count,
+            "foreign-room direct reads must deny from provenance before decoding or folding rows"
+        );
         let err = sup.peers_status(&room_id).await.unwrap_err();
         assert_eq!(err.kind, ErrorKind::RoomUnknown);
 
@@ -4401,7 +4516,10 @@ mod tests {
         assert_eq!(row["local_bytes"], 14);
         assert_eq!(row["local_path"], fetched["path"]);
 
-        let local = member_restarted.local_file(&room_id, &file_id).unwrap();
+        let local = member_restarted
+            .local_file(&room_id, &file_id)
+            .await
+            .unwrap();
         assert_eq!(
             local.path.display().to_string(),
             fetched["path"].as_str().unwrap()

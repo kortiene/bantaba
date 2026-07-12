@@ -305,7 +305,7 @@ impl Engine {
             }
             "pipe.list" => {
                 let p: RoomIdParams = params(raw_params)?;
-                Ok(json!({ "pipes": sup.pipe_list(&p.room_id)? }))
+                Ok(json!({ "pipes": sup.pipe_list(&p.room_id).await? }))
             }
             "pipe.connect" => {
                 let p: PipeIdParams = params(raw_params)?;
@@ -321,7 +321,7 @@ impl Engine {
             "agents.fleet" => sup.agents_fleet().await,
             "agent.history" => {
                 let p: AgentHistoryParams = params(raw_params)?;
-                sup.agent_history(&p.room_id, &p.identity_id, p.limit)
+                sup.agent_history(&p.room_id, &p.identity_id, p.limit).await
             }
 
             // ---- Peers ----------------------------------------------------------
@@ -748,5 +748,17 @@ mod tests {
         assert_eq!(status["identity"], Value::Null);
         assert_eq!(status["endpoint"], Value::Null);
         assert_eq!(status["rooms_open"], json!([]));
+    }
+
+    #[tokio::test]
+    async fn room_list_requires_the_local_identity() {
+        let dir = TempDir::new().expect("tempdir");
+        let engine = test_engine(&dir);
+
+        let err = engine
+            .dispatch("room.list", json!({}))
+            .await
+            .expect_err("room.list must not disagree with the protocol mocks");
+        assert_eq!(err.kind, ErrorKind::IdentityMissing);
     }
 }

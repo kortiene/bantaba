@@ -12,6 +12,7 @@
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 use crate::error::{CoreError, CoreResult};
 use crate::identity::ensure_dir;
@@ -20,6 +21,15 @@ use crate::identity::ensure_dir;
 pub const STATE_FILE: &str = "state.json";
 /// On-disk format version.
 const STATE_VERSION: u32 = 1;
+
+/// Serialize the process-local read/modify/write transaction over `state.json`.
+///
+/// The daemon is single-instance per data directory, but it serves concurrent
+/// RPCs. Atomic rename protects readers from partial JSON; it does not prevent
+/// two writers from loading the same old state and then overwriting one
+/// another. Every mutation crosses this lock so accepted-room provenance,
+/// peer hints, and fetched-file records cannot be lost by a concurrent write.
+static STATE_WRITE_LOCK: Mutex<()> = Mutex::new(());
 
 /// Daemon-local metadata for one known room.
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
@@ -84,7 +94,7 @@ pub fn load(data_dir: &Path) -> CoreResult<LocalState> {
 
 /// Persist the local state (write temp + rename, so a crash never leaves a
 /// half-written file).
-pub fn save(data_dir: &Path, state: &LocalState) -> CoreResult<()> {
+fn save(data_dir: &Path, state: &LocalState) -> CoreResult<()> {
     ensure_dir(data_dir)?;
     let path = data_dir.join(STATE_FILE);
     let tmp = data_dir.join(format!("{STATE_FILE}.tmp"));
@@ -95,20 +105,59 @@ pub fn save(data_dir: &Path, state: &LocalState) -> CoreResult<()> {
         .map_err(|e| CoreError::internal(format!("could not write {}: {e}", path.display())))
 }
 
-/// Record a room in the known-rooms index (optionally with a local name).
-/// Idempotent; an existing local name is kept unless `name` is `Some`.
-pub fn remember_room(data_dir: &Path, room_id: &str, name: Option<&str>) -> CoreResult<()> {
+fn update(data_dir: &Path, mutation: impl FnOnce(&mut LocalState)) -> CoreResult<()> {
+    let _guard = STATE_WRITE_LOCK
+        .lock()
+        .map_err(|_| CoreError::internal("state.json write lock is poisoned"))?;
     let mut state = load(data_dir)?;
-    let entry = state.rooms.entry(room_id.to_owned()).or_insert(RoomMeta {
+    mutation(&mut state);
+    save(data_dir, &state)
+}
+
+fn room_entry<'a>(state: &'a mut LocalState, room_id: &str) -> &'a mut RoomMeta {
+    state.rooms.entry(room_id.to_owned()).or_insert(RoomMeta {
         name: None,
         added_at_ms: crate::now_ms(),
         peer_hints: Vec::new(),
         fetched_files: BTreeMap::new(),
-    });
-    if let Some(name) = name {
-        entry.name = Some(name.to_owned());
+    })
+}
+
+fn merge_peer_hints(entry: &mut RoomMeta, hints: &[String]) {
+    for hint in hints {
+        let id_part = hint.split('@').next().unwrap_or(hint).trim().to_owned();
+        entry
+            .peer_hints
+            .retain(|known| known.split('@').next().unwrap_or(known).trim() != id_part);
+        entry.peer_hints.push(hint.trim().to_owned());
     }
-    save(data_dir, &state)
+}
+
+/// Record a room in the known-rooms index (optionally with a local name).
+/// Idempotent; an existing local name is kept unless `name` is `Some`.
+pub fn remember_room(data_dir: &Path, room_id: &str, name: Option<&str>) -> CoreResult<()> {
+    remember_room_with_peer_hints(data_dir, room_id, name, &[])
+}
+
+/// Record local room provenance, optional display name, and validated dial
+/// hints in one durable state transaction.
+///
+/// Join uses this immediately before publishing `member.joined`: after the
+/// proposed event has passed the local membership fold, but before the network
+/// mutation can make the join irreversible.
+pub fn remember_room_with_peer_hints(
+    data_dir: &Path,
+    room_id: &str,
+    name: Option<&str>,
+    hints: &[String],
+) -> CoreResult<()> {
+    update(data_dir, |state| {
+        let entry = room_entry(state, room_id);
+        if let Some(name) = name {
+            entry.name = Some(name.to_owned());
+        }
+        merge_peer_hints(entry, hints);
+    })
 }
 
 /// The local name override for a room, if any.
@@ -125,21 +174,9 @@ pub fn add_peer_hints(data_dir: &Path, room_id: &str, hints: &[String]) -> CoreR
     if hints.is_empty() {
         return Ok(());
     }
-    let mut state = load(data_dir)?;
-    let entry = state.rooms.entry(room_id.to_owned()).or_insert(RoomMeta {
-        name: None,
-        added_at_ms: crate::now_ms(),
-        peer_hints: Vec::new(),
-        fetched_files: BTreeMap::new(),
-    });
-    for hint in hints {
-        let id_part = hint.split('@').next().unwrap_or(hint).trim().to_owned();
-        entry
-            .peer_hints
-            .retain(|h| h.split('@').next().unwrap_or(h).trim() != id_part);
-        entry.peer_hints.push(hint.trim().to_owned());
-    }
-    save(data_dir, &state)
+    update(data_dir, |state| {
+        merge_peer_hints(room_entry(state, room_id), hints);
+    })
 }
 
 /// The known peer dial hints for a room (empty when none recorded).
@@ -159,22 +196,16 @@ pub fn remember_fetched_file(
     path: &Path,
     bytes: u64,
 ) -> CoreResult<()> {
-    let mut state = load(data_dir)?;
-    let entry = state.rooms.entry(room_id.to_owned()).or_insert(RoomMeta {
-        name: None,
-        added_at_ms: crate::now_ms(),
-        peer_hints: Vec::new(),
-        fetched_files: BTreeMap::new(),
-    });
-    entry.fetched_files.insert(
-        file_id.to_owned(),
-        FetchedFileMeta {
-            path: path.to_path_buf(),
-            bytes,
-            fetched_at_ms: crate::now_ms(),
-        },
-    );
-    save(data_dir, &state)
+    update(data_dir, |state| {
+        room_entry(state, room_id).fetched_files.insert(
+            file_id.to_owned(),
+            FetchedFileMeta {
+                path: path.to_path_buf(),
+                bytes,
+                fetched_at_ms: crate::now_ms(),
+            },
+        );
+    })
 }
 
 /// A verified local fetch record if the file still exists with the expected
@@ -195,7 +226,12 @@ pub fn fetched_file(data_dir: &Path, room_id: &str, file_id: &str) -> Option<Fet
 
 #[cfg(test)]
 mod tests {
-    use super::{fetched_file, load, local_name, remember_fetched_file, remember_room};
+    use std::sync::{Arc, Barrier};
+
+    use super::{
+        fetched_file, load, local_name, remember_fetched_file, remember_room,
+        remember_room_with_peer_hints,
+    };
     use tempfile::tempdir;
 
     #[test]
@@ -217,6 +253,37 @@ mod tests {
         );
         assert_eq!(local_name(dir.path(), "blake3:cd"), None);
         assert_eq!(load(dir.path()).unwrap().rooms.len(), 2);
+    }
+
+    #[test]
+    fn concurrent_state_mutations_do_not_lose_room_provenance() {
+        const WRITERS: usize = 24;
+        let dir = tempdir().unwrap();
+        let barrier = Arc::new(Barrier::new(WRITERS));
+        let mut threads = Vec::with_capacity(WRITERS);
+        for i in 0..WRITERS {
+            let data_dir = dir.path().to_path_buf();
+            let barrier = Arc::clone(&barrier);
+            threads.push(std::thread::spawn(move || {
+                let room_id = format!("blake3:{i:064x}");
+                let hint = format!("{:064x}@127.0.0.1:{}", i + 1, 20_000 + i);
+                barrier.wait();
+                remember_room_with_peer_hints(
+                    &data_dir,
+                    &room_id,
+                    Some(&format!("Room {i}")),
+                    &[hint],
+                )
+                .unwrap();
+            }));
+        }
+        for thread in threads {
+            thread.join().unwrap();
+        }
+
+        let state = load(dir.path()).unwrap();
+        assert_eq!(state.rooms.len(), WRITERS);
+        assert!(state.rooms.values().all(|room| room.peer_hints.len() == 1));
     }
 
     #[test]
