@@ -11,6 +11,7 @@ import {
   expectedArtifactNames,
   irohRoomsReleaseIdentity,
   validateArtifactSet,
+  validateBuildToolIntegrity,
   validateEvidenceReadiness,
   validateNetworkEvidenceManifest,
   validateSourceVersions,
@@ -26,6 +27,45 @@ test("checked-in release surfaces share one dated version", () => {
   const result = validateSourceVersions();
   assert.equal(result.tag, `v${result.version}`);
   assert.equal(new Set(Object.values(result.versions)).size, 1);
+});
+
+test("Android build tools are pinned and verified before execution", () => {
+  const result = validateBuildToolIntegrity();
+  assert.equal(
+    result.distributionSha256,
+    "61ad310d3c7d3e5da131b76bbf22b5a4c0786e9d892dae8c1658d4b484de3caa",
+  );
+
+  const root = mkdtempSync(join(tmpdir(), "jeliya-gradle-integrity-"));
+  try {
+    const wrapper = join(root, "app", "android", "gradle", "wrapper");
+    mkdirSync(wrapper, { recursive: true });
+    writeFileSync(join(wrapper, "gradle-wrapper.properties"), [
+      "distributionUrl=https\\://services.gradle.org/distributions/gradle-8.14-bin.zip",
+      `distributionSha256Sum=${"00".repeat(32)}`,
+      "",
+    ].join("\n"));
+    assert.throws(
+      () => validateBuildToolIntegrity({ root }),
+      /URL and SHA-256 are not the reviewed release pair/,
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+
+  const setupJava = ciWorkflow.indexOf(
+    "actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654",
+  );
+  const download = ciWorkflow.indexOf("https://services.gradle.org/distributions/$archive");
+  const verify = ciWorkflow.indexOf("sha256sum -c -", download);
+  const extract = ciWorkflow.indexOf('unzip -q "$RUNNER_TEMP/$archive"', verify);
+  const execute = ciWorkflow.indexOf("gradle -p android", extract);
+  assert.ok(setupJava >= 0);
+  assert.ok(download > setupJava);
+  assert.ok(verify > download);
+  assert.ok(extract > verify);
+  assert.ok(execute > extract);
+  assert.doesNotMatch(ciWorkflow, /\.\/android\/gradlew -p android/);
 });
 
 function networkManifest(path, commit, upstream) {
@@ -296,6 +336,12 @@ test("external Actions are immutable and only publish receives write authority",
     releaseWorkflow,
     /publish:\n[\s\S]*?permissions:\n      contents: write/,
   );
+});
+
+test("the complete CI matrix can be dispatched without publishing", () => {
+  assert.match(ciWorkflow, /^  workflow_dispatch:$/m);
+  assert.match(ciWorkflow, /^  workflow_call:$/m);
+  assert.doesNotMatch(ciWorkflow, /contents:\s*write/);
 });
 
 test("release promotion requires two clean CI runs before the sole write boundary", () => {

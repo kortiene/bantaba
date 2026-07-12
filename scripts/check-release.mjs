@@ -25,6 +25,11 @@ const TARGETS = Object.freeze([
   ["x86_64-pc-windows-msvc", "zip", "jeliyad.exe"],
 ]);
 
+const TRUSTED_GRADLE_DISTRIBUTION = Object.freeze({
+  url: "https\\://services.gradle.org/distributions/gradle-8.14-bin.zip",
+  sha256: "61ad310d3c7d3e5da131b76bbf22b5a4c0786e9d892dae8c1658d4b484de3caa",
+});
+
 function fail(message) {
   throw new Error(`release-integrity: ${message}`);
 }
@@ -56,7 +61,24 @@ function normalizedTag(tag, fallbackVersion) {
   return value;
 }
 
+export function validateBuildToolIntegrity({ root = repoRoot } = {}) {
+  const properties = readText("app/android/gradle/wrapper/gradle-wrapper.properties", root);
+  const property = (name) => {
+    const matches = [...properties.matchAll(new RegExp(`^${name}=(.+)$`, "gm"))];
+    if (matches.length !== 1) fail(`Gradle wrapper must contain exactly one ${name}`);
+    return matches[0][1].trim();
+  };
+  const distributionUrl = property("distributionUrl");
+  const distributionSha256 = property("distributionSha256Sum");
+  if (distributionUrl !== TRUSTED_GRADLE_DISTRIBUTION.url
+      || distributionSha256 !== TRUSTED_GRADLE_DISTRIBUTION.sha256) {
+    fail("Gradle wrapper distribution URL and SHA-256 are not the reviewed release pair");
+  }
+  return { distributionUrl, distributionSha256 };
+}
+
 export function validateSourceVersions({ root = repoRoot, tag = "" } = {}) {
+  validateBuildToolIntegrity({ root });
   const versions = {
     daemon: tomlPackageVersion("crates/jeliyad/Cargo.toml", root),
     core: tomlPackageVersion("crates/jeliya-core/Cargo.toml", root),
