@@ -437,6 +437,89 @@ impl RoomSupervisor {
         Ok(snapshot)
     }
 
+    /// The public identity bound to this data directory.
+    ///
+    /// Read authorization deliberately uses the public profile rather than
+    /// loading signing seeds. A read path must never need secret key material,
+    /// and a missing identity defaults to denial.
+    fn local_identity_key(&self) -> CoreResult<IdentityKey> {
+        let profile = crate::identity::load_profile(&self.data_dir)?.ok_or_else(|| {
+            CoreError::new(
+                ErrorKind::IdentityMissing,
+                "create an identity before reading room data",
+            )
+        })?;
+        profile.identity_id.parse::<IdentityKey>().map_err(|e| {
+            CoreError::internal(format!(
+                "stored identity profile has an invalid identity_id: {e}"
+            ))
+        })
+    }
+
+    /// Default-deny the room read boundary without disclosing whether a
+    /// never-authorized room exists in the shared local store.
+    ///
+    /// A subject that actually joined may read its local archive. Active,
+    /// voluntarily-left, and removed members retain a device binding; an
+    /// invited-only subject does not and cannot read room content before its
+    /// join is accepted. An identity absent from the membership fold gets the
+    /// same `room_unknown` result as an id with no stored rows.
+    fn require_local_room_access(
+        snapshot: &MembershipSnapshot,
+        self_id: &IdentityKey,
+    ) -> CoreResult<()> {
+        if snapshot
+            .member(self_id)
+            .is_some_and(|member| member.device.is_some())
+        {
+            return Ok(());
+        }
+        Err(CoreError::new(
+            ErrorKind::RoomUnknown,
+            "room is not available to this identity",
+        ))
+    }
+
+    /// Cheap prefilter backed by the daemon-local accepted-room index.
+    ///
+    /// `remember_room` is written only after local room creation or a
+    /// successfully accepted join. Sync alone never adds an entry. This lets
+    /// us reject a foreign room before folding or decoding any of its shared
+    /// store rows; the membership snapshot remains the authoritative second
+    /// check, so a corrupt/tampered local index cannot grant access.
+    fn require_locally_known_room(&self, room_id: &RoomId) -> CoreResult<()> {
+        let known = localstate::load(&self.data_dir)?
+            .rooms
+            .contains_key(&room_id.to_string());
+        if known {
+            return Ok(());
+        }
+        Err(CoreError::new(
+            ErrorKind::RoomUnknown,
+            "room is not available to this identity",
+        ))
+    }
+
+    /// Cached/live snapshot plus the shared read-authorization guard.
+    async fn readable_snapshot(&self, room_id: &RoomId) -> CoreResult<MembershipSnapshot> {
+        self.require_locally_known_room(room_id)?;
+        let self_id = self.local_identity_key()?;
+        let snapshot = self.snapshot_for(room_id).await?;
+        Self::require_local_room_access(&snapshot, &self_id)?;
+        Ok(snapshot)
+    }
+
+    /// Central public-RPC preflight for every method carrying a `room_id`.
+    ///
+    /// Read methods repeat this check immediately before their data access as
+    /// defense in depth. The engine-level preflight also covers mutations so
+    /// their error variants cannot become an existence oracle for a foreign
+    /// room that happens to have rows in the shared local store.
+    pub(crate) async fn require_public_room_access(&self, room_id_str: &str) -> CoreResult<()> {
+        let room_id = parse_room_id(room_id_str)?;
+        self.readable_snapshot(&room_id).await.map(|_| ())
+    }
+
     /// The cached closed-room snapshot iff its fingerprint still matches the
     /// room's current stored event count.
     fn cached_snapshot(&self, room_id: &RoomId, fingerprint: u64) -> Option<MembershipSnapshot> {
@@ -778,25 +861,20 @@ impl RoomSupervisor {
         let self_key = crate::identity::load_profile(&self.data_dir)?
             .map(|p| p.identity_id)
             .and_then(|id| id.parse::<IdentityKey>().ok());
-        // Sync scope: gather each room's id + display name, then DROP the store
-        // before any `.await` (the `!Sync` store must not be held across the
-        // `snapshot_for` awaits below, or this future would not be `Send`).
-        let room_meta: Vec<(RoomId, Option<String>)> = {
-            let store = self.open_store()?;
-            let room_ids = store
-                .room_ids()
-                .map_err(|e| internal("could not enumerate rooms", e))?;
-            room_ids
-                .into_iter()
-                .map(|room_id| {
-                    let name = genesis_name(&store, &room_id)
-                        .or_else(|| localstate::local_name(&self.data_dir, &room_id.to_string()));
-                    (room_id, name)
-                })
-                .collect()
+        let Some(self_key) = self_key else {
+            return Ok(Vec::new());
         };
-        let mut rooms = Vec::with_capacity(room_meta.len());
-        for (room_id, name) in room_meta {
+        // Enumerate only the daemon-local accepted-room index. Sync can place
+        // foreign rows in the shared store, but it cannot add an index entry;
+        // therefore even a membership fold is delayed until local provenance
+        // has passed this first boundary.
+        let room_ids: Vec<RoomId> = localstate::load(&self.data_dir)?
+            .rooms
+            .keys()
+            .filter_map(|room_id| room_id.parse().ok())
+            .collect();
+        let mut rooms = Vec::with_capacity(room_ids.len());
+        for room_id in room_ids {
             let Ok(snapshot) = self.snapshot_for(&room_id).await else {
                 continue; // a corrupt room fails its own reads, not the index
             };
@@ -810,23 +888,22 @@ impl RoomSupervisor {
             // `room.open` with `not_a_member`. Skip it. `member.left`/
             // `member.removed` keep the subject in the member set, so archived
             // (left/removed) rooms still list.
-            let self_member = self_key
-                .as_ref()
-                .and_then(|key| snapshot.members().find(|member| &member.identity == key));
-            if self_key.is_some() && self_member.is_none() {
+            if Self::require_local_room_access(&snapshot, &self_key).is_err() {
                 continue;
             }
-            let role = self_key
-                .as_ref()
-                .and_then(|key| snapshot.role(key))
-                .map(role_label);
-            let status = if let Some(key) = self_key.as_ref() {
+            // Authorization succeeded. Only now may the display name or any
+            // other room-derived metadata leave the shared store.
+            let name = {
                 let store = self.open_store()?;
-                let (removed_ids, left_ids) = departure_sets(&store, &room_id)?;
-                self_member.map(|member| status_label(member.status, key, &removed_ids, &left_ids))
-            } else {
-                None
+                genesis_name(&store, &room_id)
+                    .or_else(|| localstate::local_name(&self.data_dir, &room_id.to_string()))
             };
+            let self_member = snapshot.member(&self_key);
+            let role = snapshot.role(&self_key).map(role_label);
+            let store = self.open_store()?;
+            let (removed_ids, left_ids) = departure_sets(&store, &room_id)?;
+            let status = self_member
+                .map(|member| status_label(member.status, &self_key, &removed_ids, &left_ids));
             rooms.push(json!({
                 "room_id": room_id.to_string(),
                 "name": name,
@@ -845,6 +922,11 @@ impl RoomSupervisor {
     /// dial hints before the spawn (loopback mode has no discovery).
     pub async fn open_room(&self, room_id_str: &str, peers: &[String]) -> CoreResult<Value> {
         let room_id = parse_room_id(room_id_str)?;
+        // `room.open` is also a read RPC: its response includes the roster and
+        // full local timeline. Authorize before persisting caller-supplied dial
+        // hints or attempting a node spawn, otherwise a foreign room present in
+        // the shared store becomes an existence oracle with a different error.
+        self.readable_snapshot(&room_id).await?;
         if !peers.is_empty() {
             parse_peers(peers)?; // validate before persisting
             localstate::add_peer_hints(&self.data_dir, &room_id.to_string(), peers)?;
@@ -1065,7 +1147,7 @@ impl RoomSupervisor {
         // an open room, cached fold for a closed one) — NOT a full O(history)
         // re-fold of the whole log on every timeline read. This also yields
         // `RoomUnknown` for a room with no stored events, exactly like `fold`.
-        let snapshot = self.snapshot_for(&room_id).await?;
+        let snapshot = self.readable_snapshot(&room_id).await?;
         let store = self.open_store()?;
         let rows = store
             .room_tail(&room_id, limit.unwrap_or(200))
@@ -1080,7 +1162,7 @@ impl RoomSupervisor {
     /// (`active|invited|removed|left`, mirroring the CLI's D5 projection).
     pub async fn members(&self, room_id_str: &str) -> CoreResult<Vec<Value>> {
         let room_id = parse_room_id(room_id_str)?;
-        let snapshot = self.snapshot_for(&room_id).await?;
+        let snapshot = self.readable_snapshot(&room_id).await?;
         let store = self.open_store()?;
         let (removed_ids, left_ids) = departure_sets(&store, &room_id)?;
         Ok(snapshot
@@ -1673,9 +1755,10 @@ impl RoomSupervisor {
     /// reports this device as their online provider.
     pub async fn list_files(&self, room_id_str: &str) -> CoreResult<Vec<Value>> {
         let room_id = parse_room_id(room_id_str)?;
+        self.readable_snapshot(&room_id).await?;
         let store = self.open_store()?;
-        // Existence check without the O(history) re-fold (the membership
-        // snapshot is unused here — file rows are read directly by type).
+        // Keep an explicit existence check for the established error taxonomy;
+        // authorization was already enforced by `readable_snapshot` above.
         if store
             .count(&room_id)
             .map_err(|e| internal("could not count the room's stored events", e))?
@@ -1742,14 +1825,15 @@ impl RoomSupervisor {
     ) -> CoreResult<Value> {
         let room_id = parse_room_id(room_id_str)?;
         let file_id = parse_file_id(file_id_str)?;
+        let snapshot = self.readable_snapshot(&room_id).await?;
         let session = self.session(&room_id)?;
         let secret = self.secrets()?;
         let self_id = secret.identity.identity_key();
         let self_device = endpoint_id_of(secret.device.device_key())?;
 
-        // Access check from the fast membership snapshot (live for an open
-        // session, cached fold for a closed room) — not an O(history) re-fold.
-        let snapshot = self.snapshot_for(&room_id).await?;
+        // Fetch is stricter than archive reads: the shared guard above proves
+        // prior membership, while transfer additionally requires ACTIVE
+        // membership at the time of the network request.
         if !snapshot.is_active(&self_id) {
             return Err(CoreError::new(
                 ErrorKind::FileUnauthorized,
@@ -1889,6 +1973,9 @@ impl RoomSupervisor {
         let room_id = parse_room_id(room_id_str)?;
         let file_id = parse_file_id(file_id_str)?;
         let store = self.open_store()?;
+        let self_id = self.local_identity_key()?;
+        let (_, snapshot) = self.fold(&store, &room_id)?;
+        Self::require_local_room_access(&snapshot, &self_id)?;
         if store
             .count(&room_id)
             .map_err(|e| internal("could not count the room's stored events", e))?
@@ -2004,8 +2091,10 @@ impl RoomSupervisor {
     pub fn pipe_list(&self, room_id_str: &str) -> CoreResult<Vec<Value>> {
         let room_id = parse_room_id(room_id_str)?;
         let store = self.open_store()?;
-        // Existence check without the O(history) re-fold (the membership
-        // snapshot is unused here — pipe rows are read directly from the log).
+        let self_id = self.local_identity_key()?;
+        let (_, snapshot) = self.fold(&store, &room_id)?;
+        Self::require_local_room_access(&snapshot, &self_id)?;
+        // Authorization and existence were established by the fold above.
         if store
             .count(&room_id)
             .map_err(|e| internal("could not count the room's stored events", e))?
@@ -2233,6 +2322,7 @@ impl RoomSupervisor {
     /// open session's node (never inferred from latency).
     pub async fn peers_status(&self, room_id_str: &str) -> CoreResult<Vec<Value>> {
         let room_id = parse_room_id(room_id_str)?;
+        self.readable_snapshot(&room_id).await?;
         let session = self.session(&room_id)?;
         Ok(Self::peers_of(&session.node).await)
     }
@@ -2442,7 +2532,10 @@ impl RoomSupervisor {
     // ------------------------------------------------------------------
 
     /// `agents.fleet`: the aggregated agent view across every locally known
-    /// room (the local store's rooms ∪ the localstate index), open or not.
+    /// room this identity belongs or belonged to, open or not. Candidate ids
+    /// come only from the daemon-local accepted-room index; sync cannot add to
+    /// that index. The membership fold remains the authoritative second check
+    /// before a room contributes any count, name, agent, status, or signal.
     ///
     /// A **pure read**: it authors nothing, opens no room, and invents no
     /// count. Every number derives from folded stored events plus live
@@ -2453,50 +2546,30 @@ impl RoomSupervisor {
     /// `online-idle`/`working` (no live peer state exists to support it).
     pub async fn agents_fleet(&self) -> CoreResult<Value> {
         let now = crate::now_ms();
-        // Known rooms: everything in the event store plus the localstate
-        // index (a room remembered before/without any synced events still
-        // counts toward rooms_total — it is honestly known, just unreadable).
-        let mut known: BTreeSet<String> = localstate::load(&self.data_dir)?
+        let self_id = self.local_identity_key()?;
+        // Candidate rooms: only accepted local creates/joins. A shared SQLite
+        // store may contain a foreign room's sync backfill, but sync never
+        // writes this index, so foreign rows are not folded or decoded here.
+        let known: BTreeSet<String> = localstate::load(&self.data_dir)?
             .rooms
             .keys()
             .cloned()
             .collect();
 
-        // Phase 1 (sync): enumerate the store's rooms and read each room's
-        // display name. The `!Sync` store is opened, fully used, and DROPPED
-        // inside this scope — it must not be held across the `snapshot_for`
-        // awaits in phase 2, or this future would not be `Send`. Neither the
-        // membership snapshots nor the timeline rows are taken here: for open
-        // rooms the snapshot comes from the live engine (async), and taking it
-        // via `snapshot_for` in phase 2 is exactly what retires the
-        // O(full-history) re-fold. The rows are likewise deferred to phase 2 so
-        // they are read *after* the snapshot (see the read-order note there).
         let scans: Vec<RoomScan> = if self.db_path().exists() {
-            let store = self.open_store()?;
-            for id in store
-                .room_ids()
-                .map_err(|e| internal("could not enumerate rooms", e))?
-            {
-                known.insert(id.to_string());
-            }
-            let mut scans = Vec::new();
-            for room_str in &known {
-                let Ok(room_id) = room_str.parse::<RoomId>() else {
-                    continue;
-                };
-                let room_name = genesis_name(&store, &room_id)
-                    .or_else(|| localstate::local_name(&self.data_dir, room_str));
-                scans.push(RoomScan {
-                    room_id,
-                    room_str: room_str.clone(),
-                    room_name,
-                });
-            }
-            scans
+            known
+                .iter()
+                .filter_map(|room_str| {
+                    room_str.parse::<RoomId>().ok().map(|room_id| RoomScan {
+                        room_id,
+                        room_str: room_str.clone(),
+                    })
+                })
+                .collect()
         } else {
             Vec::new()
         };
-        let rooms_total = known.len();
+        let mut rooms_total = 0usize;
         let mut rooms_covered = 0usize;
         let mut agents: BTreeMap<String, FleetAgentAgg> = BTreeMap::new();
 
@@ -2521,6 +2594,10 @@ impl RoomSupervisor {
                 let Ok(snapshot) = self.snapshot_for(&room_id).await else {
                     continue;
                 };
+                if Self::require_local_room_access(&snapshot, &self_id).is_err() {
+                    continue;
+                }
+                rooms_total += 1;
                 let agent_ids: BTreeSet<IdentityKey> = snapshot
                     .members()
                     .filter(|m| m.role == Role::Agent)
@@ -2530,12 +2607,17 @@ impl RoomSupervisor {
                     continue;
                 }
                 rooms_covered += 1;
-                let room_name = scan.room_name.clone();
-                let rows = {
+                // Read the display name and rows only AFTER membership access
+                // succeeds. Even internal preprocessing must not turn the
+                // shared store into a foreign-room discovery path.
+                let (room_name, rows) = {
                     let store = self.open_store()?;
-                    store
+                    let room_name = genesis_name(&store, &room_id)
+                        .or_else(|| localstate::local_name(&self.data_dir, room_str));
+                    let rows = store
                         .room_tail(&room_id, u32::MAX)
-                        .map_err(|e| internal("could not read the timeline", e))?
+                        .map_err(|e| internal("could not read the timeline", e))?;
+                    (room_name, rows)
                 };
                 let rows = &rows;
 
@@ -2676,11 +2758,11 @@ impl RoomSupervisor {
             CoreError::invalid(format!("invalid identity_id (expected 64-char hex): {e}"))
         })?;
         let store = self.open_store()?;
-        // Existence check only — this read needs no folded membership (it
-        // decodes each row independently below), so surface RoomUnknown via the
-        // cheap `count` (a single `SELECT COUNT(*)`, no crypto) rather than a
-        // full O(full-history) signature-verifying `fold`. `fold` returns
-        // RoomUnknown exactly when the room has no stored events, i.e. count 0.
+        let self_id = self.local_identity_key()?;
+        let (_, snapshot) = self.fold(&store, &room_id)?;
+        Self::require_local_room_access(&snapshot, &self_id)?;
+        // The history rows decode independently below, but the full fold above
+        // is intentionally the shared read-authorization boundary.
         if store
             .count(&room_id)
             .map_err(|e| internal("could not count the room's stored events", e))?
@@ -2724,17 +2806,12 @@ impl RoomSupervisor {
     }
 }
 
-/// A closed-over, store-free view of one room for `agents.fleet`'s async
-/// aggregation phase: its id, its protocol-string key, and its display name.
-/// Collected while the `!Sync` store is briefly open (phase 1) so the store is
-/// dropped before any `snapshot_for` await (phase 2). Deliberately does NOT
-/// carry the timeline rows: those are read per room in phase 2, *after* the
-/// membership snapshot, so the rows are never older than the snapshot they are
-/// aggregated against (see the read-order note in `agents_fleet`).
+/// A closed-over, store-free candidate for `agents.fleet`'s async aggregation
+/// phase. It deliberately carries neither display name nor timeline rows: both
+/// are read only after the local membership guard accepts the room.
 struct RoomScan {
     room_id: RoomId,
     room_str: String,
-    room_name: Option<String>,
 }
 
 /// One agent's per-room evidence for the fleet read: its known device keys
@@ -3131,6 +3208,8 @@ fn guess_mime(path: &Path) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::{
         parse_expiry, parse_file_id, parse_pipe_id, sanitize_name, validate_room_name, Content,
         EventType, RoomSupervisor,
@@ -3139,6 +3218,7 @@ mod tests {
     use iroh_rooms::events::{validate_wire_bytes, ValidationContext, WireEvent};
     use iroh_rooms::identity::{DeviceBinding, SigningKey};
     use iroh_rooms::room::{RoomId, RoomInviteTicket};
+    use serde_json::json;
     use tempfile::tempdir;
 
     /// Persist an event authored elsewhere directly into the supervisor's
@@ -3859,36 +3939,100 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn list_rooms_excludes_rooms_this_identity_is_not_a_member_of() {
+    async fn room_reads_exclude_rooms_this_identity_never_belonged_to() {
         // Regression: a foreign room's membership sub-DAG can be backfilled into
         // our store by a shared peer's sync (that peer is in a room WITH us and
-        // also in this OTHER room), even though we were never invited. Such a
-        // room must not appear in `room.list` — listing it leaks a room we are
-        // not in and hands the UI a room whose every `room.open` returns
-        // `not_a_member` (and then `message.send` returns `room_not_open`).
+        // also in this OTHER room), even though we were never invited. No public
+        // read may reveal that room's existence or contents.
         let dir = tempdir().unwrap();
         crate::identity::create(dir.path()).unwrap();
-        let sup = RoomSupervisor::new(dir.path().to_path_buf(), true).unwrap();
+        let sup = Arc::new(RoomSupervisor::new(dir.path().to_path_buf(), true).unwrap());
+        let local_identity = crate::identity::load_profile(dir.path())
+            .unwrap()
+            .unwrap()
+            .identity_id;
 
         // A room WE own — the control that must still list.
         let mine = sup.create_room("Mine").unwrap();
 
-        // A room authored entirely by a STRANGER, persisted straight into our
-        // store the way a sync backfill lands it. We author no event in it.
-        let stranger_id = SigningKey::generate();
-        let stranger_dev = SigningKey::generate();
-        let nonce = [0x11; super::ROOM_NONCE_LEN];
-        let created_at = crate::now_ms();
-        let foreign_room_id =
-            super::derive_room_id(&stranger_id.identity_key(), &nonce, created_at);
-        let genesis =
-            super::build_room_created(&stranger_id, &stranger_dev, "Not Yours", &nonce, created_at);
-        insert_wire(&sup, &foreign_room_id, &genesis);
+        // Build a real second room under a different local identity, including
+        // an agent member, status and message, then copy its validated wires
+        // into our shared store exactly as a sync backfill persists them.
+        let foreign_dir = tempdir().unwrap();
+        crate::identity::create(foreign_dir.path()).unwrap();
+        let foreign = RoomSupervisor::new(foreign_dir.path().to_path_buf(), true).unwrap();
+        let foreign_room = foreign.create_room("Not Yours").unwrap();
+        let foreign_room_id: RoomId = foreign_room.parse().unwrap();
+        let foreign_agent = SigningKey::generate();
+        let foreign_device = SigningKey::generate();
+        seed_agent_member(&foreign, &foreign_room, &foreign_agent, &foreign_device).await;
+        seed_status(
+            &foreign,
+            &foreign_room,
+            &foreign_agent,
+            &foreign_device,
+            "working",
+            Some(73),
+            crate::now_ms(),
+        );
+        seed_message(
+            &foreign,
+            &foreign_room,
+            &foreign_agent,
+            &foreign_device,
+            "foreign room secret",
+            crate::now_ms() + 1,
+        );
+        // A targeted invite is not read authorization. Until this identity
+        // authors an accepted member.joined and gains a device binding, room
+        // content remains unavailable.
+        foreign
+            .create_invite(&foreign_room, &local_identity, "member", None)
+            .await
+            .unwrap();
+        // Seed real file and pipe records too, rather than proving only that
+        // empty foreign collections are hidden. The owner opens its own room,
+        // authors both records through the production paths, then closes it
+        // before the complete validated log is copied below.
+        foreign.open_room(&foreign_room, &[]).await.unwrap();
+        let foreign_payload = foreign_dir.path().join("foreign-payload.bin");
+        std::fs::write(&foreign_payload, b"foreign file secret").unwrap();
+        let foreign_file = foreign
+            .share_file(
+                &foreign_room,
+                foreign_payload.to_str().unwrap(),
+                Some("foreign-payload.bin"),
+                Some("application/octet-stream"),
+            )
+            .await
+            .unwrap();
+        let foreign_file_id = foreign_file["file_id"].as_str().unwrap().to_owned();
+        let foreign_pipe = foreign
+            .pipe_expose(
+                &foreign_room,
+                "127.0.0.1:9",
+                &foreign_agent.identity_key().to_string(),
+            )
+            .await
+            .unwrap();
+        let foreign_pipe_id = foreign_pipe["pipe_id"].as_str().unwrap().to_owned();
+        foreign.close_room(&foreign_room).await.unwrap();
+        let foreign_rows = foreign
+            .open_store()
+            .unwrap()
+            .room_tail(&foreign_room_id, u32::MAX)
+            .unwrap();
+        for row in &foreign_rows {
+            insert_wire(&sup, &foreign_room_id, &row.wire);
+        }
 
         // Sanity: the foreign room's genesis really is in our store.
         {
             let store = sup.open_store().unwrap();
-            assert!(store.count(&foreign_room_id).unwrap() >= 1);
+            assert_eq!(
+                store.count(&foreign_room_id).unwrap(),
+                foreign_rows.len() as u64
+            );
         }
 
         let rooms = sup.list_rooms().await.unwrap();
@@ -3900,12 +4044,132 @@ mod tests {
         );
         assert_eq!(rooms.len(), 1, "only our own room lists; got {rooms:?}");
 
-        // And the honest failure still stands if the UI somehow targets it.
+        // The global fleet read must filter before counting rooms or folding
+        // agent/status details. It may not become a discovery oracle.
+        let fleet = sup.agents_fleet().await.unwrap();
+        assert_eq!(fleet["rooms_total"], 1);
+        assert_eq!(fleet["total"], 0);
+        let fleet_wire = fleet.to_string();
+        assert!(!fleet_wire.contains("Not Yours"));
+        assert!(!fleet_wire.contains(&foreign_agent.identity_key().to_string()));
+        assert!(!fleet_wire.contains("foreign room secret"));
+
+        // Every room-scoped read uses the same default-deny guard. Return
+        // `room_unknown` rather than confirming that an inaccessible room is
+        // present in this daemon's shared SQLite store.
+        let room_id = foreign_room_id.to_string();
+        let err = sup.timeline(&room_id, None).await.unwrap_err();
+        assert_eq!(err.kind, ErrorKind::RoomUnknown);
+        let err = sup.members(&room_id).await.unwrap_err();
+        assert_eq!(err.kind, ErrorKind::RoomUnknown);
+        let err = sup.list_files(&room_id).await.unwrap_err();
+        assert_eq!(err.kind, ErrorKind::RoomUnknown);
         let err = sup
-            .open_room(&foreign_room_id.to_string(), &[])
+            .fetch_file(&room_id, &foreign_file_id, None)
             .await
             .unwrap_err();
-        assert_eq!(err.kind, ErrorKind::NotAMember);
+        assert_eq!(err.kind, ErrorKind::RoomUnknown);
+        let err = sup.local_file(&room_id, &foreign_file_id).unwrap_err();
+        assert_eq!(err.kind, ErrorKind::RoomUnknown);
+        let err = sup.pipe_list(&room_id).unwrap_err();
+        assert_eq!(err.kind, ErrorKind::RoomUnknown);
+        let err = sup
+            .agent_history(&room_id, &foreign_agent.identity_key().to_string(), None)
+            .unwrap_err();
+        assert_eq!(err.kind, ErrorKind::RoomUnknown);
+        let err = sup.peers_status(&room_id).await.unwrap_err();
+        assert_eq!(err.kind, ErrorKind::RoomUnknown);
+
+        // The transport-neutral dispatch boundary covers every public
+        // room-scoped RPC, including mutations whose method-specific errors
+        // would otherwise become a stored-room existence oracle.
+        let (shutdown_tx, _shutdown_rx) = tokio::sync::mpsc::channel(1);
+        let engine = crate::engine::Engine::with_supervisor(
+            Arc::clone(&sup),
+            crate::engine::EngineConfig {
+                port: 0,
+                version: crate::engine::CORE_VERSION.to_owned(),
+                shutdown_tx,
+            },
+        );
+        let state_path = dir.path().join(crate::localstate::STATE_FILE);
+        let state_before = std::fs::read(&state_path).unwrap();
+        let cases = [
+            (
+                "room.open",
+                json!({
+                    "room_id": room_id,
+                    "peers": [format!("{}@127.0.0.1:9", "ab".repeat(32))],
+                }),
+            ),
+            ("room.close", json!({ "room_id": room_id })),
+            ("room.leave", json!({ "room_id": room_id })),
+            ("room.timeline", json!({ "room_id": room_id })),
+            ("room.members", json!({ "room_id": room_id })),
+            (
+                "invite.create",
+                json!({
+                    "room_id": room_id,
+                    "identity_id": foreign_agent.identity_key().to_string(),
+                    "role": "member",
+                }),
+            ),
+            (
+                "message.send",
+                json!({ "room_id": room_id, "body": "denied" }),
+            ),
+            (
+                "status.post",
+                json!({ "room_id": room_id, "label": "denied" }),
+            ),
+            (
+                "file.share",
+                json!({ "room_id": room_id, "path": foreign_payload }),
+            ),
+            ("file.list", json!({ "room_id": room_id })),
+            (
+                "file.fetch",
+                json!({ "room_id": room_id, "file_id": foreign_file_id }),
+            ),
+            (
+                "pipe.expose",
+                json!({
+                    "room_id": room_id,
+                    "target": "127.0.0.1:9",
+                    "peer_identity": foreign_agent.identity_key().to_string(),
+                }),
+            ),
+            ("pipe.list", json!({ "room_id": room_id })),
+            (
+                "pipe.connect",
+                json!({ "room_id": room_id, "pipe_id": foreign_pipe_id }),
+            ),
+            (
+                "pipe.close",
+                json!({ "room_id": room_id, "pipe_id": foreign_pipe_id }),
+            ),
+            (
+                "agent.history",
+                json!({
+                    "room_id": room_id,
+                    "identity_id": foreign_agent.identity_key().to_string(),
+                }),
+            ),
+            ("peers.status", json!({ "room_id": room_id })),
+        ];
+        for (method, params) in cases {
+            let err = engine.dispatch(method, params).await.unwrap_err();
+            assert_eq!(
+                err.kind,
+                ErrorKind::RoomUnknown,
+                "{method} must not disclose a stored foreign room: {err:?}"
+            );
+        }
+        assert_eq!(
+            std::fs::read(&state_path).unwrap(),
+            state_before,
+            "denied room.open must not persist peer hints or a room index entry"
+        );
     }
 
     #[tokio::test]
