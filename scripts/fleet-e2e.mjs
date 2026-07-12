@@ -67,33 +67,73 @@ const SCRATCH = typeof args.scratch === "string"
 const DOUBLE_GUARD_MS = 8_000;
 
 // ---------------------------------------------------------------------------
-// Teardown discipline — everything spawned is registered and reaped on ANY exit.
-// SIGKILLed runners can't reap their own daemons, so we also hard-kill port
-// listeners on the agent ports.
+// Teardown discipline — everything spawned is registered and reaped on ANY
+// exit. Runner daemon listener PIDs are matched to jeliyad + the run-owned data
+// dirs before they may be killed; unrelated fixed-port listeners fail closed.
 // ---------------------------------------------------------------------------
 const daemons = [];
 const clients = [];
 const runners = []; // { proc, exited }
 const scratchDirs = [];
+const ownedListenerPids = new Map();
 let tearingDown = false;
 
-function killPortListeners(port) {
+function portListenerPids(port) {
   try {
-    const out = execFileSync("lsof", ["-ti", `tcp:${port}`], { encoding: "utf8" });
-    for (const pidStr of out.split("\n").filter(Boolean)) {
-      const pid = Number(pidStr);
-      if (!Number.isInteger(pid) || pid === process.pid) continue;
-      try {
-        process.kill(pid, "SIGKILL");
-      } catch {}
-    }
+    const out = execFileSync(
+      "lsof",
+      ["-nP", `-iTCP:${port}`, "-sTCP:LISTEN", "-t"],
+      { encoding: "utf8" },
+    );
+    return [...new Set(out.split("\n")
+      .filter(Boolean)
+      .map(Number)
+      .filter((pid) => Number.isInteger(pid) && pid > 0 && pid !== process.pid))];
   } catch (error) {
     // lsof exits nonzero when nothing listens, which is expected. A missing
     // binary would make cleanup best-effort and can create false/flaky passes.
     if (error?.code === "ENOENT") {
       throw new Error("fleet E2E requires lsof for deterministic cleanup");
     }
+    if (error?.status === 1 && !String(error?.stdout ?? "").trim()) return [];
+    throw new Error(`fleet E2E could not inspect port ${port} with lsof`);
   }
+}
+
+function assertPortAvailable(port) {
+  const listeners = portListenerPids(port);
+  if (listeners.length > 0) {
+    throw new Error(
+      `fleet E2E port ${port} is already in use; refusing to terminate an unowned process`,
+    );
+  }
+}
+
+function ownedDaemonListenerPid(port, dataDir) {
+  const listeners = portListenerPids(port);
+  if (listeners.length === 0) return null;
+  if (listeners.length !== 1) {
+    throw new Error(`fleet E2E expected one listener on port ${port}, found ${listeners.length}`);
+  }
+  const pid = listeners[0];
+  const command = execFileSync("ps", ["-ww", "-o", "command=", "-p", String(pid)], {
+    encoding: "utf8",
+  }).trim();
+  if (!command.includes("jeliyad") || !command.includes(resolve(dataDir))) {
+    throw new Error(
+      `fleet E2E port ${port} was claimed by a process that is not the run-owned daemon`,
+    );
+  }
+  return pid;
+}
+
+function killOwnedListener(port) {
+  const pid = ownedListenerPids.get(port);
+  if (!pid) return;
+  try {
+    process.kill(pid, "SIGKILL");
+  } catch {}
+  ownedListenerPids.delete(port);
 }
 
 function teardown() {
@@ -115,7 +155,7 @@ function teardown() {
       d.kill("SIGKILL");
     } catch {}
   }
-  for (const port of [PORT_HUMAN, PORT_AGENT1, PORT_AGENT2]) killPortListeners(port);
+  for (const port of ownedListenerPids.keys()) killOwnedListener(port);
   for (const dir of scratchDirs) {
     try {
       rmSync(dir, { recursive: true, force: true });
@@ -187,7 +227,7 @@ function startTempDaemon(label, port, dataDir) {
 // ---------------------------------------------------------------------------
 
 console.log(`fleet-e2e: scratch = ${SCRATCH}, trials = ${TRIALS}`);
-for (const port of [PORT_HUMAN, PORT_AGENT1, PORT_AGENT2]) killPortListeners(port);
+for (const port of [PORT_HUMAN, PORT_AGENT1, PORT_AGENT2]) assertPortAvailable(port);
 
 const humanData = scratchDir("human-data");
 const agent1Data = scratchDir("agent1-data");
@@ -247,8 +287,12 @@ try {
     c.closedByUs = true; // its daemon is about to die — suppress the onclose exit
     c.close();
     d.kill("SIGKILL");
-    killPortListeners(port);
-    await sleep(800); // let the port free before the runner rebinds it
+    await pollUntil(
+      () => portListenerPids(port).length === 0,
+      5_000,
+      `${label}'s temporary daemon to release port ${port}`,
+      100,
+    );
     return id;
   }
 
@@ -311,6 +355,20 @@ try {
 
   const runner1 = startRunner("agent1", PORT_AGENT1, agent1Data, work1);
   const runner2 = startRunner("agent2", PORT_AGENT2, agent2Data, work2);
+
+  for (const [port, dataDir, label] of [
+    [PORT_AGENT1, agent1Data, "agent1"],
+    [PORT_AGENT2, agent2Data, "agent2"],
+  ]) {
+    const pid = await pollUntil(
+      () => ownedDaemonListenerPid(port, dataDir),
+      30_000,
+      `${label}'s run-owned daemon listener`,
+      100,
+    );
+    ownedListenerPids.set(port, pid);
+  }
+  assert(true, "both runner daemon listeners are identified as run-owned before cleanup");
 
   // Both announce "online" once their daemon reopens the room.
   const timeline = async () =>
@@ -511,7 +569,7 @@ try {
   side.close();
   runner1.expectExit = true;
   runner1.proc.kill("SIGKILL");
-  killPortListeners(PORT_AGENT1); // reap the daemon the SIGKILLed runner can't
+  killOwnedListener(PORT_AGENT1); // reap only the daemon identified above
   console.log("fleet-e2e: SIGKILLed agent1 runner + daemon while it was 'working'");
 
   // Wait for the human to detect the dead peer, then assert the derivation

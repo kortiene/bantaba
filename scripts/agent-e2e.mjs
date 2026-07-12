@@ -62,26 +62,28 @@ const SCRATCH = typeof args.scratch === "string"
 
 // ---------------------------------------------------------------------------
 // Teardown discipline: everything spawned/created is registered and torn down
-// on ANY exit path. The runner owns the 7463 daemon; a SIGKILLed runner can't
-// reap it, so we also hard-kill whatever still listens on the agent port.
+// on ANY exit path. The runner owns the 7463 daemon; its listener PID is
+// positively matched to jeliyad + this run's data dir before it may be killed.
 // ---------------------------------------------------------------------------
 const daemons = [];
 const clients = [];
 const scratchDirs = [];
+const ownedListenerPids = new Set();
 let runner = null;
 let runnerExited = false;
 let tearingDown = false;
 
-function killPortListeners(port) {
+function portListenerPids(port) {
   try {
-    const out = execFileSync("lsof", ["-ti", `tcp:${port}`], { encoding: "utf8" });
-    for (const pidStr of out.split("\n").filter(Boolean)) {
-      const pid = Number(pidStr);
-      if (!Number.isInteger(pid) || pid === process.pid) continue;
-      try {
-        process.kill(pid, "SIGKILL");
-      } catch {}
-    }
+    const out = execFileSync(
+      "lsof",
+      ["-nP", `-iTCP:${port}`, "-sTCP:LISTEN", "-t"],
+      { encoding: "utf8" },
+    );
+    return [...new Set(out.split("\n")
+      .filter(Boolean)
+      .map(Number)
+      .filter((pid) => Number.isInteger(pid) && pid > 0 && pid !== process.pid))];
   } catch (error) {
     // lsof exits nonzero when nothing listens, which is expected. A missing
     // binary is different: cleanup would be silently incomplete and the test
@@ -89,7 +91,45 @@ function killPortListeners(port) {
     if (error?.code === "ENOENT") {
       throw new Error("agent E2E requires lsof for deterministic cleanup");
     }
+    if (error?.status === 1 && !String(error?.stdout ?? "").trim()) return [];
+    throw new Error(`agent E2E could not inspect port ${port} with lsof`);
   }
+}
+
+function assertPortAvailable(port) {
+  const listeners = portListenerPids(port);
+  if (listeners.length > 0) {
+    throw new Error(
+      `agent E2E port ${port} is already in use; refusing to terminate an unowned process`,
+    );
+  }
+}
+
+function ownedDaemonListenerPid(port, dataDir) {
+  const listeners = portListenerPids(port);
+  if (listeners.length === 0) return null;
+  if (listeners.length !== 1) {
+    throw new Error(`agent E2E expected one listener on port ${port}, found ${listeners.length}`);
+  }
+  const pid = listeners[0];
+  const command = execFileSync("ps", ["-ww", "-o", "command=", "-p", String(pid)], {
+    encoding: "utf8",
+  }).trim();
+  if (!command.includes("jeliyad") || !command.includes(resolve(dataDir))) {
+    throw new Error(
+      `agent E2E port ${port} was claimed by a process that is not the run-owned daemon`,
+    );
+  }
+  return pid;
+}
+
+function killOwnedListeners() {
+  for (const pid of ownedListenerPids) {
+    try {
+      process.kill(pid, "SIGKILL");
+    } catch {}
+  }
+  ownedListenerPids.clear();
 }
 
 function teardown() {
@@ -105,7 +145,7 @@ function teardown() {
       d.kill("SIGKILL");
     } catch {}
   }
-  killPortListeners(PORT_AGENT); // the runner's orphaned daemon, if any
+  killOwnedListeners();
   for (const dir of scratchDirs) {
     try {
       rmSync(dir, { recursive: true, force: true });
@@ -169,8 +209,9 @@ function startLoopbackDaemon(label, port, dataDir) {
 // ---------------------------------------------------------------------------
 
 console.log(`agent-e2e: scratch = ${SCRATCH}`);
-// Clear leftovers from crashed prior runs so the fixed ports are free.
-for (const port of [PORT_HUMAN, PORT_AGENT, PORT_INTRUDER]) killPortListeners(port);
+// Fixed ports are fail-closed: never kill a listener that this run did not
+// create and positively identify.
+for (const port of [PORT_HUMAN, PORT_AGENT, PORT_INTRUDER]) assertPortAvailable(port);
 
 const humanData = scratchDir("human-data");
 const agentData = scratchDir("agent-data");
@@ -205,6 +246,12 @@ try {
   const idMatch = idOut.match(/identity_id = ([0-9a-f]{64})/);
   assert(idMatch, "runner --identity-only prints a 64-hex identity_id");
   const agentId = idMatch[1];
+  await pollUntil(
+    () => portListenerPids(PORT_AGENT).length === 0,
+    5_000,
+    "the identity-only daemon to release its port",
+    100,
+  );
 
   /** All events authored by the agent identity, from the human's timeline. */
   const agentEvents = async () =>
@@ -287,6 +334,15 @@ try {
       }
     });
   });
+
+  const agentDaemonPid = await pollUntil(
+    () => ownedDaemonListenerPid(PORT_AGENT, agentData),
+    30_000,
+    "the run-owned agent daemon listener",
+    100,
+  );
+  ownedListenerPids.add(agentDaemonPid);
+  assert(true, "runner daemon listener is identified as run-owned before cleanup");
 
   await pollUntil(
     async () =>

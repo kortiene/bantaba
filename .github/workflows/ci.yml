@@ -204,6 +204,9 @@ jobs:
       - name: Two-peer loopback E2E
         run: node scripts/e2e.mjs --mode loopback
 
+      - name: Agent and fleet port-ownership safety
+        run: node --test scripts/e2e-port-safety.test.mjs
+
       - name: Agent authorization E2E
         run: node scripts/agent-e2e.mjs
 
