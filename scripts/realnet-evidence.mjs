@@ -11,12 +11,13 @@
 //   node scripts/realnet-evidence.mjs --local-dryrun [--with-third]
 //
 // Certifying different-network direct-path candidate run. The independently
-// supplied digest must identify the already verified Zig 0.15.2 executable:
+// supplied digest must match the official Zig 0.15.2 installation archive:
 //   node scripts/realnet-evidence.mjs \
 //     --remote user@kilo \
 //     --third-remote user@stargate-03 \
 //     --build-from-source \
-//     --zig-sha256 <64-hex-verified-zig-executable-digest> \
+//     --zig-archive <zig-x86_64-macos-0.15.2.tar.xz> \
+//     --zig-archive-sha256 <official-archive-sha256> \
 //     --expect-path direct
 //
 // Supplying --local-bin/--linux-bin instead remains useful for diagnostics but
@@ -30,10 +31,14 @@
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import {
+  accessSync,
+  constants as fsConstants,
+  copyFileSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   readdirSync,
   rmSync,
   statSync,
@@ -42,7 +47,16 @@ import {
 import { createServer as createHttpServer } from "node:http";
 import { createConnection, createServer as createTcpServer, isIP } from "node:net";
 import { tmpdir } from "node:os";
-import { basename, dirname, join, resolve } from "node:path";
+import {
+  basename,
+  delimiter,
+  dirname,
+  isAbsolute,
+  join,
+  relative,
+  resolve,
+  sep,
+} from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { fileURLToPath } from "node:url";
 
@@ -59,9 +73,29 @@ const WAIT_MS = 120_000;
 const LINUX_TARGET = "x86_64-unknown-linux-musl";
 const REQUIRED_RUST_TOOLCHAIN = "1.91.0";
 const REQUIRED_NODE_VERSION = "v22.22.3";
+const REQUIRED_NPM_VERSION = "10.9.8";
 const REQUIRED_ZIG_VERSION = "0.15.2";
+const REQUIRED_ZIG_ARCHIVE_SHA256 = "375b6909fc1495d16fc2c7db9538f707456bfc3373b14ee83fdd3e22b3d43f7f";
+const REQUIRED_ZIG_ARCHIVE_ROOT = "zig-x86_64-macos-0.15.2";
+const DISABLED_CARGO_ZIGBUILD_PYTHON_PATH = "/dev/null/jeliya-python-zig-discovery-disabled";
 const REQUIRED_CARGO_ZIGBUILD_VERSION = "cargo-zigbuild 0.23.0";
 const REQUIRED_CARGO_BUILD_JOBS = "2";
+export const SOURCE_BUILD_ENVIRONMENT_POLICY = "isolated-allowlist-v1";
+export const SOURCE_BUILD_ALLOWED_AMBIENT_NAMES = Object.freeze([
+  "ALL_PROXY",
+  "HTTP_PROXY",
+  "HTTPS_PROXY",
+  "NODE_EXTRA_CA_CERTS",
+  "NO_PROXY",
+  "SSL_CERT_DIR",
+  "SSL_CERT_FILE",
+  "SystemRoot",
+  "WINDIR",
+  "all_proxy",
+  "http_proxy",
+  "https_proxy",
+  "no_proxy",
+]);
 export const RELAY_ONLY_VERIFICATION_MARKER = "jeliya-relay-only-test-build-v1";
 const SSH_BASE = [
   "-o", "BatchMode=yes",
@@ -71,6 +105,44 @@ const SSH_BASE = [
 ];
 
 const sleep = (ms) => new Promise((resolvePromise) => setTimeout(resolvePromise, ms));
+
+function resolveExecutableSelection(
+  name,
+  sourceEnv = process.env,
+  platform = process.platform,
+) {
+  if (!/^[A-Za-z0-9][A-Za-z0-9._+-]*$/.test(name)) {
+    throw new Error("invalid build tool name");
+  }
+  const extensions = platform === "win32"
+    ? [".COM", ".EXE", ".BAT", ".CMD"]
+    : [""];
+  for (const directory of String(sourceEnv.PATH ?? "").split(delimiter)) {
+    if (!directory) continue;
+    for (const extension of extensions) {
+      const candidate = resolve(directory, `${name}${extension}`);
+      try {
+        accessSync(candidate, fsConstants.X_OK);
+        if (!statSync(candidate).isFile()) continue;
+        return {
+          path: realpathSync(candidate),
+          discoveryDirectory: realpathSync(resolve(directory)),
+        };
+      } catch {
+        // Continue through the explicitly supplied PATH.
+      }
+    }
+  }
+  throw new Error(`required build tool is missing: ${name}`);
+}
+
+export function resolveExecutableFromPath(
+  name,
+  sourceEnv = process.env,
+  platform = process.platform,
+) {
+  return resolveExecutableSelection(name, sourceEnv, platform).path;
+}
 
 function die(message) {
   const error = new Error(message);
@@ -481,12 +553,61 @@ export function summarizeLogCollector(collector) {
   return collector.summary;
 }
 
-function git(args) {
-  return execFileSync("git", args, { cwd: REPO_ROOT, encoding: "utf8" }).trim();
+function gitExecutionContext(sourceEnv = process.env) {
+  validateSourceBuildAmbient(sourceEnv);
+  const root = mkdtempSync(join(tmpdir(), "jeliya-git-inspection-"));
+  try {
+    const home = join(root, "home");
+    const globalConfig = join(root, "gitconfig");
+    mkdirSync(home, { mode: 0o700 });
+    writeFileSync(globalConfig, "", { mode: 0o600 });
+    const env = {
+      PATH: sourceEnv.PATH ?? "",
+      HOME: home,
+      GIT_CONFIG_GLOBAL: globalConfig,
+      GIT_CONFIG_NOSYSTEM: "1",
+      GIT_ATTR_NOSYSTEM: "1",
+      GIT_TERMINAL_PROMPT: "0",
+      LC_ALL: "C",
+      LANG: "C",
+    };
+    for (const name of SOURCE_BUILD_ALLOWED_AMBIENT_NAMES) {
+      if (sourceEnv[name] !== undefined) {
+        env[name] = safeInheritedEnvironmentValue(name, sourceEnv[name]);
+      }
+    }
+    const path = resolveExecutableFromPath("git", sourceEnv);
+    let cleaned = false;
+    return {
+      path,
+      env,
+      cwd: root,
+      cleanup() {
+        if (cleaned) return;
+        cleaned = true;
+        rmSync(root, { recursive: true, force: true });
+      },
+    };
+  } catch (error) {
+    rmSync(root, { recursive: true, force: true });
+    throw error;
+  }
 }
 
-function gitAt(cwd, args) {
-  return execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
+function git(args, context) {
+  return execFileSync(context.path, args, {
+    cwd: REPO_ROOT,
+    encoding: "utf8",
+    env: context.env,
+  }).trim();
+}
+
+function gitAt(cwd, args, context) {
+  return execFileSync(context.path, args, {
+    cwd,
+    encoding: "utf8",
+    env: context.env,
+  }).trim();
 }
 
 export function isPublicGitSource(value) {
@@ -533,22 +654,29 @@ function publicGitReadUrl(value) {
   return value;
 }
 
-export function commitPublishedAtOrigin(origin, commit) {
+export function commitPublishedAtOrigin(origin, commit, context = null) {
   if (!isPublicGitSource(origin) || !/^[0-9a-f]{40}$/.test(commit)) return false;
-  const result = spawnSync(
-    "git",
-    ["ls-remote", "--refs", publicGitReadUrl(origin)],
-    {
-      encoding: "utf8",
-      env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
-      timeout: 30_000,
-      stdio: ["ignore", "pipe", "ignore"],
-    },
-  );
-  if (result.status !== 0) return false;
-  return String(result.stdout)
-    .split(/\r?\n/)
-    .some((line) => line.startsWith(`${commit}\t`));
+  const ownedContext = context ? null : gitExecutionContext();
+  const gitContext = context ?? ownedContext;
+  try {
+    const result = spawnSync(
+      gitContext.path,
+      ["ls-remote", "--refs", publicGitReadUrl(origin)],
+      {
+        cwd: gitContext.cwd,
+        encoding: "utf8",
+        env: gitContext.env,
+        timeout: 30_000,
+        stdio: ["ignore", "pipe", "ignore"],
+      },
+    );
+    if (result.status !== 0) return false;
+    return String(result.stdout)
+      .split(/\r?\n/)
+      .some((line) => line.startsWith(`${commit}\t`));
+  } finally {
+    ownedContext?.cleanup();
+  }
 }
 
 function localPathFromGitSource(value) {
@@ -560,7 +688,7 @@ function localPathFromGitSource(value) {
   }
 }
 
-export function dependencyIdentity(cargoToml, lock) {
+function dependencyIdentityWithContext(cargoToml, lock, gitContext) {
   const declaration = cargoToml.match(/^iroh-rooms\s*=\s*\{([^}]*)\}/m)?.[1];
   if (!declaration) throw new Error("could not find the iroh-rooms workspace dependency");
   const field = (name) => declaration.match(new RegExp(`\\b${name}\\s*=\\s*"([^"]+)"`))?.[1];
@@ -579,10 +707,10 @@ export function dependencyIdentity(cargoToml, lock) {
     if (!locked) throw new Error("Cargo.lock does not resolve the declared iroh-rooms revision");
     const localPath = localPathFromGitSource(gitUrl);
     const local = localPath ? {
-      commit: gitAt(localPath, ["rev-parse", "HEAD"]),
-      dirty: gitAt(localPath, ["status", "--porcelain"]) !== "",
+      commit: gitAt(localPath, ["rev-parse", "HEAD"], gitContext),
+      dirty: gitAt(localPath, ["status", "--porcelain"], gitContext) !== "",
       origin: requireCredentialFreeGitSource(
-        gitAt(localPath, ["config", "--get", "remote.origin.url"]),
+        gitAt(localPath, ["config", "--get", "remote.origin.url"], gitContext),
         "local iroh-rooms origin",
       ),
     } : null;
@@ -603,7 +731,7 @@ export function dependencyIdentity(cargoToml, lock) {
 
   if (pathValue) {
     const localPath = resolve(REPO_ROOT, pathValue);
-    const commit = gitAt(localPath, ["rev-parse", "HEAD"]);
+    const commit = gitAt(localPath, ["rev-parse", "HEAD"], gitContext);
     return {
       kind: "local-path",
       source: localPath,
@@ -612,9 +740,9 @@ export function dependencyIdentity(cargoToml, lock) {
       public_source: false,
       local_checkout: {
         commit,
-        dirty: gitAt(localPath, ["status", "--porcelain"]) !== "",
+        dirty: gitAt(localPath, ["status", "--porcelain"], gitContext) !== "",
         origin: requireCredentialFreeGitSource(
-          gitAt(localPath, ["config", "--get", "remote.origin.url"]),
+          gitAt(localPath, ["config", "--get", "remote.origin.url"], gitContext),
           "local iroh-rooms origin",
         ),
       },
@@ -625,36 +753,51 @@ export function dependencyIdentity(cargoToml, lock) {
   throw new Error("iroh-rooms must be revision-pinned by git or explicitly identified as a local source");
 }
 
-export function sourceIdentity() {
-  const cargoToml = readFileSync(join(REPO_ROOT, "Cargo.toml"), "utf8");
-  const lock = readFileSync(join(REPO_ROOT, "Cargo.lock"), "utf8");
-  const dependency = dependencyIdentity(cargoToml, lock);
-  const origin = requireCredentialFreeGitSource(
-    git(["config", "--get", "remote.origin.url"]),
-    "Jeliya origin",
-  );
-  const dirty = git(["status", "--porcelain"]) !== "";
-  const commit = git(["rev-parse", "HEAD"]);
-  const sourcePublished = commitPublishedAtOrigin(origin, commit);
-  const dependencyPublished = dependency.public_source
-    && commitPublishedAtOrigin(dependency.source, dependency.resolved_revision);
-  return {
-    commit,
-    dirty,
-    origin,
-    public_source: isPublicGitSource(origin),
-    published_at_origin: sourcePublished,
-    iroh_rooms_revision: dependency.resolved_revision,
-    iroh_rooms: {
-      ...dependency,
-      published_at_origin: dependencyPublished,
-    },
-    releaseable: !dirty
-      && isPublicGitSource(origin)
-      && sourcePublished
-      && dependency.releaseable
-      && dependencyPublished,
-  };
+export function dependencyIdentity(cargoToml, lock, context = null) {
+  const ownedContext = context ? null : gitExecutionContext();
+  try {
+    return dependencyIdentityWithContext(cargoToml, lock, context ?? ownedContext);
+  } finally {
+    ownedContext?.cleanup();
+  }
+}
+
+export function sourceIdentity(context = null) {
+  const ownedContext = context ? null : gitExecutionContext();
+  const gitContext = context ?? ownedContext;
+  try {
+    const cargoToml = readFileSync(join(REPO_ROOT, "Cargo.toml"), "utf8");
+    const lock = readFileSync(join(REPO_ROOT, "Cargo.lock"), "utf8");
+    const dependency = dependencyIdentityWithContext(cargoToml, lock, gitContext);
+    const origin = requireCredentialFreeGitSource(
+      git(["config", "--get", "remote.origin.url"], gitContext),
+      "Jeliya origin",
+    );
+    const dirty = git(["status", "--porcelain"], gitContext) !== "";
+    const commit = git(["rev-parse", "HEAD"], gitContext);
+    const sourcePublished = commitPublishedAtOrigin(origin, commit, gitContext);
+    const dependencyPublished = dependency.public_source
+      && commitPublishedAtOrigin(dependency.source, dependency.resolved_revision, gitContext);
+    return {
+      commit,
+      dirty,
+      origin,
+      public_source: isPublicGitSource(origin),
+      published_at_origin: sourcePublished,
+      iroh_rooms_revision: dependency.resolved_revision,
+      iroh_rooms: {
+        ...dependency,
+        published_at_origin: dependencyPublished,
+      },
+      releaseable: !dirty
+        && isPublicGitSource(origin)
+        && sourcePublished
+        && dependency.releaseable
+        && dependencyPublished,
+    };
+  } finally {
+    ownedContext?.cleanup();
+  }
 }
 
 function binaryVersion(path) {
@@ -697,31 +840,280 @@ function verifyLocalBinary(path, expectedVersion, expectedRelayOnly) {
   };
 }
 
-function commandIdentity(name, versionArgs) {
-  const path = execFileSync("which", [name], { encoding: "utf8" }).trim();
-  if (!path) throw new Error(`required build tool is missing: ${name}`);
-  const version = execFileSync(path, versionArgs, { encoding: "utf8" }).trim();
-  return { filename: basename(path), version, sha256: sha256File(path) };
+function unsafeSourceBuildAmbientName(name) {
+  const upper = name.toUpperCase();
+  return /^RUST(?:_|FLAGS$|DOCFLAGS$)/.test(upper)
+    || /^CARGO_(?!HOME$|TARGET_DIR$|BUILD_JOBS$)/.test(upper)
+    || /^(?:CC|CXX|AR|LD)(?:_|$)/.test(upper)
+    || /^(?:CFLAGS|CPPFLAGS|CXXFLAGS|LDFLAGS)(?:_|$)/.test(upper)
+    || /^(?:PKG_CONFIG|BINDGEN|ZIG_|LD_|DYLD_|CMAKE|MESON|VCPKG|OPENSSL)/.test(upper)
+    || /^(?:GIT_CONFIG|GIT_DIR|GIT_WORK_TREE|GIT_INDEX_FILE|GIT_OBJECT_DIRECTORY|GIT_ALTERNATE_OBJECT_DIRECTORIES|GIT_EXEC_PATH|GIT_SSH|GIT_ASKPASS)(?:_|$)/.test(upper)
+    || /^(?:NODE_OPTIONS|NODE_PATH|BASH_ENV|ENV|MAKEFLAGS)$/.test(upper)
+    || /^NPM_CONFIG_/.test(upper);
 }
 
-function rustToolIdentity(name, versionArgs) {
-  const rustup = execFileSync("which", ["rustup"], { encoding: "utf8" }).trim();
-  if (!rustup) throw new Error("rustup is required for the pinned source build");
-  const path = execFileSync(
-    rustup,
-    ["which", "--toolchain", REQUIRED_RUST_TOOLCHAIN, name],
-    { encoding: "utf8" },
+export function validateSourceBuildAmbient(sourceEnv) {
+  for (const name of Object.keys(sourceEnv ?? {})) {
+    if (unsafeSourceBuildAmbientName(name)) {
+      throw new Error(`source build environment refuses ambient variable ${name}`);
+    }
+  }
+}
+
+function safeInheritedEnvironmentValue(name, value) {
+  const text = String(value);
+  if (text.includes("\0") || /[\r\n]/.test(text)) {
+    throw new Error(`source build environment refuses malformed ${name}`);
+  }
+  if (/^(?:ALL|HTTP|HTTPS)_PROXY$/i.test(name)) {
+    let parsed;
+    try {
+      parsed = new URL(text);
+    } catch {
+      throw new Error(`source build environment refuses malformed ${name}`);
+    }
+    if (parsed.username
+        || parsed.password
+        || parsed.search
+        || parsed.hash
+        || !["http:", "https:", "socks:", "socks5:", "socks5h:"].includes(parsed.protocol)
+        || (parsed.pathname !== "" && parsed.pathname !== "/")) {
+      throw new Error(`source build environment refuses unsafe ${name}`);
+    }
+  }
+  return text;
+}
+
+export function sourceBuildEnvironment(sourceEnv, {
+  targetDir,
+  cargoTargetDir,
+  rustcPath,
+  toolPaths,
+  platform = process.platform,
+}) {
+  validateSourceBuildAmbient(sourceEnv);
+  const absoluteTargetDir = resolve(targetDir);
+  const absoluteCargoTargetDir = resolve(cargoTargetDir);
+  const cargoTargetRelative = relative(absoluteTargetDir, absoluteCargoTargetDir);
+  if (absoluteTargetDir !== targetDir
+      || absoluteCargoTargetDir !== cargoTargetDir
+      || cargoTargetRelative === ""
+      || cargoTargetRelative === ".."
+      || cargoTargetRelative.startsWith(`..${sep}`)
+      || isAbsolute(cargoTargetRelative)
+      || !isAbsolute(rustcPath)
+      || !Array.isArray(toolPaths)
+      || toolPaths.length === 0
+      || toolPaths.some((path) => !isAbsolute(path))) {
+    throw new Error("source build environment requires absolute run-owned paths");
+  }
+
+  const paths = {
+    home: join(absoluteTargetDir, "home"),
+    cargoHome: join(absoluteTargetDir, "cargo-home"),
+    npmCache: join(absoluteTargetDir, "npm-cache"),
+    npmConfig: join(absoluteTargetDir, "npmrc"),
+    npmGlobalConfig: join(absoluteTargetDir, "npm-globalrc"),
+    gitConfig: join(absoluteTargetDir, "gitconfig"),
+    temp: join(absoluteTargetDir, "tmp"),
+  };
+  const systemPath = platform === "win32"
+    ? []
+    : ["/usr/bin", "/bin", "/usr/sbin", "/sbin"];
+  const canonicalDirectory = (path) => {
+    const directory = resolve(path);
+    try {
+      return realpathSync(directory);
+    } catch {
+      return directory;
+    }
+  };
+  const selectedDirectories = [...new Set(toolPaths.map(
+    (path) => canonicalDirectory(dirname(path)),
+  ))];
+  const selectedKeys = new Set(selectedDirectories.map(
+    (path) => (platform === "win32" ? path.toLowerCase() : path),
+  ));
+  const orderedDirectories = [];
+  for (const path of String(sourceEnv?.PATH ?? "").split(delimiter)) {
+    if (!path) continue;
+    const directory = canonicalDirectory(path);
+    const key = platform === "win32" ? directory.toLowerCase() : directory;
+    if (selectedKeys.has(key) && !orderedDirectories.includes(directory)) {
+      orderedDirectories.push(directory);
+    }
+  }
+  for (const directory of selectedDirectories) {
+    if (!orderedDirectories.includes(directory)) orderedDirectories.push(directory);
+  }
+  const controlledPath = [...new Set([...orderedDirectories, ...systemPath])].join(delimiter);
+  const env = {};
+  const inheritedNames = [];
+  for (const name of SOURCE_BUILD_ALLOWED_AMBIENT_NAMES) {
+    if (sourceEnv?.[name] !== undefined) {
+      env[name] = safeInheritedEnvironmentValue(name, sourceEnv[name]);
+      inheritedNames.push(name);
+    }
+  }
+  Object.assign(env, {
+    PATH: controlledPath,
+    HOME: paths.home,
+    CARGO_HOME: paths.cargoHome,
+    CARGO_TARGET_DIR: cargoTargetDir,
+    CARGO_BUILD_JOBS: REQUIRED_CARGO_BUILD_JOBS,
+    RUSTC: rustcPath,
+    TMPDIR: paths.temp,
+    TMP: paths.temp,
+    TEMP: paths.temp,
+    NPM_CONFIG_CACHE: paths.npmCache,
+    NPM_CONFIG_USERCONFIG: paths.npmConfig,
+    NPM_CONFIG_GLOBALCONFIG: paths.npmGlobalConfig,
+    GIT_CONFIG_GLOBAL: paths.gitConfig,
+    GIT_CONFIG_NOSYSTEM: "1",
+    GIT_ATTR_NOSYSTEM: "1",
+    GIT_TERMINAL_PROMPT: "0",
+    LC_ALL: "C",
+    LANG: "C",
+    TZ: "UTC",
+  });
+  if (platform === "win32") env.USERPROFILE = paths.home;
+  return {
+    env,
+    paths,
+    evidence: {
+      policy: SOURCE_BUILD_ENVIRONMENT_POLICY,
+      allowed_names: [...SOURCE_BUILD_ALLOWED_AMBIENT_NAMES],
+      inherited_names: inheritedNames,
+      isolated_home: true,
+      isolated_cargo_home: true,
+      isolated_temp: true,
+      controlled_path: true,
+      ambient_build_controls_rejected: true,
+      unlisted_ambient_removed: true,
+    },
+  };
+}
+
+export function bindSourceBuildTools(env, {
+  nodePath,
+  npmPath,
+  cargoPath,
+  zigPath,
+}) {
+  if (![nodePath, npmPath, cargoPath, zigPath].every(isAbsolute)) {
+    throw new Error("source build tool bindings require absolute paths");
+  }
+  Object.assign(env, {
+    NODE: nodePath,
+    npm_node_execpath: nodePath,
+    npm_execpath: npmPath,
+    CARGO: cargoPath,
+    CARGO_ZIGBUILD_ZIG_PATH: zigPath,
+    // cargo-zigbuild probes the Python `ziglang` package before its binary
+    // override. A guaranteed-absent interpreter forces that probe to fail and
+    // makes the independently verified Zig binary the only usable candidate.
+    CARGO_ZIGBUILD_PYTHON_PATH: DISABLED_CARGO_ZIGBUILD_PYTHON_PATH,
+  });
+  return env;
+}
+
+function toolDiscoveryEnvironment(sourceEnv, home) {
+  const env = {
+    PATH: sourceEnv.PATH ?? "",
+    HOME: home,
+    NPM_CONFIG_CACHE: join(home, "npm-cache"),
+    NPM_CONFIG_USERCONFIG: join(home, "npmrc"),
+    NPM_CONFIG_GLOBALCONFIG: join(home, "npm-globalrc"),
+    GIT_CONFIG_GLOBAL: join(home, "gitconfig"),
+    GIT_CONFIG_NOSYSTEM: "1",
+    GIT_ATTR_NOSYSTEM: "1",
+    GIT_TERMINAL_PROMPT: "0",
+    LC_ALL: "C",
+    LANG: "C",
+  };
+  for (const name of ["SystemRoot", "WINDIR"]) {
+    if (sourceEnv[name] !== undefined) env[name] = sourceEnv[name];
+  }
+  return env;
+}
+
+function commandIdentity(name, versionArgs, resolutionEnv, executionEnv = resolutionEnv) {
+  const selection = resolveExecutableSelection(name, resolutionEnv);
+  const { path } = selection;
+  const version = execFileSync(path, versionArgs, {
+    encoding: "utf8",
+    env: executionEnv,
+  }).trim();
+  return { ...selection, filename: name, version, sha256: sha256File(path) };
+}
+
+function nodeIdentity(resolutionEnv, executionEnv) {
+  const selection = resolveExecutableSelection("node", resolutionEnv);
+  const reportedPath = execFileSync(
+    selection.path,
+    ["-p", "process.execPath"],
+    { encoding: "utf8", env: executionEnv },
   ).trim();
-  const version = execFileSync(path, versionArgs, { encoding: "utf8" }).trim();
-  return { filename: basename(path), version, sha256: sha256File(path) };
+  if (!isAbsolute(reportedPath)) throw new Error("Node reported a non-absolute executable path");
+  const path = realpathSync(reportedPath);
+  const version = execFileSync(path, ["--version"], {
+    encoding: "utf8",
+    env: executionEnv,
+  }).trim();
+  return {
+    path,
+    discoveryDirectory: selection.discoveryDirectory,
+    filename: "node",
+    version,
+    sha256: sha256File(path),
+  };
 }
 
-function requireInstalledRustTarget(target) {
-  const rustup = execFileSync("which", ["rustup"], { encoding: "utf8" }).trim();
+function npmIdentity(resolutionEnv, executionEnv, nodePath) {
+  const selection = resolveExecutableSelection("npm", resolutionEnv);
+  const version = execFileSync(nodePath, [selection.path, "--version"], {
+    encoding: "utf8",
+    env: executionEnv,
+  }).trim();
+  return {
+    ...selection,
+    filename: "npm",
+    version,
+    sha256: sha256File(selection.path),
+  };
+}
+
+function rustToolIdentity(name, versionArgs, rustupPath, rustupEnv, versionEnv) {
+  const selectedPath = execFileSync(
+    rustupPath,
+    ["which", "--toolchain", REQUIRED_RUST_TOOLCHAIN, name],
+    { encoding: "utf8", env: rustupEnv },
+  ).trim();
+  if (!isAbsolute(selectedPath)) {
+    throw new Error(`rustup returned a non-absolute ${name} path`);
+  }
+  const path = realpathSync(selectedPath);
+  const version = execFileSync(path, versionArgs, {
+    encoding: "utf8",
+    env: versionEnv,
+  }).trim();
+  return { path, filename: name, version, sha256: sha256File(path) };
+}
+
+function toolEvidence({
+  path: _path,
+  libDir: _libDir,
+  discoveryDirectory: _discoveryDirectory,
+  ...evidence
+}) {
+  return evidence;
+}
+
+function requireInstalledRustTarget(target, rustupPath, rustupEnv) {
   const installed = execFileSync(
-    rustup,
+    rustupPath,
     ["target", "list", "--installed", "--toolchain", REQUIRED_RUST_TOOLCHAIN],
-    { encoding: "utf8" },
+    { encoding: "utf8", env: rustupEnv },
   ).trim().split(/\r?\n/);
   if (!installed.includes(target)) {
     throw new Error(
@@ -729,6 +1121,34 @@ function requireInstalledRustTarget(target) {
     );
   }
   return target;
+}
+
+export function validateSourceBuildToolVersions({
+  rustcVersion,
+  cargoVersion,
+  nodeVersion,
+  npmVersion,
+  cargoZigbuildVersion,
+}) {
+  if (!rustcVersion.startsWith(`rustc ${REQUIRED_RUST_TOOLCHAIN} `)) {
+    throw new Error(
+      `rustc ${REQUIRED_RUST_TOOLCHAIN} is required, found ${rustcVersion.split("\n")[0]}`,
+    );
+  }
+  if (!cargoVersion.startsWith(`cargo ${REQUIRED_RUST_TOOLCHAIN} `)) {
+    throw new Error(`cargo ${REQUIRED_RUST_TOOLCHAIN} is required, found ${cargoVersion}`);
+  }
+  if (nodeVersion !== REQUIRED_NODE_VERSION) {
+    throw new Error(`Node ${REQUIRED_NODE_VERSION} is required for the source build, found ${nodeVersion}`);
+  }
+  if (npmVersion !== REQUIRED_NPM_VERSION) {
+    throw new Error(`npm ${REQUIRED_NPM_VERSION} is required for the source build, found ${npmVersion}`);
+  }
+  if (cargoZigbuildVersion !== REQUIRED_CARGO_ZIGBUILD_VERSION) {
+    throw new Error(
+      `${REQUIRED_CARGO_ZIGBUILD_VERSION} is required, found ${cargoZigbuildVersion}`,
+    );
+  }
 }
 
 function embeddedUiReady(sourceRoot) {
@@ -742,7 +1162,10 @@ function embeddedUiReady(sourceRoot) {
   return countFiles(root) > 1;
 }
 
-function runBuildCommand(command, args, { cwd, env = process.env, timeoutMs = 30 * 60_000 }) {
+function runBuildCommand(command, args, { cwd, env, timeoutMs = 30 * 60_000 }) {
+  if (!env || typeof env !== "object") {
+    throw new Error("source build command requires an explicit isolated environment");
+  }
   const result = spawnSync(command, args, {
     cwd,
     env,
@@ -760,8 +1183,167 @@ function runBuildCommand(command, args, { cwd, env = process.env, timeoutMs = 30
   }
 }
 
-function runCargoBuild(args, env, sourceRoot) {
-  runBuildCommand("cargo", [`+${REQUIRED_RUST_TOOLCHAIN}`, ...args], { cwd: sourceRoot, env });
+function zigEnvString(output, name) {
+  const match = output.match(new RegExp(
+    `^\\s*\\.${name}\\s*=\\s*("(?:\\\\.|[^"\\\\])*")`,
+    "m",
+  ));
+  if (!match) throw new Error(`zig env did not report ${name}`);
+  return JSON.parse(match[1]);
+}
+
+export function zigArchiveMembersValid(listing) {
+  const prefix = `${REQUIRED_ZIG_ARCHIVE_ROOT}/`;
+  return Array.isArray(listing)
+    && listing.length > 0
+    && listing.every((entry) => (
+      (entry === REQUIRED_ZIG_ARCHIVE_ROOT || entry.startsWith(prefix))
+      && !entry.startsWith("/")
+      && !entry.includes("\\")
+      && !entry.split("/").includes("..")
+    ));
+}
+
+export function validateZigInstallationBinding({
+  installationRoot,
+  executablePath,
+  reportedExecutable,
+  libDir,
+  version,
+}) {
+  const root = realpathSync(installationRoot);
+  const executable = realpathSync(executablePath);
+  const reported = realpathSync(reportedExecutable);
+  const library = realpathSync(libDir);
+  const executableRelative = relative(root, executable);
+  const libRelative = relative(root, library);
+  if (version !== REQUIRED_ZIG_VERSION
+      || executable !== reported
+      || executableRelative === ""
+      || executableRelative === ".."
+      || executableRelative.startsWith(`..${sep}`)
+      || isAbsolute(executableRelative)
+      || !statSync(executable).isFile()
+      || libRelative === ""
+      || libRelative === ".."
+      || libRelative.startsWith(`..${sep}`)
+      || isAbsolute(libRelative)
+      || !statSync(library).isDirectory()) {
+    throw new Error("the verified Zig archive did not produce a root-bound 0.15.2 installation");
+  }
+  return { executable, libDir: library };
+}
+
+export function installVerifiedZig({
+  archivePath,
+  expectedArchiveSha256,
+  targetDir,
+  tarPath,
+  env,
+}) {
+  const expected = parseExpectedSha256(expectedArchiveSha256);
+  if (expected !== REQUIRED_ZIG_ARCHIVE_SHA256) {
+    throw new Error("Zig archive digest is not the reviewed x86_64-macos 0.15.2 release digest");
+  }
+  const sourceArchive = resolve(archivePath);
+  if (!existsSync(sourceArchive) || !statSync(sourceArchive).isFile()) {
+    throw new Error("the Zig installation archive is missing");
+  }
+  const ownedArchive = join(targetDir, "zig-installation.tar.xz");
+  copyFileSync(sourceArchive, ownedArchive);
+  const actualArchiveSha256 = sha256File(ownedArchive);
+  if (actualArchiveSha256 !== expected) {
+    throw new Error("the Zig installation archive does not match the reviewed SHA-256");
+  }
+
+  const listing = execFileSync(tarPath, ["-tf", ownedArchive], {
+    cwd: targetDir,
+    encoding: "utf8",
+    env,
+    maxBuffer: 16 * 1024 * 1024,
+  }).trim().split(/\r?\n/).filter(Boolean);
+  if (!zigArchiveMembersValid(listing)) {
+    throw new Error("the verified Zig archive has an unexpected member layout");
+  }
+
+  const installationRoot = join(targetDir, "zig-installation");
+  mkdirSync(installationRoot, { mode: 0o700 });
+  runBuildCommand(tarPath, [
+    "-xJf", ownedArchive,
+    "-C", installationRoot,
+    "--strip-components=1",
+  ], { cwd: targetDir, env });
+  const path = realpathSync(join(installationRoot, "zig"));
+  const version = execFileSync(path, ["version"], { encoding: "utf8", env }).trim();
+  const zigEnvironment = execFileSync(path, ["env"], { encoding: "utf8", env });
+  const binding = validateZigInstallationBinding({
+    installationRoot,
+    executablePath: path,
+    reportedExecutable: zigEnvString(zigEnvironment, "zig_exe"),
+    libDir: zigEnvString(zigEnvironment, "lib_dir"),
+    version,
+  });
+  return {
+    path: binding.executable,
+    libDir: binding.libDir,
+    filename: "zig",
+    version,
+    sha256: sha256File(path),
+    archive_sha256: actualArchiveSha256,
+    expected_archive_sha256: expected,
+    archive_integrity_verified: true,
+    installation_root_bound: true,
+    lib_dir_bound: true,
+  };
+}
+
+function runCargoBuild(cargoPath, args, env, sourceRoot) {
+  runBuildCommand(cargoPath, args, { cwd: sourceRoot, env });
+}
+
+export function createIsolatedSourceArchive({
+  gitPath,
+  gitEnv,
+  repositoryRoot,
+  targetDir,
+  sourceCommit,
+  attributesFile,
+}) {
+  if (!isAbsolute(gitPath)
+      || !isAbsolute(repositoryRoot)
+      || !isAbsolute(targetDir)
+      || !isAbsolute(attributesFile)
+      || !/^[0-9a-f]{40}$/.test(sourceCommit)) {
+    throw new Error("isolated source archive requires absolute paths and an exact commit");
+  }
+  const bareRepository = join(targetDir, "candidate.git");
+  const gitTemplate = join(targetDir, "git-template");
+  const archivePath = join(targetDir, "source.tar");
+  mkdirSync(gitTemplate, { mode: 0o700 });
+  runBuildCommand(gitPath, [
+    "-c", "core.hooksPath=/dev/null",
+    "clone", "--bare", "--no-local", "--no-hardlinks", "--no-tags",
+    "--template", gitTemplate,
+    repositoryRoot,
+    bareRepository,
+  ], { cwd: targetDir, env: gitEnv });
+  if (existsSync(join(bareRepository, "info", "attributes"))) {
+    throw new Error("isolated candidate repository unexpectedly contains local attributes");
+  }
+  const clonedCommit = execFileSync(gitPath, [
+    `--git-dir=${bareRepository}`,
+    "rev-parse",
+    `${sourceCommit}^{commit}`,
+  ], { cwd: targetDir, encoding: "utf8", env: gitEnv }).trim();
+  if (clonedCommit !== sourceCommit) {
+    throw new Error("isolated candidate repository did not resolve the exact source commit");
+  }
+  execFileSync(gitPath, [
+    `--git-dir=${bareRepository}`,
+    "-c", `core.attributesFile=${attributesFile}`,
+    "archive", "--format=tar", "--output", archivePath, sourceCommit,
+  ], { cwd: targetDir, env: gitEnv });
+  return archivePath;
 }
 
 export function validBuildDirectory(path, runId) {
@@ -777,38 +1359,38 @@ function removeBuildDirectory(path, runId) {
   return !existsSync(path);
 }
 
-function buildCandidateFromSource({ runId, relayOnlyBuild, zigSha256, sourceCommit }) {
-  const expectedZigSha = parseExpectedSha256(zigSha256);
-  const rustc = rustToolIdentity("rustc", ["--version", "--verbose"]);
-  const cargo = rustToolIdentity("cargo", ["--version"]);
-  const node = commandIdentity("node", ["--version"]);
-  const npm = commandIdentity("npm", ["--version"]);
-  const zig = commandIdentity("zig", ["version"]);
-  const cargoZigbuild = commandIdentity("cargo-zigbuild", ["-V"]);
-  const installedLinuxTarget = requireInstalledRustTarget(LINUX_TARGET);
-  if (!rustc.version.startsWith(`rustc ${REQUIRED_RUST_TOOLCHAIN} `)) {
-    throw new Error(`rustc ${REQUIRED_RUST_TOOLCHAIN} is required, found ${rustc.version.split("\n")[0]}`);
+function rejectAmbientCargoConfigs(targetDir) {
+  let directory = dirname(targetDir);
+  while (true) {
+    for (const name of ["config", "config.toml"]) {
+      if (existsSync(join(directory, ".cargo", name))) {
+        throw new Error("source build refuses an ambient Cargo config above the run-owned root");
+      }
+    }
+    const parent = dirname(directory);
+    if (parent === directory) break;
+    directory = parent;
   }
-  if (!cargo.version.startsWith(`cargo ${REQUIRED_RUST_TOOLCHAIN} `)) {
-    throw new Error(`cargo ${REQUIRED_RUST_TOOLCHAIN} is required, found ${cargo.version}`);
-  }
-  if (node.version !== REQUIRED_NODE_VERSION) {
-    throw new Error(`Node ${REQUIRED_NODE_VERSION} is required for the source build, found ${node.version}`);
-  }
-  if (zig.version !== REQUIRED_ZIG_VERSION) {
-    throw new Error(`zig ${REQUIRED_ZIG_VERSION} is required, found ${zig.version}`);
-  }
-  if (zig.sha256 !== expectedZigSha) {
-    throw new Error("the Zig executable does not match the independently supplied SHA-256");
-  }
-  if (cargoZigbuild.version !== REQUIRED_CARGO_ZIGBUILD_VERSION) {
-    throw new Error(`${REQUIRED_CARGO_ZIGBUILD_VERSION} is required, found ${cargoZigbuild.version}`);
-  }
+}
 
+function buildCandidateFromSource({
+  runId,
+  relayOnlyBuild,
+  zigArchive,
+  zigArchiveSha256,
+  sourceCommit,
+}) {
+  if (process.platform !== "darwin" || process.arch !== "x64") {
+    throw new Error("the certifying source-build harness is pinned to the x86_64-macos operator toolchain");
+  }
+  // Reject ambient build controls before any tool is executed. Tool discovery
+  // receives a minimal environment, while unlisted credentials remain
+  // available to the later SSH phase but never reach build subprocesses.
+  validateSourceBuildAmbient(process.env);
   const targetDir = mkdtempSync(join(tmpdir(), `jeliya-v050-${runId}-build-`));
   const sourceRoot = join(targetDir, "source");
   const cargoTargetDir = join(targetDir, "target");
-  const archivePath = join(targetDir, "source.tar");
+  const discoveryHome = join(targetDir, "tool-discovery-home");
   const featureList = ["embed-ui", ...(relayOnlyBuild ? ["relay-only-test"] : [])];
   const features = featureList.join(",");
   const nativeArgs = ["build", "--locked", "--release", "-p", "jeliyad", "--features", features];
@@ -816,32 +1398,110 @@ function buildCandidateFromSource({ runId, relayOnlyBuild, zigSha256, sourceComm
     "zigbuild", "--locked", "--release", "-p", "jeliyad", "--features", features,
     "--target", LINUX_TARGET,
   ];
-  const env = {
-    ...process.env,
-    CARGO_BUILD_JOBS: REQUIRED_CARGO_BUILD_JOBS,
-    CARGO_TARGET_DIR: cargoTargetDir,
-  };
   try {
-    mkdirSync(sourceRoot, { mode: 0o700 });
-    execFileSync(
-      "git",
-      ["archive", "--format=tar", "--output", archivePath, sourceCommit],
-      { cwd: REPO_ROOT },
+    mkdirSync(discoveryHome, { mode: 0o700 });
+    mkdirSync(join(discoveryHome, "npm-cache"), { mode: 0o700 });
+    for (const name of ["npmrc", "npm-globalrc", "gitconfig"]) {
+      writeFileSync(join(discoveryHome, name), "", { mode: 0o600 });
+    }
+    const discoveryEnv = toolDiscoveryEnvironment(process.env, discoveryHome);
+    const rustupEnv = {
+      ...discoveryEnv,
+      HOME: process.env.HOME ?? discoveryHome,
+    };
+    const rustup = commandIdentity("rustup", ["--version"], discoveryEnv, rustupEnv);
+    const rustc = rustToolIdentity(
+      "rustc",
+      ["--version", "--verbose"],
+      rustup.path,
+      rustupEnv,
+      discoveryEnv,
     );
-    runBuildCommand("tar", ["-xf", archivePath, "-C", sourceRoot], { cwd: targetDir });
+    const cargo = rustToolIdentity(
+      "cargo",
+      ["--version"],
+      rustup.path,
+      rustupEnv,
+      discoveryEnv,
+    );
+    const node = nodeIdentity(discoveryEnv, discoveryEnv);
+    const npm = npmIdentity(discoveryEnv, discoveryEnv, node.path);
+    const cargoZigbuild = commandIdentity("cargo-zigbuild", ["-V"], discoveryEnv);
+    const git = commandIdentity("git", ["--version"], discoveryEnv);
+    const tar = commandIdentity("tar", ["--version"], discoveryEnv);
+    const zig = installVerifiedZig({
+      archivePath: zigArchive,
+      expectedArchiveSha256: zigArchiveSha256,
+      targetDir,
+      tarPath: tar.path,
+      env: discoveryEnv,
+    });
+    const installedLinuxTarget = requireInstalledRustTarget(
+      LINUX_TARGET,
+      rustup.path,
+      rustupEnv,
+    );
+    validateSourceBuildToolVersions({
+      rustcVersion: rustc.version,
+      cargoVersion: cargo.version,
+      nodeVersion: node.version,
+      npmVersion: npm.version,
+      cargoZigbuildVersion: cargoZigbuild.version,
+    });
+
+    const buildEnvironment = sourceBuildEnvironment(process.env, {
+      targetDir,
+      cargoTargetDir,
+      rustcPath: rustc.path,
+      toolPaths: [
+        node.path,
+        rustc.path,
+        cargo.path,
+        git.path,
+      ],
+    });
+    const { env } = buildEnvironment;
+    bindSourceBuildTools(env, {
+      nodePath: node.path,
+      npmPath: npm.path,
+      cargoPath: cargo.path,
+      zigPath: zig.path,
+    });
+    rejectAmbientCargoConfigs(targetDir);
+    mkdirSync(sourceRoot, { mode: 0o700 });
+    for (const directory of [
+      buildEnvironment.paths.home,
+      buildEnvironment.paths.cargoHome,
+      buildEnvironment.paths.npmCache,
+      buildEnvironment.paths.temp,
+    ]) {
+      mkdirSync(directory, { mode: 0o700 });
+    }
+    writeFileSync(buildEnvironment.paths.npmConfig, "", { mode: 0o600 });
+    writeFileSync(buildEnvironment.paths.npmGlobalConfig, "", { mode: 0o600 });
+    writeFileSync(buildEnvironment.paths.gitConfig, "", { mode: 0o600 });
+    const archivePath = createIsolatedSourceArchive({
+      gitPath: git.path,
+      gitEnv: env,
+      repositoryRoot: REPO_ROOT,
+      targetDir,
+      sourceCommit,
+      attributesFile: buildEnvironment.paths.gitConfig,
+    });
+    runBuildCommand(tar.path, ["-xf", archivePath, "-C", sourceRoot], { cwd: targetDir, env });
     rmSync(archivePath, { force: true });
 
     const packageLock = join(sourceRoot, "ui", "package-lock.json");
     if (!existsSync(packageLock)) throw new Error("the committed UI package-lock.json is missing");
     const packageLockSha256 = sha256File(packageLock);
-    runBuildCommand("npm", ["ci"], { cwd: join(sourceRoot, "ui") });
-    runBuildCommand("npm", ["run", "build"], { cwd: join(sourceRoot, "ui") });
+    runBuildCommand(node.path, [npm.path, "ci"], { cwd: join(sourceRoot, "ui"), env });
+    runBuildCommand(node.path, [npm.path, "run", "build"], { cwd: join(sourceRoot, "ui"), env });
     if (!embeddedUiReady(sourceRoot)) {
       throw new Error("the source-built ui/dist is missing or incomplete");
     }
 
-    runCargoBuild(nativeArgs, env, sourceRoot);
-    runCargoBuild(linuxArgs, env, sourceRoot);
+    runCargoBuild(cargo.path, nativeArgs, env, sourceRoot);
+    runBuildCommand(cargoZigbuild.path, linuxArgs, { cwd: sourceRoot, env });
     const localPath = join(cargoTargetDir, "release", "jeliyad");
     const linuxPath = join(cargoTargetDir, LINUX_TARGET, "release", "jeliyad");
     if (!existsSync(localPath) || !existsSync(linuxPath)) {
@@ -857,6 +1517,7 @@ function buildCandidateFromSource({ runId, relayOnlyBuild, zigSha256, sourceComm
         source_bound: true,
         source_snapshot_commit: sourceCommit,
         locked: true,
+        environment: buildEnvironment.evidence,
         embedded_ui: {
           built_from_source: true,
           package_lock_sha256: packageLockSha256,
@@ -864,19 +1525,26 @@ function buildCandidateFromSource({ runId, relayOnlyBuild, zigSha256, sourceComm
         features: featureList,
         targets: [rustc.version.match(/^host:\s*(.+)$/m)?.[1] ?? "native-host", LINUX_TARGET],
         commands: [
+          "git clone --bare --no-local <candidate repository>",
           `git archive ${sourceCommit}`,
-          "npm ci",
-          "npm run build",
-          `cargo +${REQUIRED_RUST_TOOLCHAIN} ${nativeArgs.join(" ")}`,
-          `cargo +${REQUIRED_RUST_TOOLCHAIN} ${linuxArgs.join(" ")}`,
+          "node <recorded npm-cli> ci",
+          "node <recorded npm-cli> run build",
+          `cargo ${nativeArgs.join(" ")}`,
+          `cargo-zigbuild ${linuxArgs.join(" ")}`,
         ],
         toolchain: {
-          rustc,
-          cargo,
-          node,
-          npm,
-          zig: { ...zig, expected_sha256: expectedZigSha, integrity_verified: true },
-          cargo_zigbuild: cargoZigbuild,
+          identity_policy: "tools execute by resolved absolute path; evidence records filename, version, and observed SHA-256; the complete Zig installation archive is independently digest-verified",
+          independently_verified: ["zig-installation-archive"],
+          execution_binding: "npm is executed by the recorded Node binary; cargo-zigbuild is invoked directly with recorded Cargo and Zig paths; Python ziglang discovery is disabled",
+          rustc: toolEvidence(rustc),
+          cargo: toolEvidence(cargo),
+          rustup: toolEvidence(rustup),
+          node: toolEvidence(node),
+          npm: toolEvidence(npm),
+          zig: toolEvidence(zig),
+          cargo_zigbuild: toolEvidence(cargoZigbuild),
+          git: toolEvidence(git),
+          tar: toolEvidence(tar),
           cargo_build_jobs: Number(REQUIRED_CARGO_BUILD_JOBS),
           installed_cross_target: installedLinuxTarget,
         },
@@ -2067,8 +2735,11 @@ export function parseCli(argv) {
   if (buildFromSource && (args["local-bin"] || args["linux-bin"] || args["linux-sha256"])) {
     die("--build-from-source cannot be combined with prebuilt binary arguments");
   }
-  if (buildFromSource && !args["zig-sha256"]) {
-    die("--build-from-source requires an independently supplied --zig-sha256");
+  if (buildFromSource && args["zig-sha256"]) {
+    die("--zig-sha256 cannot authenticate Zig's external installation resources; supply the verified archive instead");
+  }
+  if (buildFromSource && (!args["zig-archive"] || !args["zig-archive-sha256"])) {
+    die("--build-from-source requires --zig-archive and the official --zig-archive-sha256");
   }
   return {
     args,
@@ -2085,7 +2756,10 @@ export function parseCli(argv) {
     localBin: String(args["local-bin"] ?? (localDryrun ? DEFAULT_DEBUG_BIN : DEFAULT_LOCAL_BIN)),
     linuxBin: args["linux-bin"] ? String(args["linux-bin"]) : null,
     linuxSha256: args["linux-sha256"] ? String(args["linux-sha256"]) : null,
-    zigSha256: args["zig-sha256"] ? String(args["zig-sha256"]) : null,
+    zigArchive: args["zig-archive"] ? String(args["zig-archive"]) : null,
+    zigArchiveSha256: args["zig-archive-sha256"]
+      ? String(args["zig-archive-sha256"])
+      : null,
   };
 }
 
@@ -2106,7 +2780,8 @@ async function main(argv = process.argv.slice(2)) {
     sourceBuild = buildCandidateFromSource({
       runId,
       relayOnlyBuild: config.relayOnlyBuild,
-      zigSha256: config.zigSha256,
+      zigArchive: config.zigArchive,
+      zigArchiveSha256: config.zigArchiveSha256,
       sourceCommit: source.commit,
     });
   }
@@ -2174,7 +2849,7 @@ async function main(argv = process.argv.slice(2)) {
   };
 
   const evidence = {
-    schema: 1,
+    schema: sourceBuild ? 2 : 1,
     run_id: runId,
     started_at_utc: now.toISOString(),
     ended_at_utc: null,
