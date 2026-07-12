@@ -51,6 +51,13 @@
 - The 320px member panel now survives French-width copy: the self-owner roster row collapsed to one glyph per line (the inline « Le propriétaire reste » note — ~2× wider than 'Owner stays' — starved the name column; it now sits under the role/status pills, width-capped and scale-aware) and the Members tab ellipsized to « Me… » in its rigid quarter-width slot (tabs are now content-sized and justified, with tighter padding so all four French labels + badges fit, and a horizontal-scroll safety valve for pathological badge counts instead of clipping). Member IDs ellipsize on one line instead of wrapping. New `panel_fr_layout_test` pins the roster orientation, both wide tab labels at intrinsic width, and a zero-scroll-extent strip fit.
 - Fixed the file-fetch UI keying friendly copy on a phantom `provider_refused` code the daemon never emits; the authorization-wall case now correctly handles `file_unauthorized`, and `hash_mismatch` gets an explicit hard-stop message. Aligned the TypeScript wire types (`protocol.ts`) and the mock reference client with the daemon: `daemon.status` gains `protocol`/`pid`/`port`/`data_dir`, `daemon.shutdown` is typed, `room.open` documents its `peers` hints, `invite.create` expiry accepts a string or seconds, and pipe/room fields that can be null are typed nullable (surfacing several latent null-handling fixes in the UI).
 
+### Fixed
+
+- Closed cross-room read exposure with a centralized accepted-room guard covering every public room-scoped read, accepted-room filtering for aggregates such as `room.list` and `agents.fleet`, and negative authorization coverage for timelines, members, agents, files, local files, and pipes.
+- Made local room provenance recoverable and durable: create and join now persist accepted-room state before irreversible event publication, retries remain safe after persistence failures, concurrent state mutations are serialized, and `state.json` is atomically replaced with file synchronization and owner-only Unix permissions.
+- Reused the authorized room snapshot cache for direct file, pipe, and agent-history reads, avoiding repeated full-history folds without weakening the authorization preflight.
+- Aligned the `room.list` pre-identity error contract across the daemon, TypeScript mock, Dart daemon/FFI/mock clients, the golden corpus, and protocol documentation.
+
 ## [0.4.3] - 2026-07-07
 
 ### Changed
