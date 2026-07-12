@@ -3,7 +3,7 @@ type: "Status Report"
 title: "Verification evidence"
 description: "Revision-bound verification ledger and evidence-recording contract for the v0.5.0 technical preview."
 tags: ["evidence", "networking", "release", "testing", "verification"]
-timestamp: "2026-07-12T16:40:00Z"
+timestamp: "2026-07-12T18:47:00Z"
 status: "canonical"
 implementation_status: "implemented"
 verification_status: "partial"
@@ -26,7 +26,7 @@ evidence, but they do **not** authorize publication.
 |---|---|
 | Milestone | `v0.5.0 — Evidence-Backed Technical Preview` |
 | Baseline commit | `1285b42037a3713840955fa518f2b81b19f2929f` |
-| Hardening implementation commit before documentation reconciliation | `8caeaf5f2d067230f66be757c415569e8e5e325f` |
+| Hardening implementation commit before documentation reconciliation | `4d0807a42ad79f7eb1b44edab48a62bf8813dd9c` |
 | Current public `iroh-rooms` pin | `3cb9bfd1e43eb755c967315c37b6d4fd1c2bf020` — synchronization isolation is not remediated |
 | Network-test Jeliya commit | `fe870c7c5b63f2bf52b031dd1bc8e27e83183be5` — clean, local, and unpublished |
 | Candidate upstream remediation revision | `3702e8cbcd5ac1808791124dd6bc44068be5f822` — clean and tested locally, but unpublished |

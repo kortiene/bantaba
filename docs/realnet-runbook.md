@@ -3,7 +3,7 @@ type: "Runbook"
 title: "Real-network NAT runbook"
 description: "Operator procedure for collecting revision-bound direct and forced-relay evidence across three distinct public egress paths."
 tags: ["nat", "networking", "operations", "p2p"]
-timestamp: "2026-07-12T16:40:00Z"
+timestamp: "2026-07-12T18:47:00Z"
 status: "canonical"
 implementation_status: "implemented"
 verification_status: "partial"
