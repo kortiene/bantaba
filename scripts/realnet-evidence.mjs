@@ -858,7 +858,7 @@ function verifyLocalBinary(path, expectedVersion, expectedRelayOnly) {
 function unsafeSourceBuildAmbientName(name) {
   const upper = name.toUpperCase();
   return /^RUST(?:_|FLAGS$|DOCFLAGS$)/.test(upper)
-    || /^CARGO_(?!HOME$|TARGET_DIR$|BUILD_JOBS$)/.test(upper)
+    || /^CARGO_(?!HOME$|TARGET_DIR$|BUILD_JOBS$|TERM_)/.test(upper)
     || /^(?:CC|CXX|AR|LD)(?:_|$)/.test(upper)
     || /^(?:CFLAGS|CPPFLAGS|CXXFLAGS|LDFLAGS)(?:_|$)/.test(upper)
     || /^(?:PKG_CONFIG|BINDGEN|ZIG_|LD_|DYLD_|CMAKE|MESON|VCPKG|OPENSSL)/.test(upper)
