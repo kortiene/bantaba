@@ -57,7 +57,7 @@ New-Item -ItemType Directory -Force -Path $tmpDir | Out-Null
 try {
   Write-Host "downloading $asset ..."
   Invoke-WebRequest -Uri $url -OutFile $tmpArchive -UseBasicParsing
-  if (-not (Test-Path $tmpArchive) -PathType Leaf) { throw "downloaded archive is missing: $url" }
+  if (-not (Test-Path $tmpArchive -PathType Leaf)) { throw "downloaded archive is missing: $url" }
 
   Write-Host "downloading and verifying $asset.sha256 ..."
   Invoke-WebRequest -Uri "$url.sha256" -OutFile $tmpChecksum -UseBasicParsing

@@ -1143,7 +1143,13 @@ function flagValue(argv, name) {
 function main() {
   const argv = process.argv.slice(2);
   const artifacts = flagValue(argv, "--artifacts");
-  const tag = flagValue(argv, "--tag") || process.env.GITHUB_REF_NAME || "";
+  // GITHUB_REF_NAME is a release tag (e.g. "v0.5.0") only on tag-triggered
+  // runs. On PR/branch runs it is a branch name or a PR merge ref like
+  // "22/merge", which is not a release tag; ignore those so --source falls
+  // back to the daemon version instead of failing the semver gate.
+  const refName = process.env.GITHUB_REF_NAME || "";
+  const refTag = /^v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(refName) ? refName : "";
+  const tag = flagValue(argv, "--tag") || refTag;
   const checkSource = argv.includes("--source") || !artifacts;
   const checkPublish = argv.includes("--publish");
 
