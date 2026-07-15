@@ -124,7 +124,12 @@ gh api "repos/${GITHUB_REPOSITORY}/git/refs" \
   -f sha="$GITHUB_SHA" \
   >/dev/null
 created_tag=1
+# `gh release create` is the only gh call here that does not take an explicit
+# `repos/<owner>/<repo>` path, so it must be told the repository: the publish
+# job has no working-tree checkout, and without --repo gh tries to resolve the
+# repository from local git and fails with "not a git repository".
 gh release create "$tag" "${assets[@]}" \
+  --repo "${GITHUB_REPOSITORY}" \
   --verify-tag \
   --target "$GITHUB_SHA" \
   --title "Jeliya $tag — Evidence-Backed Technical Preview" \
