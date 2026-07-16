@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Jeliya
+GenericName=Peer-to-peer rooms
+Comment=Connect and collaborate in local-first peer-to-peer rooms
+Exec=jeliya
+Icon=com.incubtek.jeliya
+Terminal=false
+Categories=Network;Chat;
+Keywords=chat;collaboration;peer-to-peer;rooms;
+StartupNotify=true
+StartupWMClass=com.incubtek.jeliya

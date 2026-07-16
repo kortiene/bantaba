@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.incubtek.jeliya</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT OR Apache-2.0</project_license>
+  <name>Jeliya</name>
+  <summary>Local-first peer-to-peer rooms</summary>
+  <developer id="com.incubtek">
+    <name>Incubtek</name>
+  </developer>
+  <description>
+    <p>
+      Jeliya is a native desktop client for private peer-to-peer rooms with
+      chat, file sharing, invitations, and agent collaboration.
+    </p>
+  </description>
+  <launchable type="desktop-id">com.incubtek.jeliya.desktop</launchable>
+  <url type="homepage">https://github.com/kortiene/jeliya</url>
+  <url type="bugtracker">https://github.com/kortiene/jeliya/issues</url>
+  <provides>
+    <binary>jeliya</binary>
+  </provides>
+  <content_rating type="oars-1.1" />
+</component>
