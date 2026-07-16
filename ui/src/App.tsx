@@ -995,7 +995,7 @@ function JoinRoomModal({
   };
 
   return (
-    <Modal title="Join with a ticket" onClose={onClose}>
+    <Modal title="Join with a ticket" onClose={onClose} busy={busy}>
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -1075,7 +1075,7 @@ function CreateRoomModal({
   };
 
   return (
-    <Modal title="Create a room" onClose={onClose}>
+    <Modal title="Create a room" onClose={onClose} busy={busy}>
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -1127,7 +1127,7 @@ function LeaveRoomModal({
   };
 
   return (
-    <Modal title="Leave room" onClose={onClose}>
+    <Modal title="Leave room" onClose={onClose} busy={busy}>
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -1139,10 +1139,12 @@ function LeaveRoomModal({
           the local session; you’ll need a new invite to join again.
         </p>
         <div className="field-row">
-          <button type="submit" className="btn btn-danger" disabled={busy} autoFocus>
+          <button type="submit" className="btn btn-danger" disabled={busy}>
             {busy ? 'Leaving…' : 'Leave room'}
           </button>
-          <button type="button" className="btn btn-ghost" onClick={onClose} disabled={busy}>
+          {/* Initial focus lands on Cancel, never the destructive action —
+              Enter right after opening must not publish a departure. */}
+          <button type="button" className="btn btn-ghost" onClick={onClose} disabled={busy} autoFocus>
             Cancel
           </button>
         </div>

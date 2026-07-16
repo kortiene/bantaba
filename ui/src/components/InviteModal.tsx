@@ -56,7 +56,7 @@ export function InviteModal({
   };
 
   return (
-    <Modal title="Invite to room" onClose={onClose} wide>
+    <Modal title="Invite to room" onClose={onClose} wide busy={busy}>
       {!ticket ? (
         <form
           onSubmit={(e) => {

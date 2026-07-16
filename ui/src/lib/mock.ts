@@ -307,18 +307,24 @@ function buildMainRoom(): MockRoom {
 function buildSideRoom(seed: string, name: string, people: Person[], myRole: Role, blurb: string): MockRoom {
   const r = `blake3:${hex(`room-${seed}`, 64)}`;
   const owner = people[0];
+  // Roles are per-room: the creator owns the room, and my own role is the
+  // declared myRole — the global Person.role only describes the default
+  // (Alex owns the MVP room, not every room he's merely a member of).
+  const roleHere = (p: Person): Role => (p.id === owner.id ? 'owner' : p.id === ALEX.id ? myRole : p.role);
   const timeline: TimelineEvent[] = [
-    ev(r, at(8, 30), owner, 'room_created'),
+    ev(r, at(8, 30), { ...owner, role: 'owner' }, 'room_created'),
     ...people.slice(1).map((p, i) =>
-      ev(r, at(8, 32 + i), p, 'member_joined', { member: { identity_id: p.id, role: p.role } }),
+      ev(r, at(8, 32 + i), { ...p, role: roleHere(p) }, 'member_joined', {
+        member: { identity_id: p.id, role: roleHere(p) },
+      }),
     ),
-    ev(r, at(9, 5), owner, 'message', { body: blurb }),
+    ev(r, at(9, 5), { ...owner, role: 'owner' }, 'message', { body: blurb }),
   ];
   return {
     room_id: r,
     name,
     myRole,
-    members: people.map((p) => member(p)),
+    members: people.map((p) => member({ ...p, role: roleHere(p) })),
     timeline,
     files: [],
     pipes: [],
@@ -393,6 +399,21 @@ function parseFailSpecs(raw: string | null): Map<string, FailureSpec> {
   return specs;
 }
 
+/** Deterministic per-method extra latency for the browser regression suite:
+ *  `?mock_delay=room.create:1200` holds every room.create response for an
+ *  extra 1.2s so a test can exercise the in-flight (busy) window. Mock-only. */
+function parseDelaySpecs(raw: string | null): Map<string, number> {
+  const specs = new Map<string, number>();
+  if (!raw) return specs;
+  for (const entry of raw.split(',')) {
+    const [method, ms] = entry.split(':');
+    const delay = Number(ms);
+    if (!method || !Number.isFinite(delay) || delay <= 0) continue;
+    specs.set(method, delay);
+  }
+  return specs;
+}
+
 class MockClient implements Client {
   private state: ConnectionState = 'disconnected';
   private stateHandlers = new Set<(s: ConnectionState) => void>();
@@ -406,9 +427,16 @@ class MockClient implements Client {
   private portSeq = 41732;
   private startTimer: number | null = null;
   private failSpecs: Map<string, FailureSpec>;
+  private delaySpecs: Map<string, number>;
 
-  constructor(fresh: boolean, failSpecs: Map<string, FailureSpec> = new Map()) {
+  constructor(
+    fresh: boolean,
+    failSpecs: Map<string, FailureSpec> = new Map(),
+    delaySpecs: Map<string, number> = new Map(),
+    presetTicket: string | null = null,
+  ) {
     this.failSpecs = failSpecs;
+    this.delaySpecs = delaySpecs;
     for (const p of EVERYONE) suggestedNames[p.id] = p.name;
     if (fresh) {
       this.identity = null;
@@ -467,6 +495,17 @@ class MockClient implements Client {
         }),
       );
       for (const room of [workspace, review, design, research]) this.rooms.set(room.room_id, room);
+      // Regression-suite hook (`?mock_ticket=<suffix>`): a pre-minted,
+      // redeemable ticket for the main room, so a join success path can be
+      // driven end-to-end without first walking the invite flow.
+      if (presetTicket) {
+        this.tickets.set(`roomtkt1${presetTicket}`, {
+          room_id: MAIN_ID,
+          identity_id: ALEX.id,
+          role: 'member',
+          expiresAt: null,
+        });
+      }
     }
   }
 
@@ -511,7 +550,7 @@ class MockClient implements Client {
         } catch (e) {
           reject(e);
         }
-      }, 60 + Math.random() * 120);
+      }, 60 + Math.random() * 120 + (this.delaySpecs.get(method) ?? 0));
     });
   }
 
@@ -1080,5 +1119,10 @@ class MockClient implements Client {
 export function createMockClient(): Client {
   const params = new URLSearchParams(window.location.search);
   const fresh = params.get('mock') === 'fresh';
-  return new MockClient(fresh, parseFailSpecs(params.get('mock_fail')));
+  return new MockClient(
+    fresh,
+    parseFailSpecs(params.get('mock_fail')),
+    parseDelaySpecs(params.get('mock_delay')),
+    params.get('mock_ticket'),
+  );
 }

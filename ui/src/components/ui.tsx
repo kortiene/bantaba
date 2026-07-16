@@ -147,15 +147,23 @@ export function Modal({
   onClose,
   children,
   wide = false,
+  busy = false,
 }: {
   title: string;
   onClose(): void;
   children: ReactNode;
   wide?: boolean;
+  /** A non-cancellable operation is in flight: Escape, backdrop, and the ✕
+   *  cannot dismiss the dialog until it settles. Dismissal would only hide
+   *  the request — its result would still mutate state after the user
+   *  believed the action was abandoned. */
+  busy?: boolean;
 }) {
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
+  const busyRef = useRef(busy);
+  busyRef.current = busy;
 
   // Real modal semantics for `aria-modal="true"`: Escape closes, Tab is trapped
   // inside the dialog (so focus never lands on the obscured room UI), and focus
@@ -182,7 +190,7 @@ export function Modal({
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.stopPropagation();
-        onCloseRef.current();
+        if (!busyRef.current) onCloseRef.current();
         return;
       }
       if (e.key !== 'Tab' || !dialog) return;
@@ -215,7 +223,7 @@ export function Modal({
     <div
       className="modal-backdrop"
       onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onClose();
+        if (e.target === e.currentTarget && !busy) onClose();
       }}
     >
       <div
@@ -224,11 +232,12 @@ export function Modal({
         role="dialog"
         aria-modal="true"
         aria-label={title}
+        aria-busy={busy || undefined}
         tabIndex={-1}
       >
         <header className="modal-head">
           <h2>{title}</h2>
-          <button type="button" className="icon-btn" onClick={onClose} aria-label="Close">
+          <button type="button" className="icon-btn" onClick={onClose} aria-label="Close" disabled={busy}>
             ✕
           </button>
         </header>
