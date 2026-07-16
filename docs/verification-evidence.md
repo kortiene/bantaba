@@ -1,13 +1,13 @@
 ---
 type: "Status Report"
 title: "Verification evidence"
-description: "Revision-bound verification ledger and evidence-recording contract for the v0.5.0 technical preview."
+description: "Revision-bound verification ledger and evidence-recording contract for the v0.6.0 candidate."
 tags: ["evidence", "networking", "release", "testing", "verification"]
-timestamp: "2026-07-16T15:30:00Z"
+timestamp: "2026-07-16T21:00:00Z"
 status: "canonical"
 implementation_status: "implemented"
 verification_status: "verified"
-release_status: "partial"
+release_status: "unreleased"
 audience: ["contributors", "maintainers", "operators", "release-engineers"]
 ---
 
@@ -22,30 +22,39 @@ bar: each binds the published network-qualified Jeliya commit and the published,
 remediated iroh-rooms revision, is retained as a sanitized manifest, and carries
 a detached Ed25519 signature verified against the pinned release-evidence key.
 Both set `certifiable: true` and `source.releaseable: true`; the evidence
-authorizes the v0.5.0 daemon prerelease.
+authorizes the v0.6.0 daemon prerelease.
 
 ## Candidate identity
 
 | Field | Value |
 |---|---|
-| Milestone | `v0.5.0 — Evidence-Backed Technical Preview`, published 2026-07-14 as a prerelease |
-| Baseline commit | `1285b42037a3713840955fa518f2b81b19f2929f` |
-| Network-qualified commit | `c5f740e67d043a1153cf285691e3bc5b2b9a7203` |
-| `v0.5.0`-certified `iroh-rooms` pin | `d0ceb0b320f1ff3a576b63d8b24aa1bf76a2d3bb` — cross-room event-lookup isolation remediated (published rc.2-era revision) |
-| Post-release candidate `iroh-rooms` pin (`main`) | `71fbb5007bef4ce83631c94762ec68c2beef3d79` — published tag `v0.1.0-rc.3`; no network evidence at this pin yet |
+| Milestone | `v0.6.0 — Capability-Gated Join Candidate`, not yet published |
+| Baseline commit | `045d85cb1d066f16d564b6051363b9328063ee01` — the published `v0.5.0` tag |
+| Network-qualified commit | `55024a46b3e112796ba2acf1dc408dab26dbba2e` |
+| Current public `iroh-rooms` pin | `71fbb5007bef4ce83631c94762ec68c2beef3d79` — join-after-conversation deadlock fixed and the join bootstrap gated on the invite capability proof (iroh-room tag v0.1.0-rc.3) |
+| Candidate upstream remediation revision | `71fbb5007bef4ce83631c94762ec68c2beef3d79` |
 | Retained evidence signatures | present — detached Ed25519 over `direct.json` and `relay.json`, verified against the pinned public SPKI |
-| Release evidence gate | READY for `v0.5.0` (consumed by its publication); the next release needs fresh evidence at the candidate pin |
-| Evidence window | 2026-07-14 UTC (certifying runs); candidate re-qualification 2026-07-16 |
+| Release evidence gate | READY |
+| Evidence window | 2026-07-16 UTC |
 
 Both certifying schema 2 runs resolve the published iroh-rooms revision
-`d0ceb0b` (iroh-room tag `v0.1.0-rc.2`), which carries the reviewed cross-room
-event-lookup isolation fix and the compile-time relay-only test seam. The direct
+`71fbb500` (iroh-room tag `v0.1.0-rc.3`), which carries the reviewed cross-room
+event-lookup isolation fix and the compile-time relay-only test seam already
+certified for `v0.5.0`, and adds the join-bootstrap capability gate. The direct
 run verifies the hardened public-RPC boundary and stable direct paths; the
 forced-relay run attests a relay-only source build and proves the same behavior
-over relay. Both bind the published network-qualified commit `c5f740e`, run over
+over relay. Both bind the published network-qualified commit `55024a4`, run over
 three peers spanning two BGP origin ASNs (AS11426 + AS24940) with three distinct
 observed egresses, pass every recorded assertion, and set `certifiable: true`
 and `source.releaseable: true`.
+
+The `v0.5.0`-certified pin remains `d0ceb0b320f1ff3a576b63d8b24aa1bf76a2d3bb`.
+That revision is still publicly fetchable by commit SHA, but it is no longer
+named by the `v0.1.0-rc.2` tag: the tag was re-created upstream after the
+`v0.5.0` release and now resolves to a different commit. `v0.5.0`'s evidence
+binds the commit SHA rather than the tag, so its certification and
+reproducibility are unaffected; earlier statements in this ledger that equated
+tag `v0.1.0-rc.2` with `d0ceb0b` have been corrected to cite the SHA alone.
 
 Older schema 1 runs (retained as `historical-schema1-direct.json` and
 `historical-schema1-relay.json`), and the earlier `preview-direct-schema2.json`
@@ -57,23 +66,23 @@ manifests are the certifying set.
 
 | Gate | Current evidence | Status |
 |---|---|---|
-| Public read-RPC authorization | centralized guard and local negative suite cover foreign timelines, members, agents, files, pipes, local-file HTTP, and aggregate projections; the current schema 2 direct run denied all 17 room-scoped RPCs and filtered local-file and aggregate reads | certifying PASS at `c5f740e…`; the direct run denied all room-scoped RPCs and filtered local-file and aggregate reads over the public network |
+| Public read-RPC authorization | centralized guard and local negative suite cover foreign timelines, members, agents, files, pipes, local-file HTTP, and aggregate projections; the current schema 2 direct run denied all 17 room-scoped RPCs and filtered local-file and aggregate reads | certifying PASS at `55024a4…`; the direct run denied all room-scoped RPCs and filtered local-file and aggregate reads over the public network |
 | Accepted-room provenance | create/join failure injection proves provenance is accepted before irreversible event publication; 24 concurrent mutations retain every room; direct reads reuse the authorized snapshot cache; Unix mode is pinned to `0600`; exact `atomicwrites 0.4.4` uses synchronized Unix directory replacement and Windows write-through replacement | local PASS; Windows semantics source-reviewed but not behaviorally executed on `windows-latest` |
 | Pre-identity protocol contract | `room.list` returns the successful empty onboarding result `{ rooms: [] }` consistently across the core engine, TypeScript mock, Dart daemon, Dart FFI, Dart mock, and golden-corpus oracles | local PASS |
-| Upstream synchronization isolation | malicious `WantEvents`, foreign-parent, and administrative-tip tests pass against the published upstream `d0ceb0b320f1ff3a576b63d8b24aa1bf76a2d3bb` (iroh-room tag v0.1.0-rc.2) | PASS; upstream remediation published and Jeliya repinned; certified by the forced-relay run |
+| Upstream synchronization isolation | malicious `WantEvents`, foreign-parent, and administrative-tip tests pass against the published upstream `71fbb5007bef4ce83631c94762ec68c2beef3d79` (iroh-room tag v0.1.0-rc.3), which carries forward the isolation remediation first certified at `d0ceb0b320f1ff3a576b63d8b24aa1bf76a2d3bb` | PASS; upstream remediation published and Jeliya repinned; certified by the forced-relay run |
 | Android backup exclusion | `allowBackup=false`, explicit cloud/device-transfer exclusion rules, and engine state under `noBackupFilesDir`; repository gate and six secret-storage tests pass | local PASS; this is app-private no-backup storage, not Android Keystore wrapping |
 | Agent secret location | platform data directory outside the checkout, deny-all state-directory Git guard, repository ignore rules, and commit-prevention validation | local PASS |
 | Rust dependency audit | zero vulnerability advisories; three unmaintained-crate warnings and one yanked-version warning remain in the register below | PASS for vulnerability threshold |
 | npm dependency audit | zero vulnerabilities | PASS |
 | Complete CI definition | Rust, MSRV, TypeScript, Dart, Flutter, Linux native packaging, docs, smoke, sidecar, agent, fleet, protocol, and dependency gates are configured with required-tool failures; manual dispatch is non-publishing and Gradle is checksum-verified | the six pre-existing required jobs pass on hosted `main` runs; the new `linux-flutter` job has no hosted execution yet |
 | Repeatability | two complete hosted CI executions from clean environments | satisfied by `release.yml`, which runs the complete CI gate twice on the network-qualified commit before any release build |
-| Direct different-network P2P | schema 2 run `3b86ac67`: three peers, three distinct observed egresses, two ASNs (AS11426 + AS24940), stable direct paths on roles A/B/C, all assertions pass | certifying PASS; signed and retained as `direct.json` |
-| Deliberately forced relay | schema 2 run `a3c76859`: the relay-only source build compiles against the published seam and self-attests, then proves forced-relay paths on roles A/B/C with all assertions passing | certifying PASS; signed and retained as `relay.json` |
+| Direct different-network P2P | schema 2 run `1ca39cfa`: three peers, three distinct observed egresses, two ASNs (AS11426 + AS24940), stable direct paths on roles A/B/C, all assertions pass | certifying PASS; signed and retained as `direct.json` |
+| Deliberately forced relay | schema 2 run `cf28bc63`: the relay-only source build compiles against the published seam and self-attests on the operator host and both remote hosts, then proves forced-relay paths on roles A/B/C with all assertions passing | certifying PASS; signed and retained as `relay.json` |
 | Join, reconnect, and resynchronization | current direct run covered targeted joins, three-peer convergence, closed-session message, reopen, resynchronization, and settled direct reconnect | certifying PASS; direct and forced-relay both certified |
 | Messages, files, and pipes | current direct run covered bidirectional and three-peer messages, byte-identical engine-verified BLAKE3 file fetch, authorized pipe, and zero-target-connection unauthorized pipe | certifying PASS; direct and forced-relay both certified |
 | Installer integrity | Unix behavioral tests verify checksum-before-extraction; Windows jobs execute checksum/tamper behavior, simulate reparse rejection, and smoke the native daemon | Unix PASS; hosted `windows-latest` job passes on `main` |
-| Complete asset-set visibility | an execution-free read-only job validates and seals the complete set, a separate read-only job performs smoke execution, and the sole writer verifies the receipt without candidate execution before its final token-bearing step; the release stays draft until all uploaded bytes match | executed for `v0.5.0`: the five-archive set with sidecars was built, verified, and published; GitHub tag and release operations remain non-transactional |
-| Version consistency | local source checks bind daemon/UI/lockfile/changelog naming to `0.5.0` | PASS; the public `v0.5.0` tag and artifact names agree |
+| Complete asset-set visibility | an execution-free read-only job validates and seals the complete set, a separate read-only job performs smoke execution, and the sole writer verifies the receipt without candidate execution before its final token-bearing step; the release stays draft until all uploaded bytes match | executed end to end for `v0.5.0`, which built, verified, and published the five-archive set with sidecars; the same path executes for `v0.6.0` on release dispatch and has not yet run at this candidate. GitHub tag and release operations remain non-transactional |
+| Version consistency | local source checks bind daemon/UI/lockfile/changelog naming to `0.6.0` | PASS locally at `55024a4`; the public `v0.6.0` tag does not exist yet, so tag and artifact-name agreement is asserted by `release.yml` on dispatch, not here |
 | Documentation | required OKF pages distinguish current schema 2 direct evidence, the failed-closed current relay attempt, and historical schema 1 local-remediation evidence | rerun the local docs gate on the final documentation-only commit |
 
 ## Dependency-risk exception register
@@ -132,8 +141,10 @@ valid detached signature from the pre-authorized evidence key.
 ## Local upstream remediation qualification
 
 The reviewed Iroh Rooms remediation — the room-scoped event-lookup fix and the
-compile-time relay-only test seam — is published as
-`d0ceb0b320f1ff3a576b63d8b24aa1bf76a2d3bb` (iroh-room tag `v0.1.0-rc.2`). Its
+compile-time relay-only test seam — was first published as
+`d0ceb0b320f1ff3a576b63d8b24aa1bf76a2d3bb` and certified for `v0.5.0`; it is
+carried forward unchanged in this candidate's pin
+`71fbb5007bef4ce83631c94762ec68c2beef3d79` (iroh-room tag `v0.1.0-rc.3`). Its
 tests demonstrate that:
 
 - `WantEvents` cannot serve a known event ID from another room;
@@ -150,16 +161,16 @@ against it — see the certifying evidence below.
 ## Certifying network evidence
 
 Both certifying runs used the published network-qualified Jeliya commit
-`c5f740e67d043a1153cf285691e3bc5b2b9a7203` and the exact public Iroh Rooms pin
-`d0ceb0b320f1ff3a576b63d8b24aa1bf76a2d3bb`. The operator role ran on macOS
+`55024a46b3e112796ba2acf1dc408dab26dbba2e` and the exact public Iroh Rooms pin
+`71fbb5007bef4ce83631c94762ec68c2beef3d79`. The operator role ran on macOS
 x86_64. Roles B and C ran on `root@demo1` and `root@demo2`, both Ubuntu x86_64.
 SSH connected as root, but both remote daemons executed through `setpriv` as
 UID/GID `65534`.
 
-| Path | Run | Result | Manifest | Signature |
+| Path | Run and UTC window | Result | Manifest | Signature |
 |---|---|---|---|---|
-| direct | `20260714T214223Z-3b86ac67` | certifiable; A/B/C each remained direct for three consecutive observations; every assertion passed | [`direct.json`](evidence/v0.5.0/direct.json) | [`direct.json.sig`](evidence/v0.5.0/direct.json.sig) |
-| forced relay | `20260714T220516Z-a3c76859` | certifiable; the relay-only source build self-attested, then A/B/C each remained relay for three consecutive observations; every assertion passed | [`relay.json`](evidence/v0.5.0/relay.json) | [`relay.json.sig`](evidence/v0.5.0/relay.json.sig) |
+| direct | `20260716T201318Z-1ca39cfa`, 20:13:18–20:34:25 | certifiable; 36/36 assertions; A/B/C each remained direct for three consecutive observations | [`direct.json`](evidence/v0.6.0/direct.json) | [`direct.json.sig`](evidence/v0.6.0/direct.json.sig) |
+| forced relay | `20260716T203450Z-cf28bc63`, 20:34:50–20:56:31 | certifiable; 36/36 assertions; the relay-only source build self-attested on the operator host and both remote hosts, then A/B/C each remained relay for three consecutive observations | [`relay.json`](evidence/v0.6.0/relay.json) | [`relay.json.sig`](evidence/v0.6.0/relay.json.sig) |
 
 Each run observed three pairwise-distinct public egress values across two BGP
 origin ASNs (`AS11426` for the operator, `AS24940` for both remote roles)
@@ -280,15 +291,16 @@ real-network evidence.
 
 ## Exact release blockers
 
-The evidence gate is **READY**. Each prior blocker has been cleared:
+The evidence gate is **READY** for `v0.6.0`. Each prior blocker has been
+cleared:
 
 1. the upstream remediation is reviewed and published as iroh-rooms
-   `d0ceb0b320f1ff3a576b63d8b24aa1bf76a2d3bb` (iroh-room tag `v0.1.0-rc.2`);
+   `71fbb5007bef4ce83631c94762ec68c2beef3d79` (iroh-room tag `v0.1.0-rc.3`);
 2. Jeliya's public `Cargo.toml` and `Cargo.lock` are repinned to that immutable
    public revision, and the exact candidate commit
-   `c5f740e67d043a1153cf285691e3bc5b2b9a7203` is published on `main`;
+   `55024a46b3e112796ba2acf1dc408dab26dbba2e` is published on `main`;
 3. out-of-band Ed25519 private-key custody is established and only the canonical
-   public SPKI is committed, in the network-qualified commit;
+   public SPKI is committed;
 4. the direct and forced-relay runs were repeated from that public commit and
    dependency, retained as the exact sanitized `direct.json`/`relay.json`
    manifests, and carry valid detached signatures; and
@@ -297,10 +309,11 @@ The evidence gate is **READY**. Each prior blocker has been cleared:
    consistency, and the draft-until-verified publication — are executed by
    `release.yml` on release dispatch under explicit release authority.
 
-`v0.5.0` published through that path on 2026-07-14 with the complete
-five-archive set and sidecars.
+`v0.5.0` published through that same path on 2026-07-14 with the complete
+five-archive set and sidecars. `v0.6.0` has not been dispatched yet; the gates
+in item 5 remain unexecuted at this candidate.
 
-## Post-release candidate: repin to iroh-room v0.1.0-rc.3 (2026-07-16)
+## Candidate provenance: repin to iroh-room v0.1.0-rc.3 (2026-07-16)
 
 After the `v0.5.0` release, `main` repinned `iroh-rooms` from certified
 `d0ceb0b…` to the published `v0.1.0-rc.3` tag
@@ -313,7 +326,8 @@ deadlock fix (upstream PR #111 — at `d0ceb0b`, and therefore in released
 membership reconciliation (PR #118), and deep pure-chat gap healing
 (PR #116).
 
-Local re-qualification at the pinned tag on 2026-07-16 (Linux aarch64
+Local re-qualification at the pinned tag on 2026-07-16, which preceded and
+motivated the certifying network runs recorded above (Linux aarch64
 workstation, clean checkouts of the exact tag commit):
 
 - upstream `iroh-rooms-core --all-features`: 523/523 pass, including the
@@ -330,10 +344,12 @@ workstation, clean checkouts of the exact tag commit):
   attestation `jeliya-relay-only-test-build-v1`, and exits before touching a
   data dir; the default build rejects the hidden flag.
 
-This is local qualification only. The certified `v0.5.0` evidence binds
-`c5f740e` + `d0ceb0b` and does not transfer; the next release requires fresh
-signed direct and forced-relay runs from the public commit carrying the rc.3
-pin. Upstream residuals at rc.3 are recorded in the
+The certified `v0.5.0` evidence binds `c5f740e` + `d0ceb0b` and does not
+transfer to this pin. The fresh signed direct and forced-relay runs it required
+were executed on 2026-07-16 from the public commit `55024a4` carrying the rc.3
+pin, and are the certifying set recorded above; the local qualification in this
+section is corroborating evidence, not the release qualification. Upstream
+residuals at rc.3 are recorded in the
 [threat model](security-threat-model.md): live event fan-out to a
 still-connected unproven provisional dialer while joins are being accepted
 (issue #121) and store holes from swallowed insert errors (issue #119).
