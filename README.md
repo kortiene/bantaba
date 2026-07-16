@@ -166,21 +166,28 @@ jeliyad --version       # print the version
 
 ### What about a native desktop app?
 
-There's one in the repo: `app/` is a native Flutter macOS app at feature
-parity with the web UI, fully localized in English and French, with a signed,
-sandboxed packaging pipeline (`scripts/package-macos.mjs`, which emits a DMG —
-ad-hoc signed until Apple Developer enrollment completes). **No app release
-has been published yet** — every release so far ships only the `jeliyad`
-daemon — so installing today means the daemon above plus the browser UI.
+There's one in the repo: `app/` is a native Flutter desktop app for macOS and
+Linux at feature parity with the web UI, fully localized in English and
+French. macOS has a signed, sandboxed packaging pipeline
+(`scripts/package-macos.mjs`, which emits a DMG — ad-hoc signed until Apple
+Developer enrollment completes). Linux has a GTK host and a source packaging
+pipeline that builds a path-relocatable bundle with its supervised `jeliyad`
+sidecar; CI is configured to compile and inspect that bundle on Linux x86_64.
+
+**No native app release has been published yet** — every release so far ships
+only the `jeliyad` daemon — so installing today means the daemon above plus
+the browser UI. The Linux app is source-supported, not a downloadable app
+artifact. Build and packaging instructions are in
+[`app/README.md`](app/README.md).
+
 `app/` also runs on phones: below 900dp it lays out as a bottom-tab mobile
 app, and the Android build speaks the real protocol through an in-process
 (FFI) engine. A physical Android 13 smoke covered engine startup, local room
 operations, pushes, persistence, and the mobile UI with the engine configured
 for real networking. It did not connect that phone to a peer on another
 network or observe a direct or relay path, so Android cross-network behavior
-is not yet verified. The macOS app still runs its bundled sidecar
-loopback-only. Android release builds (store bundle and per-ABI sideload APKs)
-are wired and documented in
+is not yet verified. Android release builds (store bundle and per-ABI sideload
+APKs) are wired and documented in
 [`packaging/README.md`](packaging/README.md), but no APK or app bundle has
 been published either.
 
@@ -381,8 +388,8 @@ the app is a *fold* (a replay) over Iroh Rooms' signed event log.
 | `crates/jeliyad` | The resident daemon: a thin local-only WebSocket shell over the `jeliya-core` engine (see `docs/PROTOCOL.md`). |
 | `crates/jeliya-ffi` | C-ABI shim over `jeliya-core` for the mobile in-process (FFI) transport. |
 | `dart/jeliya_protocol` | Pure-Dart typed client for the protocol: typed models + wrappers for all 24 RPCs, WebSocket and in-process FFI transports (`package:jeliya_protocol/ffi.dart`), sidecar supervisor, mock client for tests. |
-| `app/` | The native Flutter app: the macOS desktop client at parity with the web UI (English + French), plus a phone bottom-tab layout below 900dp and the Android build running the protocol in-process (FFI). |
-| `ui/` | The web UI the daemon serves (`embed-ui`): Vite + React, implements `mockups/`. Still the only GUI on Windows/Linux, and the reference client the native app tracks. |
+| `app/` | The native Flutter app: macOS and Linux desktop clients at parity with the web UI (English + French), plus a phone bottom-tab layout below 900dp and the Android build running the protocol in-process (FFI). Linux is buildable from source but has no published app artifact. |
+| `ui/` | The web UI the daemon serves (`embed-ui`): Vite + React, implements `mockups/`. It remains the only GUI shipped in Windows and Linux releases, and the reference client the native app tracks. |
 | `docs/index.md` | The canonical documentation wiki: architecture, guides, operations, decisions, and proposals. |
 | `docs/PROFILE.md` | The metadata, lifecycle, navigation, linking, and CI contract for every wiki page. |
 | `docs/PROTOCOL.md` | The daemon ⇄ shell contract (the spine). |

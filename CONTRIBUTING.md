@@ -34,12 +34,13 @@ declined kindly.
   the contract.
 - **Prove it runs.** `node scripts/agent-e2e.mjs` proves the agent flow
   end-to-end with no network and no AI; `scripts/demo.sh` runs the full
-  two-daemon demo. Say in the PR what you ran. CI runs six required jobs on
-  every PR and push to main: `docs-ui`, `flutter`, `rust-runtime`, `msrv`,
-  `windows-installer`, and `dependency-security`. Together they cover docs,
-  UI, Flutter/i18n, Rust and Dart, smoke/E2E/protocol conformance, the 1.91.0
-  MSRV, Windows installer integrity, and Cargo/npm security audits. The same
-  complete matrix can be dispatched manually without publishing a release.
+  two-daemon demo. Say in the PR what you ran. CI runs seven required jobs on
+  every PR and push to main: `docs-ui`, `flutter`, `linux-flutter`,
+  `rust-runtime`, `msrv`, `windows-installer`, and `dependency-security`.
+  Together they cover docs, UI, Flutter/i18n, the native Linux bundle and its
+  supervised sidecar, Rust and Dart, smoke/E2E/protocol conformance, the
+  1.91.0 MSRV, Windows installer integrity, and Cargo/npm security audits.
+  The same complete matrix can be dispatched manually without publishing a release.
 - **Documentation is a contract.** `docs/PROFILE.md` defines metadata,
   lifecycle, navigation, and linking rules. Every page must remain reachable
   from `docs/index.md`; run `node scripts/check-docs.mjs` after editing the

@@ -19,6 +19,7 @@
 library;
 
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:ui' show AppExitResponse;
 
@@ -62,31 +63,106 @@ enum BootstrapPhase { boot, noIdentity, noRooms, ready }
 typedef ClientFactory = Client Function(WsUrlResolver resolveUrl);
 
 /// Resolve the jeliyad binary: `JELIYAD_BIN` env override → bundled sidecar
-/// (next to the app executable) → debug-only repo fallback. Null when nothing
-/// is found ([DaemonSession] surfaces this as a [Boot.failed] with a hint).
-String? resolveJeliyadBinary() {
-  final env = Platform.environment['JELIYAD_BIN'];
-  if (env != null && env.isNotEmpty) return env;
-  // Bundled: Jeliya.app/Contents/MacOS/<exe> → Contents/{Resources,Helpers}.
-  final exeDir = File(Platform.resolvedExecutable).parent.path;
-  for (final candidate in [
-    '$exeDir/../Resources/jeliyad',
-    '$exeDir/../Helpers/jeliyad',
-    '$exeDir/jeliyad',
-  ]) {
-    if (File(candidate).existsSync()) return candidate;
+/// (next to the app executable) → debug-only repo fallback → an installed
+/// `jeliyad` on Linux's `PATH`. Null when nothing is found
+/// ([DaemonSession] surfaces this as a [Boot.failed] with a hint).
+String? resolveJeliyadBinary() => resolveJeliyadBinaryFrom(
+  environment: Platform.environment,
+  resolvedExecutable: Platform.resolvedExecutable,
+  currentDirectory: Directory.current.path,
+  debugMode: kDebugMode,
+  isLinux: Platform.isLinux,
+  fileExists: _isRegularFile,
+  fileIsExecutable: _isExecutableFile,
+);
+
+bool _isRegularFile(String path) {
+  try {
+    return FileStat.statSync(path).type == FileSystemEntityType.file;
+  } on FileSystemException {
+    return false;
   }
-  if (kDebugMode) {
+}
+
+bool _isExecutableFile(String path) {
+  try {
+    final stat = FileStat.statSync(path);
+    if (stat.type != FileSystemEntityType.file) return false;
+    // Linux and macOS both require at least one execute bit before exec(2) can
+    // use a candidate. Windows has no corresponding permission bits.
+    if (!Platform.isWindows && stat.mode & 0x49 == 0) return false;
+    // FileStat cannot see ownership, so exec bits alone cannot prove THIS user
+    // may run the file — a root-only 0700 binary still shows an owner-exec
+    // bit. Probing read access rejects such entries so the PATH scan keeps
+    // trying later candidates instead of returning one exec(2) must refuse.
+    File(path).openSync().closeSync();
+    return true;
+  } on FileSystemException {
+    return false;
+  }
+}
+
+/// Pure binary-resolution seam used by platform tests. The bundle candidates
+/// deliberately precede both developer and system fallbacks: a packaged app
+/// must run the sidecar it shipped and was tested with, not an unrelated
+/// `jeliyad` installed on the host. To honor that, bundle and repo candidates
+/// resolve on EXISTENCE ([fileExists]) — a shipped sidecar that lost its
+/// execute bit is still selected so the spawn failure names its exact path —
+/// while the last-resort PATH scan requires a usable file
+/// ([fileIsExecutable]) and skips entries this user cannot run.
+@visibleForTesting
+String? resolveJeliyadBinaryFrom({
+  required Map<String, String> environment,
+  required String resolvedExecutable,
+  required String currentDirectory,
+  required bool debugMode,
+  required bool isLinux,
+  required bool Function(String path) fileExists,
+  required bool Function(String path) fileIsExecutable,
+}) {
+  final env = environment['JELIYAD_BIN'];
+  if (env != null && env.isNotEmpty) return env;
+
+  // macOS: Jeliya.app/Contents/MacOS/<exe> → Contents/{Resources,Helpers}.
+  // Linux: the generated bundle puts application-owned executables beside the
+  // runner; lib/jeliya is also supported for distro-style layouts.
+  final exeDir = File(resolvedExecutable).parent.path;
+  final bundleCandidates = isLinux
+      ? ['$exeDir/jeliyad', '$exeDir/../lib/jeliya/jeliyad']
+      : [
+          '$exeDir/../Resources/jeliyad',
+          '$exeDir/../Helpers/jeliyad',
+          '$exeDir/jeliyad',
+        ];
+  for (final candidate in bundleCandidates) {
+    if (fileExists(candidate)) return candidate;
+  }
+
+  if (debugMode) {
     // Repo debug build, relative to a typical checkout — debug builds only.
     // First existing candidate wins; TAC/bantaba is the pre-rename checkout
     // directory name, kept for machines that never re-cloned.
-    final home = Platform.environment['HOME'] ?? '.';
+    final home = environment['HOME'] ?? '.';
     for (final candidate in [
       '$home/TAC/jeliya/target/debug/jeliyad',
       '$home/TAC/bantaba/target/debug/jeliyad',
-      '${Directory.current.path}/../target/debug/jeliyad',
+      '$currentDirectory/../target/debug/jeliyad',
     ]) {
-      if (File(candidate).existsSync()) return candidate;
+      if (fileExists(candidate)) return candidate;
+    }
+  }
+
+  // Linux users may already have installed the standalone daemon. This is a
+  // last resort, after the bundled and repo-matched binaries, so PATH cannot
+  // silently replace a release's tested sidecar.
+  final path = environment['PATH'];
+  if (isLinux && path != null && path.isNotEmpty) {
+    for (final directory in path.split(':')) {
+      if (directory.isEmpty) continue;
+      final candidate = directory.endsWith('/')
+          ? '${directory}jeliyad'
+          : '$directory/jeliyad';
+      if (fileIsExecutable(candidate)) return candidate;
     }
   }
   return null;
@@ -104,17 +180,108 @@ String realHomeFrom(String home) {
 }
 
 /// The daemon data dir: `JELIYA_DATA_DIR` env override (test automation and
-/// side-by-side profiles) → `~/Library/Application Support/Jeliya` in release
-/// (shared with a Homebrew-installed jeliyad — the settled data-dir decision;
-/// reachable from the sandbox via the Release.entitlements exception),
-/// `…/JeliyaAppDev` in debug (so dev runs never touch real user data).
-String defaultDataDir() {
-  final override = Platform.environment['JELIYA_DATA_DIR'];
+/// side-by-side profiles) → the platform data root. Linux follows XDG
+/// (`$XDG_DATA_HOME`, falling back to `~/.local/share`); macOS continues to
+/// use `~/Library/Application Support`. Release uses `Jeliya`, while debug
+/// uses `JeliyaAppDev` so development runs never touch real user data.
+String defaultDataDir() => defaultDataDirFrom(
+  environment: Platform.environment,
+  fallbackHome: Directory.systemTemp.path,
+  debugMode: kDebugMode,
+  isLinux: Platform.isLinux,
+);
+
+/// Why Linux data-dir resolution can fail: the XDG Base Directory spec
+/// requires an absolute base, and identity material must never land relative
+/// to the launch directory. Shared between the resolution seam's [StateError]
+/// and the boot screen's technical detail.
+@visibleForTesting
+const String linuxDataDirRequirement =
+    'Linux data directory requires an absolute XDG_DATA_HOME or HOME';
+
+/// Pure data-directory resolution seam used by platform tests.
+@visibleForTesting
+String defaultDataDirFrom({
+  required Map<String, String> environment,
+  required String fallbackHome,
+  required bool debugMode,
+  required bool isLinux,
+}) {
+  final override = environment['JELIYA_DATA_DIR'];
   if (override != null && override.isNotEmpty) return override;
-  final home = Platform.environment['HOME'] ?? Directory.systemTemp.path;
-  final name = kDebugMode ? 'JeliyaAppDev' : 'Jeliya';
+
+  final name = debugMode ? 'JeliyaAppDev' : 'Jeliya';
+  if (isLinux) {
+    final xdgDataHome = environment['XDG_DATA_HOME'];
+    // The XDG Base Directory specification requires an absolute value. Ignore
+    // a relative value rather than storing identity material relative to the
+    // app's launch directory.
+    final String base;
+    if (xdgDataHome != null && xdgDataHome.startsWith('/')) {
+      base = xdgDataHome;
+    } else {
+      final home = environment['HOME'];
+      if (home == null || !home.startsWith('/')) {
+        throw StateError(linuxDataDirRequirement);
+      }
+      base = '$home/.local/share';
+    }
+    return base.endsWith('/') ? '$base$name' : '$base/$name';
+  }
+  final configuredHome = environment['HOME'];
+  final home = configuredHome == null || configuredHome.isEmpty
+      ? fallbackHome
+      : configuredHome;
   return '${realHomeFrom(home)}/Library/Application Support/$name';
 }
+
+/// Linux desktop is a real peer-to-peer node. macOS retains its existing
+/// loopback-only sidecar policy (including its current sandbox assumptions).
+@visibleForTesting
+bool desktopSidecarUsesLoopback({required bool isLinux}) => !isLinux;
+
+/// Opt-in marker used only by the Linux source-package lifecycle gate. Keeping
+/// the path fixed under the already-isolated daemon data directory avoids an
+/// environment-controlled arbitrary write path. The marker never contains the
+/// portfile's WebSocket authentication token.
+@visibleForTesting
+const String linuxPackageReadinessFileName = 'flutter-session-ready.json';
+
+@visibleForTesting
+String? linuxPackageReadinessPathFrom({
+  required Map<String, String> environment,
+  required bool isLinux,
+  required String dataDir,
+}) {
+  if (!isLinux || environment['JELIYA_LINUX_PACKAGE_GATE'] != '1') {
+    return null;
+  }
+  return dataDir.endsWith('/')
+      ? '$dataDir$linuxPackageReadinessFileName'
+      : '$dataDir/$linuxPackageReadinessFileName';
+}
+
+@visibleForTesting
+Map<String, Object> linuxPackageReadinessPayload({
+  required String boot,
+  required String phase,
+  required String connection,
+  required String frame,
+  required int protocol,
+  required int appPid,
+  required int daemonPid,
+  required int daemonPort,
+}) => {
+  'schema': 1,
+  'boot': boot,
+  'phase': phase,
+  'connection': connection,
+  'frame': frame,
+  'protocol': protocol,
+  'app_pid': appPid,
+  'daemon_pid': daemonPid,
+  'daemon_port': daemonPort,
+};
 
 class DaemonSession extends ChangeNotifier {
   /// Production: no [client] — the session spawns/adopts jeliyad and builds a
@@ -138,9 +305,24 @@ class DaemonSession extends ChangeNotifier {
         _clientFactory = clientFactory ?? WsClient.new,
         _binaryPathOverride = binaryPath,
         _stageAndShareOverride = stageAndShare,
-        dataDir = dataDir ?? defaultDataDir(),
+        dataDir = dataDir ?? _defaultDataDirOrEmpty(),
         prefs = prefs ??
-            PrefsStore('${dataDir ?? defaultDataDir()}/app_prefs.json');
+            PrefsStore(
+              '${dataDir ?? _defaultDataDirOrEmpty()}/app_prefs.json',
+            );
+
+  /// A misconfigured environment (no absolute HOME/XDG_DATA_HOME on Linux)
+  /// must not throw out of the constructor at widget-build time; the empty
+  /// sentinel defers the failure to [start], which reports it through the
+  /// regular [Boot.failed] surface with a Retry path. PrefsStore performs no
+  /// I/O until `load`, so the sentinel never touches disk.
+  static String _defaultDataDirOrEmpty() {
+    try {
+      return defaultDataDir();
+    } on StateError {
+      return '';
+    }
+  }
 
   final Client? _injectedClient;
   final ClientFactory _clientFactory;
@@ -176,6 +358,8 @@ class DaemonSession extends ChangeNotifier {
   bool _started = false;
   bool _disposed = false;
   bool _tearingDown = false;
+  bool _linuxPackageReadinessWritten = false;
+  bool _linuxPackageReadinessScheduled = false;
   final List<StreamSubscription<Object?>> _subs = [];
 
   // -- read surface --------------------------------------------------------------
@@ -247,6 +431,17 @@ class DaemonSession extends ChangeNotifier {
           _lifecycle ??= AppLifecycleListener(onResume: _onResumed);
         }
       } else {
+        if (dataDir.isEmpty) {
+          // Constructor-time data-dir resolution failed (see
+          // [_defaultDataDirOrEmpty]); classify it like any other failed
+          // start so the boot screen renders guidance plus this cause.
+          _setBoot(
+            Boot.failed,
+            BootStage.failedStart,
+            technical: linuxDataDirRequirement,
+          );
+          return;
+        }
         _setBoot(Boot.spawning, BootStage.spawning);
         final binary = _binaryPathOverride ?? resolveJeliyadBinary();
         if (binary == null) {
@@ -256,8 +451,13 @@ class DaemonSession extends ChangeNotifier {
           _setBoot(Boot.failed, BootStage.failedBinaryMissing);
           return;
         }
-        final supervisor = _supervisor ??
-            SidecarSupervisor(binaryPath: binary, dataDir: dataDir, loopback: true);
+        final supervisor =
+            _supervisor ??
+            SidecarSupervisor(
+              binaryPath: binary,
+              dataDir: dataDir,
+              loopback: desktopSidecarUsesLoopback(isLinux: Platform.isLinux),
+            );
         Ready ready;
         try {
           ready = await supervisor.start(port: 0);
@@ -307,7 +507,10 @@ class DaemonSession extends ChangeNotifier {
         unawaited(_supervisor?.shutdown());
         return;
       }
-      _setBoot(Boot.ready, BootStage.none);
+      // Retain the supervised process facts established at daemonUp/adopted.
+      // They remain useful diagnostics after transport bring-up and let the
+      // opt-in Linux package marker bind the rendered session to its portfile.
+      _setBoot(Boot.ready, BootStage.none, pid: _bootPid, port: _bootPort);
       // If the connected transition has not been delivered through the states
       // stream yet, synthesize it so the bootstrap runs exactly once (the
       // wasConnected check in _onConnectionState dedupes the stream's copy).
@@ -353,6 +556,7 @@ class DaemonSession extends ChangeNotifier {
     _bootMismatchExpected = mismatchExpected;
     _bootTechnical = technical;
     notifyListeners();
+    _maybeScheduleLinuxPackageReadiness();
   }
 
   void _onConnectionState(ConnectionState state) {
@@ -392,6 +596,7 @@ class DaemonSession extends ChangeNotifier {
       if (status.identity == null) {
         _phase = BootstrapPhase.noIdentity;
         notifyListeners();
+        _maybeScheduleLinuxPackageReadiness();
         return;
       }
       final rooms = await client.roomList();
@@ -400,6 +605,7 @@ class DaemonSession extends ChangeNotifier {
       if (rooms.isEmpty) {
         _phase = BootstrapPhase.noRooms;
         notifyListeners();
+        _maybeScheduleLinuxPackageReadiness();
         return;
       }
       _phase = BootstrapPhase.ready;
@@ -409,6 +615,7 @@ class DaemonSession extends ChangeNotifier {
       if (active.isEmpty) {
         _closeRoomStore();
         notifyListeners();
+        _maybeScheduleLinuxPackageReadiness();
         return;
       }
       bool isActive(String? rid) =>
@@ -419,6 +626,7 @@ class DaemonSession extends ChangeNotifier {
               ? prefs.lastRoomId!
               : active.first.roomId;
       notifyListeners();
+      _maybeScheduleLinuxPackageReadiness();
       unawaited(openRoom(target));
     } on ProtocolMismatchError catch (e) {
       // Version skew is a HARD stop, not a transient: the connection stays
@@ -434,6 +642,88 @@ class DaemonSession extends ChangeNotifier {
     } catch (_) {
       // daemon.status failed (connection dropped mid-flight) — the reconnect
       // cycle re-triggers this bootstrap.
+    }
+  }
+
+  /// Emit the package gate's proof only after the real desktop supervisor,
+  /// authenticated WebSocket connection, and initial daemon.status/room-list
+  /// bootstrap have all converged. A fresh gate profile legitimately routes to
+  /// noIdentity; that is still a completed bootstrap, not a daemon-health-only
+  /// success. Atomic replacement prevents the Node gate from observing JSON
+  /// while it is being written.
+  void _maybeScheduleLinuxPackageReadiness() {
+    if (_linuxPackageReadinessWritten ||
+        _linuxPackageReadinessScheduled ||
+        _supervisor == null ||
+        _boot != Boot.ready ||
+        _phase == BootstrapPhase.boot ||
+        _conn != ConnectionState.connected ||
+        _status == null ||
+        _bootPid == null ||
+        _bootPort == null) {
+      return;
+    }
+    final path = linuxPackageReadinessPathFrom(
+      environment: Platform.environment,
+      isLinux: Platform.isLinux,
+      dataDir: dataDir,
+    );
+    if (path == null) return;
+
+    _linuxPackageReadinessScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _linuxPackageReadinessScheduled = false;
+      _writeLinuxPackageReadiness(path);
+    });
+    // addPostFrameCallback does not request a frame by itself. The gate wants
+    // positive proof that Flutter rendered the resolved bootstrap phase, so
+    // make sure this opt-in launch has a frame for the callback to follow.
+    if (!WidgetsBinding.instance.hasScheduledFrame) {
+      WidgetsBinding.instance.scheduleFrame();
+    }
+  }
+
+  void _writeLinuxPackageReadiness(String path) {
+    // State may have changed while Flutter rendered the resolved bootstrap
+    // phase. Re-check everything in the post-frame callback before writing.
+    if (_linuxPackageReadinessWritten ||
+        _disposed ||
+        _supervisor == null ||
+        _boot != Boot.ready ||
+        _phase == BootstrapPhase.boot ||
+        _conn != ConnectionState.connected ||
+        _status == null ||
+        _bootPid == null ||
+        _bootPort == null) {
+      return;
+    }
+
+    final target = File(path);
+    final temporary = File('$path.tmp.$pid');
+    try {
+      final payload = linuxPackageReadinessPayload(
+        boot: _boot.name,
+        phase: _phase.name,
+        connection: _conn.name,
+        frame: 'rendered',
+        protocol: _status!.protocol,
+        appPid: pid,
+        daemonPid: _bootPid!,
+        daemonPort: _bootPort!,
+      );
+      temporary.writeAsStringSync('${jsonEncode(payload)}\n', flush: true);
+      temporary.renameSync(target.path);
+      _linuxPackageReadinessWritten = true;
+    } catch (error) {
+      // This opt-in proof must not perturb the normal application lifecycle.
+      // The package gate captures stderr and will fail with this diagnostic if
+      // it cannot observe the marker.
+      try {
+        if (temporary.existsSync()) temporary.deleteSync();
+      } catch (_) {
+        // Best-effort cleanup of a gate-only temporary file.
+      }
+      debugPrint('Could not write Linux package readiness marker: $error');
     }
   }
 

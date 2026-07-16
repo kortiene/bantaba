@@ -4,13 +4,15 @@ These files distribute the `jeliyad` daemon as prebuilt, per-platform binaries.
 The installer scripts and archive URLs are wired to `kortiene/jeliya` and have
 been live since `v0.3.0` (see the release-status section below). `jeliya.rb`
 is a per-release Homebrew formula: its `version` and sha256 values are
-refreshed from each release's sidecars.
+refreshed from each release's sidecars. Native-app packaging helpers also
+exist in `../scripts`, but their outputs are source-built developer artifacts,
+not public downloads.
 
 **`v0.5.0` publishes exactly five `jeliyad` archives with the embedded web UI,
 plus one checksum sidecar per archive.** It does not publish the macOS Flutter
-app or DMG, Android APK/AAB files, an iOS app, or the Homebrew app cask. Native
-build instructions below remain development references, not `v0.5.0` release
-scope.
+app or DMG, the Linux Flutter app or its tarball, Android APK/AAB files, an iOS
+app, or the Homebrew app cask. Native build instructions below remain
+development references, not `v0.5.0` release scope.
 
 ## Files
 
@@ -21,6 +23,7 @@ scope.
 | `install.ps1` | Windows PowerShell equivalent. Downloads the archive and checksum, verifies SHA-256 before extraction, installs to `%LOCALAPPDATA%\Programs\Jeliya`, and adds it to the user PATH. |
 | `jeliya.rb` | Homebrew formula template. Belongs in a tap (`kortiene/homebrew-jeliya`), not homebrew-core. |
 | `jeliya-app.rb` | Unpublished Homebrew cask template for a future desktop-app release. It is not completed, uploaded, or updated by the `v0.5.0` release. |
+| `../scripts/package-linux.mjs` | Source-only Linux Flutter packager. Builds the host-native app and `jeliyad`, installs the adjacent sidecar and freedesktop metadata, exercises the bundle, then emits a tarball and SHA-256 sidecar under `dist/`. CI checks but does not publish them. |
 
 ## How they fit together
 
@@ -138,6 +141,63 @@ attach a DMG to its release. Every release to date carries only unsigned daemon
 archives. Signing the bare daemon archives (issue #1) and Windows Authenticode
 (issue #2) are tracked in
 [`../docs/signing-notarization.md`](../docs/signing-notarization.md).
+
+## Linux native app source package
+
+The GTK/Flutter Linux app is supported as a source build. This does **not**
+make it a released Linux app: no AppImage, Flatpak, deb, rpm, or native app
+tarball is attached to a GitHub release, and the install script still installs
+only the standalone `jeliyad` daemon with its browser UI.
+
+On Debian/Ubuntu, install the native build dependencies and enable Flutter's
+Linux target:
+
+```sh
+sudo apt-get install appstream clang cmake desktop-file-utils libgtk-3-dev \
+  liblzma-dev libstdc++-12-dev ninja-build pkg-config
+flutter config --enable-linux-desktop
+```
+
+Then package from the repository root:
+
+```sh
+node scripts/package-linux.mjs
+```
+
+The default path builds release versions of both `jeliyad` and the Flutter
+app, injects the daemon through the Linux CMake sidecar contract, verifies the
+bundle, and runs the app/sidecar launch-health-teardown gate. Run it inside an
+active desktop session; the gate also requires a rendered Flutter frame and a
+completed authenticated protocol bootstrap. Headless CI uses `xvfb-run -a`.
+The result is:
+
+```text
+dist/Jeliya-v<version>-linux-<x86_64|aarch64>.tar.gz
+dist/Jeliya-v<version>-linux-<x86_64|aarch64>.tar.gz.sha256
+```
+
+The path-relocatable archive contains the `jeliya` app executable, adjacent
+`jeliyad`, Flutter libraries and data, and freedesktop desktop entry,
+AppStream, icon, project-license, and Flutter/Dart notice assets. `--skip-build`
+repackages an existing release bundle; `--skip-runtime-gate` is the explicit
+escape hatch when no display is available. The x86_64 hosted CI gate keeps the
+default lifecycle check enabled, smokes the bundled daemon, validates the
+freedesktop metadata, checks dynamic dependencies and archive contents, and
+verifies the checksum. It deliberately does not upload the result.
+
+The complete gate has also passed locally on Ubuntu 24.04 ARM64, including
+the Xvfb app/sidecar lifecycle, daemon protocol smoke, dynamic dependency
+checks, archive verification, checksum verification, and a repeat package
+with the same SHA-256 digest. This is source-build evidence, not publication;
+the x86_64 hosted result remains pending until CI runs.
+
+“Path-relocatable” does not mean distro-portable. The locally built ARM64
+daemon requires GLIBC 2.39, so a public build must declare and enforce its
+runtime baseline or use a more portable distribution format. The lifecycle
+proof above covers X11 through Xvfb; Wayland remains unverified. The archive
+also lacks a complete Rust third-party license and notice inventory for the
+linked daemon dependencies. That inventory is required before public
+distribution.
 
 ## Android release builds
 

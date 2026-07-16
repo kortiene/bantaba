@@ -1,9 +1,10 @@
 # Jeliya app (Flutter)
 
-The native shell for Jeliya on desktop and phones. On macOS it spawns (or
-adopts) the local `jeliyad` daemon as a supervised sidecar; on Android it runs
-the Rust engine in-process behind `FfiClient` (phones cannot spawn a sidecar
-subprocess). Both transports sit behind the transport-agnostic Dart client in
+The native shell for Jeliya on desktop and phones. On macOS and Linux it
+spawns (or adopts) the local `jeliyad` daemon as a supervised sidecar; on
+Android it runs the Rust engine in-process behind `FfiClient` (phones cannot
+spawn a sidecar subprocess). Both transports sit behind the
+transport-agnostic Dart client in
 [`../dart/jeliya_protocol`](../dart/jeliya_protocol). UI parity target is the
 reference web client in [`../ui`](../ui) (spec: `docs/PROTOCOL.md`): the
 three-pane desktop layout at or above 900dp, a bottom-tab mobile shell below.
@@ -14,7 +15,15 @@ runs today.
 
 - **Rust toolchain + `cargo build`** at the repo root — the app supervises the
   `jeliyad` binary; debug runs pick up `target/debug/jeliyad` automatically.
-- **Flutter** (stable channel) with macOS desktop support enabled.
+- **Flutter** (stable channel) with the desktop target for your host enabled.
+
+Linux additionally needs Flutter's GTK build toolchain. On Debian/Ubuntu:
+
+```sh
+sudo apt-get install appstream clang cmake desktop-file-utils libgtk-3-dev \
+  liblzma-dev libstdc++-12-dev ninja-build pkg-config
+flutter config --enable-linux-desktop
+```
 
 Android builds additionally need (all consumed by
 `../scripts/build-android-libs.mjs`):
@@ -37,6 +46,14 @@ cd app
 flutter run -d macos
 ```
 
+### Linux
+
+```sh
+cargo build -p jeliyad       # from the repo root
+cd app
+flutter run -d linux
+```
+
 ### Android
 
 ```sh
@@ -50,27 +67,38 @@ Gradle packages automatically — re-run the script after Rust-side changes.
 There is no daemon process on Android: the app starts the engine in-process
 and talks to it over `FfiClient`.
 
-### Daemon binary resolution (macOS)
+### Daemon binary resolution (desktop)
 
 1. `JELIYAD_BIN=/path/to/jeliyad` environment override — the dev lever; wins
    over everything.
-2. Bundled sidecar next to the app executable
-   (`Contents/Resources/jeliyad`, `Contents/Helpers/jeliyad`) — the packaged
-   path (Phase 5).
+2. Bundled sidecar next to the app executable: macOS searches
+   `Contents/Resources/jeliyad` and `Contents/Helpers/jeliyad`; Linux searches
+   the release bundle's adjacent `jeliyad` installed by CMake, then
+   `$exeDir/../lib/jeliya/jeliyad` for distro-style layouts.
 3. Debug builds only: the repo's `target/debug/jeliyad`.
+4. Linux only: an installed `jeliyad` found on `PATH`, as a last resort after
+   bundle- and repo-matched binaries.
 
 ### Data directory
 
 - `JELIYA_DATA_DIR=/path` environment override (desktop only) — test
-  automation and side-by-side profiles (takes precedence over both macOS
-  defaults below; note the sandboxed release app can only write inside its
-  container and the shared Jeliya dir, so arbitrary override paths only work
-  in debug builds).
+  automation and side-by-side profiles (takes precedence over the macOS and
+  Linux defaults below; note the sandboxed macOS release app can only write
+  inside its container and the shared Jeliya dir, so arbitrary override paths
+  only work in macOS debug builds).
 - macOS release: `~/Library/Application Support/Jeliya` — deliberately SHARED
   with a Homebrew-installed `jeliyad` (one identity and room store per user),
   reached from inside the sandbox via the exception in `Release.entitlements`.
 - macOS debug: `~/Library/Application Support/JeliyaAppDev` (dev runs never
   touch real user data)
+- Linux release: `$XDG_DATA_HOME/Jeliya` when `XDG_DATA_HOME` is absolute,
+  otherwise `$HOME/.local/share/Jeliya` — shared with a separately installed
+  `jeliyad`; a relative `XDG_DATA_HOME` is ignored per the XDG base-directory
+  contract.
+- Linux debug: `$XDG_DATA_HOME/JeliyaAppDev` when that base is absolute,
+  otherwise `$HOME/.local/share/JeliyaAppDev` (dev runs never touch real user
+  data). If neither `XDG_DATA_HOME` nor `HOME` supplies an absolute base, the
+  app fails closed instead of placing identity state in a shared temp path.
 - Android: app preferences use the platform app-support directory; the
   in-process engine (including `identity.secret`) lives under the native
   `noBackupFilesDir/engine`. The manifest disables backup and explicit API
@@ -87,19 +115,17 @@ application sandbox and no-backup storage protect the file-backed key today;
 hardware-backed Keystore wrapping requires a future Rust key-provider
 contract and is not claimed by this preview.
 
-### Loopback dev mode (macOS)
+### Desktop network mode and lifecycle
 
-The app currently starts the daemon with `--loopback`: single-machine
-networking for development. The daemon is spawned `--supervised`, so it exits
-when the app dies (stdin watch) even if graceful teardown never runs; Cmd-Q
-additionally runs the graceful order `client.stop()` →
+Linux starts its sidecar with real networking enabled (`loopback: false`);
+macOS remains loopback-only for development. Both desktop targets spawn the
+daemon with `--supervised`, so it exits when the app dies (stdin watch) even if
+graceful teardown never runs. An orderly app exit runs `client.stop()` before
 `supervisor.shutdown()`.
 
-This is a configuration asymmetry today: the Android build constructs its
-in-process engine with `loopback: false`, while the desktop sidecar stays
-loopback-only. The Android setting enables the real network path; it is not
-evidence of direct, relay, NAT, or cross-network behavior, which remains
-unverified on Android.
+The Linux setting enables the real network path; it is not by itself evidence
+of direct, relay, NAT, or cross-network behavior. The same evidence boundary
+applies to Android, whose in-process engine also uses `loopback: false`.
 
 ## Tests
 
@@ -116,7 +142,13 @@ overflow list is empty. The package suite replays the golden conformance
 corpus against the built daemon and the in-process FFI engine, and skips those
 oracles cleanly when the artifacts are missing.
 
-## Packaging (Phase 5)
+## Desktop packaging (source only)
+
+No native desktop artifact has been published. These commands produce local
+developer artifacts; the current release workflow publishes only `jeliyad`
+with its embedded browser UI.
+
+### macOS
 
 ```sh
 node scripts/package-macos.mjs        # from the repo root
@@ -142,11 +174,41 @@ Android release artifacts (the Play `.aab` and the per-ABI sideload APKs) are
 documented in [`../packaging/README.md`](../packaging/README.md) under
 "Android release builds".
 
+### Linux
+
+```sh
+node scripts/package-linux.mjs        # from the repo root; run on Linux
+```
+
+This builds a release `jeliyad` and Flutter app for the host architecture,
+installs the sidecar next to the `jeliya` executable through the CMake bundle
+contract, checks required libraries and desktop metadata, and runs a
+launch/health/authenticated-bootstrap/rendered-frame/teardown gate. The gate
+needs a display; CI supplies one with `xvfb-run`. It emits:
+
+```text
+dist/Jeliya-v<version>-linux-<x86_64|aarch64>.tar.gz
+dist/Jeliya-v<version>-linux-<x86_64|aarch64>.tar.gz.sha256
+```
+
+Use `--skip-build` only to repackage an existing release bundle, or
+`--skip-runtime-gate` when a graphical display is genuinely unavailable. The
+default path keeps the lifecycle check enabled. The archive is path-relocatable
+on a compatible GTK/glibc host, but it is an unsigned, source-built developer
+artifact: CI verifies it and does not upload or publish it. The complete
+default package gate, bundled daemon smoke, dependency checks, archive
+checksum, and reproducible repack have passed locally on Ubuntu 24.04 ARM64
+under X11/Xvfb; the x86_64 hosted result and Wayland lifecycle remain pending.
+The local daemon currently requires GLIBC 2.39, and the tarball includes the
+project licenses plus Flutter/Dart notices but not a complete Rust dependency
+license inventory. A public distribution must define a compatibility baseline
+and supply that inventory.
+
 ## Layout
 
 - `lib/main.dart` — thin entry: theme + `SessionScope` + phase routing, plus
-  the per-platform session fork (desktop spawns/adopts the sidecar; Android
-  builds the `FfiClient` session over the in-process engine).
+  the per-platform session fork (macOS/Linux spawn or adopt the sidecar;
+  Android builds the `FfiClient` session over the in-process engine).
 - `lib/src/layout.dart` — the ONE form-factor seam: `kShellBreakpoint`
   (900dp) / `isMobileWidth`; every width fork in the app routes through it.
 - `lib/src/theme.dart` — the design tokens (`JeliyaTokens`) ported from the
@@ -173,6 +235,12 @@ macOS notes: minimum window size is 960x620 (`MainFlutterWindow.swift`);
 debug builds keep the sandbox OFF so they can spawn the repo-built daemon;
 release builds are sandboxed with the co-signed bundled sidecar (see
 `Release.entitlements` / `Sidecar.entitlements`).
+
+Linux notes: application ID `com.incubtek.jeliya`; the CMake install bundle
+contains the `jeliya` executable, adjacent `jeliyad`, and freedesktop desktop
+entry, AppStream metadata, and scalable icon. Linux is source-supported on the
+host architecture; the configured hosted gate currently covers x86_64, and
+no AppImage, Flatpak, deb, rpm, or native Linux release asset is published.
 
 Android notes: applicationId `com.incubtek.jeliya`, minSdk 26, three ABIs
 (armeabi-v7a is required — real target devices run 32-bit-only Android);

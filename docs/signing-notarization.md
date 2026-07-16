@@ -1,9 +1,9 @@
 ---
 type: "Runbook"
 title: "Signing and notarization (Phase 2)"
-description: "Release-security plan and procedure for signing and notarizing Jeliya artifacts on macOS and Windows."
-tags: ["macos", "release", "security", "signing", "windows"]
-timestamp: "2026-07-11T21:27:07Z"
+description: "Release-security plan and procedure for signing and notarizing Jeliya desktop artifacts."
+tags: ["linux", "macos", "release", "security", "signing", "windows"]
+timestamp: "2026-07-16T15:30:00Z"
 status: "canonical"
 implementation_status: "partial"
 verification_status: "partial"
@@ -25,8 +25,13 @@ Current status:
 - The `v0.5.0` workflow publishes only five unsigned `jeliyad` archives with
   their checksum sidecars. It contains no `macos-app` job, DMG upload,
   Developer ID signing, notarization, or Authenticode step.
-- Source-level macOS packaging scripts and unsigned development builds exist,
-  but they are not public release artifacts and do not satisfy a platform gate.
+- Source-level macOS packaging scripts and an unsigned Linux Flutter tarball
+  pipeline exist. The Linux ARM64 build and lifecycle gate pass locally, but
+  neither platform's native app is a public release artifact. The Linux
+  tarball has only a SHA-256 integrity sidecar; it has no publisher signature,
+  distro repository signature, or sandboxed package format. It also lacks a
+  complete Rust third-party license and notice inventory, which is required
+  before distribution.
 - Android signing is separate future distribution work. `v0.5.0` publishes no
   APK or AAB, and a debug-keystore fallback must never be treated as a
   distributable build. See
