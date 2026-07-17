@@ -26,6 +26,12 @@ class RenamePeerModal extends StatefulWidget {
 class _RenamePeerModalState extends State<RenamePeerModal> {
   TextEditingController? _alias;
 
+  /// Save has two synchronous affordances (the button and Enter in the
+  /// field) and the field keeps focus during the exit transition, so a
+  /// repeated commit would pop the route BELOW the dialog. Only the first
+  /// commit may pop (#55).
+  bool _popped = false;
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -43,12 +49,16 @@ class _RenamePeerModalState extends State<RenamePeerModal> {
   }
 
   void _save() {
+    if (_popped) return;
+    _popped = true;
     // setAlias trims and deletes on blank — the reference Save semantics.
     SessionScope.of(context).setAlias(widget.identityId, _alias?.text);
     Navigator.of(context).pop();
   }
 
   void _clear() {
+    if (_popped) return;
+    _popped = true;
     SessionScope.of(context).setAlias(widget.identityId, null);
     Navigator.of(context).pop();
   }

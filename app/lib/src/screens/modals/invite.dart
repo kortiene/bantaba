@@ -114,6 +114,9 @@ class _InviteModalState extends State<InviteModal> {
     return ModalScaffold(
       title: s.inviteTitle,
       wide: true,
+      // Ticket generation publishes a signed member_invited event — contain
+      // the route while it is in flight (#55).
+      busy: _busy,
       child: ListenableBuilder(
         listenable: liveStore ?? Listenable.merge(const []),
         builder: (context, _) {

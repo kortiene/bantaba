@@ -3,6 +3,11 @@
 /// bgRaise, borderStrong, header with title + ✕). Flutter's dialog route
 /// supplies the reference keyboard/focus contract for free: Escape closes,
 /// focus is trapped in the route, and focus returns to the opener on close.
+/// While a modal reports [ModalScaffold.busy] its route is CONTAINED (#55):
+/// barrier tap, Escape, the ✕ and system/predictive back all refuse to
+/// dismiss until the in-flight operation settles — a result must never
+/// mutate navigation or room state after the user believes the action was
+/// abandoned.
 library;
 
 import 'package:flutter/material.dart';
@@ -63,6 +68,7 @@ class ModalScaffold extends StatelessWidget {
     required this.title,
     required this.child,
     this.wide = false,
+    this.busy = false,
     this.onClose,
   });
 
@@ -71,6 +77,14 @@ class ModalScaffold extends StatelessWidget {
 
   /// Wide variant: max-width 560 instead of 440.
   final bool wide;
+
+  /// True while the modal's async operation is in flight. The route refuses
+  /// to pop — one PopScope covers barrier tap, Escape, and system/predictive
+  /// back, because they all route through `Navigator.maybePop` — and the ✕
+  /// disables so the containment is visible. The success path's imperative
+  /// `Navigator.pop(result)` bypasses PopScope, so submitting stays able to
+  /// close the modal while it is still marked busy.
+  final bool busy;
 
   /// Defaults to popping the enclosing dialog route.
   final VoidCallback? onClose;
@@ -90,7 +104,9 @@ class ModalScaffold extends StatelessWidget {
             ),
           ),
           IconButton(
-            onPressed: close,
+            // Disabled while busy: containment must be visible, not a
+            // silently swallowed tap. The tooltip stays either way.
+            onPressed: busy ? null : close,
             tooltip: context.strings.commonClose,
             icon: Text(Tokens.closeGlyph,
                 style: TextStyle(fontSize: 14, color: tokens.textDim)),
@@ -105,11 +121,12 @@ class ModalScaffold extends StatelessWidget {
         ],
       ),
     );
+    final Widget presentation;
     if (_ModalScreenScope.of(context)) {
       // Full-screen presentation (showJeliyaModalScreen): same header/body
       // anatomy as the dialog, page-sized, with safe-area insets. The
       // Scaffold keeps the form above the soft keyboard.
-      return Scaffold(
+      presentation = Scaffold(
         backgroundColor: tokens.bgRaise,
         body: SafeArea(
           child: Column(
@@ -127,30 +144,37 @@ class ModalScaffold extends StatelessWidget {
           ),
         ),
       );
-    }
-    return Dialog(
-      backgroundColor: tokens.bgRaise,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(JeliyaRadii.modal),
-        side: BorderSide(color: tokens.borderStrong),
-      ),
-      child: ConstrainedBox(
-        constraints: BoxConstraints(maxWidth: wide ? 560 : 440),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            header,
-            Divider(height: 1, color: tokens.border),
-            Flexible(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(18, 16, 18, 20),
-                child: child,
-              ),
-            ),
-          ],
+    } else {
+      presentation = Dialog(
+        backgroundColor: tokens.bgRaise,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(JeliyaRadii.modal),
+          side: BorderSide(color: tokens.borderStrong),
         ),
-      ),
-    );
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxWidth: wide ? 560 : 440),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              header,
+              Divider(height: 1, color: tokens.border),
+              Flexible(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.fromLTRB(18, 16, 18, 20),
+                  child: child,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    // Containment (#55): while busy, refuse every dismissal path. Barrier
+    // taps, Escape (routes.dart _DismissModalAction) and system/predictive
+    // back all route through Navigator.maybePop, so this single PopScope —
+    // registered on whichever route hosts the modal (DialogRoute or the
+    // full-screen MaterialPageRoute) — covers all of them.
+    return PopScope(canPop: !busy, child: presentation);
   }
 }
