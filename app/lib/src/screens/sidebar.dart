@@ -49,6 +49,7 @@ class Sidebar extends StatelessWidget {
   const Sidebar({
     super.key,
     required this.activeNav,
+    required this.currentRoomId,
     required this.onNav,
     required this.onSelectRoom,
     required this.onCreateRoom,
@@ -60,7 +61,13 @@ class Sidebar extends StatelessWidget {
   /// inside Rooms rather than a fourth global destination.
   final GlobalDest activeNav;
 
-  /// Same handler for every nav item (Calls stays disabled).
+  /// The room the ROUTE names, which is what "you are here" means. Not the
+  /// session's open room: that is a different fact, and the row says it out
+  /// loud with its own Open/Closed label and session dot. Standing on Rooms
+  /// with a session still open highlights nothing — correctly.
+  final String? currentRoomId;
+
+  /// Same handler for every nav item.
   final ValueChanged<GlobalDest> onNav;
 
   /// Room row click — the shell guards departed rooms.
@@ -107,7 +114,7 @@ class Sidebar extends StatelessWidget {
                 ),
                 _RoomsList(
                   rooms: session.rooms,
-                  currentRoomId: session.currentRoomId,
+                  currentRoomId: currentRoomId,
                   onSelectRoom: onSelectRoom,
                 ),
               ],

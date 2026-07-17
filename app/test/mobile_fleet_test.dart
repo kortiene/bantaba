@@ -66,7 +66,7 @@ Future<void> _expectAgentsSurfaceAt(WidgetTester tester, Size size,
   }
   final s = french ? fr : en;
 
-  await _tapTab(tester, s.sidebarNavAgents);
+  await _tapTab(tester, s.sidebarNavFleet);
   await pumpSteps(tester, steps: 10);
   expect(find.byType(FleetDashboard), findsOneWidget);
 
@@ -82,7 +82,7 @@ Future<void> _expectAgentsSurfaceAt(WidgetTester tester, Size size,
   Finder chipCount(String label, String count) => find.descendant(
       of: find.widgetWithText(TextButton, label), matching: find.text(count));
   expect(chipCount(s.fleetFilterAll, '4'), findsOneWidget);
-  expect(chipCount(s.fleetFilterActive, '2'), findsOneWidget);
+  expect(chipCount(s.fleetFilterLive, '2'), findsOneWidget);
   expect(chipCount(s.fleetFilterWorking, '1'), findsOneWidget);
   expect(chipCount(s.fleetFilterOffline, '2'), findsOneWidget);
 
@@ -160,7 +160,7 @@ void main() {
     expect(client.fleetCalls, 0,
         reason: 'no fleet polling before the Agents tab first activates');
 
-    await _tapTab(tester, en.sidebarNavAgents);
+    await _tapTab(tester, en.sidebarNavFleet);
     expect(find.byType(FleetDashboard), findsOneWidget);
     final afterMount = client.fleetCalls;
     expect(afterMount, greaterThanOrEqualTo(1),
@@ -180,7 +180,7 @@ void main() {
             'never run in the background');
 
     // Re-activating mounts a fresh store: one immediate reload.
-    await _tapTab(tester, en.sidebarNavAgents);
+    await _tapTab(tester, en.sidebarNavFleet);
     expect(client.fleetCalls, greaterThan(afterLeave),
         reason: 're-activation reloads immediately');
   });

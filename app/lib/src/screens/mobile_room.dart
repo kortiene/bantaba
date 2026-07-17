@@ -1,49 +1,74 @@
-/// The chat screen pushed onto the Rooms tab's nested navigator (issue #17):
-/// back affordance + RoomHeader (its own <560 stack), the room-keyed
-/// timeline, and the composer. Pushed by the shell (room selection,
-/// create/join/fleet deep links) so every entry point shares one route
-/// construction; Android back pops it for free. The room-detail route
-/// (RightPanel tabs) is pushed from here for Members / Share file /
-/// Open pipe / timeline pipe tiles — every desktop deep-link callback keeps
-/// its intent (shell.dart parity).
+/// The compact shell's ROOM pane — the room's Activity destination: its app
+/// bar, its nav strip, the room-keyed timeline, and the composer
+/// (docs/room-workbench.md, decision 3).
+///
+/// It is a pane, not a pushed route. It used to be one, and the Navigator
+/// stack under it was a second answer to "where is the user" that could
+/// disagree with the shell's own: a tab switch could leave a chat route
+/// mounted under a different tab, and the fix was a set of pops and
+/// popUntils at every entry point. The route decides which pane shows; this
+/// widget renders the room and nothing else decides anything.
 library;
-
-import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:jeliya_protocol/jeliya_protocol.dart' show RoomSummary;
 
 import '../l10n/strings_context.dart';
+import '../routes.dart';
 import '../session/daemon_session.dart';
 import '../theme.dart';
 import '../widgets/error_note.dart';
 import 'composer.dart';
-import 'mobile_panel.dart' show mobileRoomDetailRoute;
-import 'right_panel.dart' show PanelTab;
 import 'room_header.dart';
+import 'room_nav.dart';
 import 'timeline.dart';
 
-/// The chat route factory — the shell's one construction site.
-Route<void> mobileRoomRoute({
-  required VoidCallback onInvite,
-  required VoidCallback onLeaveRoom,
-}) =>
-    MaterialPageRoute<void>(
-      builder: (_) =>
-          MobileRoomScreen(onInvite: onInvite, onLeaveRoom: onLeaveRoom),
+/// Room-scoped content with no room open says so, instead of rendering an
+/// empty room (decision 5: an empty state and "we have not asked yet" are
+/// different sentences, and neither is "you are not in a room").
+class RoomPaneEmpty extends StatelessWidget {
+  const RoomPaneEmpty({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final s = context.strings;
+    final tokens = JeliyaTokens.of(context);
+    return ColoredBox(
+      color: tokens.bg,
+      child: Center(
+        child: Text(s.shellSelectRoom,
+            style: TextStyle(fontSize: 13.5, color: tokens.textDim)),
+      ),
     );
+  }
+}
+
+/// The open room's `room.list` row — it carries the name, the short id, and
+/// the session's Open/Closed fact; the [RoomStore] carries none of them.
+RoomSummary? roomSummaryOf(DaemonSession session, String? roomId) {
+  for (final r in session.rooms) {
+    if (r.roomId == roomId) return r;
+  }
+  return null;
+}
 
 class MobileRoomScreen extends StatelessWidget {
-  const MobileRoomScreen(
-      {super.key, required this.onInvite, required this.onLeaveRoom});
+  const MobileRoomScreen({
+    super.key,
+    required this.roomId,
+    required this.onBack,
+    required this.onInvite,
+    required this.onDest,
+  });
 
+  /// The room the route names. The pane renders THIS room or none: a store
+  /// whose id has moved on belongs to a different room, and drawing it under
+  /// this route's name is the disagreement the route model exists to prevent.
+  final String? roomId;
+
+  final VoidCallback onBack;
   final VoidCallback onInvite;
-  final VoidCallback onLeaveRoom;
-
-  void _pushDetail(BuildContext context, PanelTab tab) {
-    Navigator.of(context).push(
-        mobileRoomDetailRoute(initialTab: tab, onLeaveRoom: onLeaveRoom));
-  }
+  final ValueChanged<RoomDest> onDest;
 
   @override
   Widget build(BuildContext context) {
@@ -51,108 +76,57 @@ class MobileRoomScreen extends StatelessWidget {
     final session = SessionScope.of(context);
     final tokens = JeliyaTokens.of(context);
     final room = session.room;
-    if (room == null) {
-      // The room closed under this route (left/removed elsewhere): an honest
-      // empty state with the back affordance still in reach, on the same
-      // raised header chrome as the live chat.
-      return ColoredBox(
-        color: tokens.bg,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Container(
-              padding: const EdgeInsets.symmetric(vertical: JeliyaSpacing.x4),
-              decoration: BoxDecoration(
-                color: tokens.bgRaise,
-                border: Border(bottom: BorderSide(color: tokens.border)),
-              ),
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: BackButton(color: tokens.text),
-              ),
-            ),
-            Expanded(
-              child: Center(
-                child: Text(s.shellSelectRoom,
-                    style: TextStyle(fontSize: 13.5, color: tokens.textDim)),
-              ),
-            ),
-          ],
-        ),
-      );
+    if (roomId == null || room == null || room.roomId != roomId) {
+      return const RoomPaneEmpty();
     }
-    RoomSummary? summary;
-    for (final r in session.rooms) {
-      if (r.roomId == room.roomId) summary = r;
-    }
+    final summary = roomSummaryOf(session, room.roomId);
     return ColoredBox(
       color: tokens.bg,
-      child: LayoutBuilder(
-        builder: (context, viewport) => ListenableBuilder(
-          listenable: room,
-          builder: (context, _) => Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Expanded(
-                // The inner LayoutBuilder measures the space REMAINING ABOVE
-                // the composer — the header budget below must never exceed
-                // it, or header + composer outgrow a keyboard-shrunk
-                // viewport (fr at 360x640 hard-overflowed by 14px).
-                child: LayoutBuilder(
-                  builder: (context, aboveComposer) => Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      // The header's wrapping actions + peer chips can
-                      // outgrow a short viewport (landscape phones, wide
-                      // French copy, the soft keyboard's inset) — the chrome
-                      // must never squeeze the timeline out or hard-overflow
-                      // the column, so past ~45% of the route the header
-                      // scrolls internally, and it always fits the space the
-                      // composer leaves it outright.
-                      ConstrainedBox(
-                        constraints: BoxConstraints(
-                            maxHeight: math.min(
-                                math.max(viewport.maxHeight * 0.45, 160),
-                                aboveComposer.maxHeight)),
-                        child: SingleChildScrollView(
-                          child: RoomHeader(
-                            leading: BackButton(color: tokens.text),
-                            name: summary?.name ?? s.shellUntitledRoom,
-                            memberCount: room.members.isNotEmpty
-                                ? room.members.length
-                                : summary?.memberCount ?? 0,
-                            onInvite: onInvite,
-                            onMembers: () =>
-                                _pushDetail(context, PanelTab.members),
-                            onShareFile: () =>
-                                _pushDetail(context, PanelTab.files),
-                            onOpenPipe: () =>
-                                _pushDetail(context, PanelTab.pipes),
-                          ),
-                        ),
-                      ),
-                      if (room.openError != null)
-                        Padding(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: JeliyaSpacing.page),
-                          child: ErrorNote(error: room.openError),
-                        ),
-                      // Keyed by room so the live-region/scroll state resets
-                      // on switch.
-                      Expanded(
-                        child: TimelineView(
-                          key: ValueKey(room.roomId),
-                          onShowPipes: () =>
-                              _pushDetail(context, PanelTab.pipes),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+      child: ListenableBuilder(
+        listenable: room,
+        builder: (context, _) => Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // The app bar is one non-wrapping row and the strip is one more,
+            // so the chrome above the timeline is bounded by construction —
+            // no viewport-fraction cap, no internal scroll. The old header
+            // needed both: its wrapping action row and peer-chip strip could
+            // outgrow a landscape phone or a keyboard-shrunk viewport, and at
+            // 360x640 in French it hard-overflowed the column by 14px. The
+            // peer chips now live behind the app bar's ⋮ disclosure, which is
+            // what made the bound possible.
+            RoomHeader(
+              name: summary?.name ?? s.shellUntitledRoom,
+              summary: summary,
+              compact: true,
+              onBack: onBack,
+              onInvite: onInvite,
+              onShareFile: () => onDest(RoomDest.files),
+              onOpenPipe: () => onDest(RoomDest.pipes),
+            ),
+            // This pane IS Activity — the shell shows a different one for
+            // every other room destination — so the strip marks Activity, and
+            // the strip is how the other four are reached from here.
+            RoomNav(
+              dest: RoomDest.activity,
+              counts: roomNavCounts(room),
+              onDest: onDest,
+            ),
+            if (room.openError != null)
+              Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: JeliyaSpacing.page),
+                child: ErrorNote(error: room.openError),
               ),
-              const Composer(),
-            ],
-          ),
+            // Keyed by room so the live-region/scroll state resets on switch.
+            Expanded(
+              child: TimelineView(
+                key: ValueKey(room.roomId),
+                onShowPipes: () => onDest(RoomDest.pipes),
+              ),
+            ),
+            const Composer(),
+          ],
         ),
       ),
     );

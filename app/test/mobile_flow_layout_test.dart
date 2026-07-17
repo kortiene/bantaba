@@ -153,7 +153,7 @@ void main() {
           .roomId;
       await tester.tap(find.text('Product Review').hitTestable());
       await pumpSteps(tester, steps: 6);
-      await tester.tap(find.text(en.panelTabMembers).hitTestable().first);
+      await tester.tap(find.text(en.roomDestPeople).hitTestable().first);
       await pumpSteps(tester, steps: 6);
       expect(find.byType(RightPanel).hitTestable(), findsOneWidget);
 
@@ -184,7 +184,7 @@ void main() {
       // (the timeline's are scrolled above its stick-to-bottom viewport).
       await tester.tap(find.text('Product Review').hitTestable());
       await pumpSteps(tester, steps: 6);
-      await tester.tap(find.text(en.panelTabMembers).hitTestable().first);
+      await tester.tap(find.text(en.roomDestPeople).hitTestable().first);
       await pumpSteps(tester, steps: 6);
       expect(find.byType(RightPanel).hitTestable(), findsOneWidget);
 

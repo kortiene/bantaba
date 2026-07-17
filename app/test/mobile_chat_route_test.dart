@@ -56,7 +56,7 @@ void main() {
         // the shared catalog.
         expect(find.text(_mainRoomName), findsOneWidget);
         expect(find.text(s.roomHeaderPeerToPeer), findsOneWidget);
-        final members = find.widgetWithText(TextButton, s.panelTabMembers);
+        final members = find.widgetWithText(TextButton, s.roomDestPeople);
         expect(members.hitTestable(), findsOneWidget);
         expect(tester.getSize(members).height, greaterThanOrEqualTo(44),
             reason: 'Members header action is under the 44dp touch floor');

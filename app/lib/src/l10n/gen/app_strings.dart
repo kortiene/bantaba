@@ -555,12 +555,6 @@ abstract class AppStrings {
   /// **'This file failed a security check and wasn\'t saved — it may have been corrupted or tampered with in transit.'**
   String get fetchErrHashMismatch;
 
-  /// Fleet dashboard page title (the top-level view listing all agents across rooms).
-  ///
-  /// In en, this message translates to:
-  /// **'Agents'**
-  String get fleetAgentsTitle;
-
   /// Placeholder text inside the fleet dashboard search field. Keep the trailing ellipsis character (…).
   ///
   /// In en, this message translates to:
@@ -590,12 +584,6 @@ abstract class AppStrings {
   /// In en, this message translates to:
   /// **'All'**
   String get fleetFilterAll;
-
-  /// Filter button on the fleet dashboard: show only active agents (working or online).
-  ///
-  /// In en, this message translates to:
-  /// **'Active'**
-  String get fleetFilterActive;
 
   /// Filter button on the fleet dashboard: show agents needing attention (stale or offline).
   ///
@@ -1244,17 +1232,17 @@ abstract class AppStrings {
   /// **'Member counts'**
   String get panelMemberCountsLabel;
 
-  /// Stat tile label on the Members tab: number of active members. Separate key from the 'Active' pipe state (panelPipeStateActive).
-  ///
-  /// In en, this message translates to:
-  /// **'Active'**
-  String get panelStatActive;
-
   /// Stat tile label on the Members tab: number of agent members. Separate key from the Agents tab label.
   ///
   /// In en, this message translates to:
   /// **'Agents'**
   String get panelStatAgents;
+
+  /// Stat tile label on the People tab: how many members the signed roster reports.
+  ///
+  /// In en, this message translates to:
+  /// **'Members'**
+  String get panelStatMembers;
 
   /// Stat tile label on the Members tab: number of invited members who have not joined yet.
   ///
@@ -1267,12 +1255,6 @@ abstract class AppStrings {
   /// In en, this message translates to:
   /// **'Room roster'**
   String get panelRoomRoster;
-
-  /// Short counter beside the 'Room roster' heading; {n} is the number of active members.
-  ///
-  /// In en, this message translates to:
-  /// **'{n} active'**
-  String panelNActive(num n);
 
   /// Badge on the roster row belonging to the local device. Deliberately lowercase in English.
   ///
@@ -1297,12 +1279,6 @@ abstract class AppStrings {
   /// In en, this message translates to:
   /// **'Member'**
   String get panelRoleMember;
-
-  /// Fallback membership-status label on a roster row when the status is unrecognized.
-  ///
-  /// In en, this message translates to:
-  /// **'Unknown'**
-  String get panelStatusUnknown;
 
   /// Button on your own roster row to leave the room.
   ///
@@ -1561,24 +1537,6 @@ abstract class AppStrings {
   /// In en, this message translates to:
   /// **'No pipes yet — expose a local port to one authorized peer below.'**
   String get panelPipesEmpty;
-
-  /// Pipe state label on a pipe row: a connection is established and usable. Separate key from the Members 'Active' stat.
-  ///
-  /// In en, this message translates to:
-  /// **'Active'**
-  String get panelPipeStateActive;
-
-  /// Pipe state label on a pipe row: the pipe is exposed and waiting for the authorized peer to connect.
-  ///
-  /// In en, this message translates to:
-  /// **'Open'**
-  String get panelPipeStateOpen;
-
-  /// Pipe state label on a pipe row: the pipe has been closed.
-  ///
-  /// In en, this message translates to:
-  /// **'Closed'**
-  String get panelPipeStateClosed;
 
   /// Meta line under a pipe row: who opened the pipe and which peer may connect. Both placeholders are styled spans the app splits on: {openedBy} and {authorized} are replaced by clickable member-name widgets (or the 'You' word / an em-dash when there is no peer). Keep both placeholders; reorder freely.
   ///
@@ -1981,12 +1939,6 @@ abstract class AppStrings {
   /// In en, this message translates to:
   /// **'Open local file copy'**
   String get fetchOpenLocalFileCopy;
-
-  /// Room header subtitle segment showing how many room members are currently active, e.g. '3 active'. Rendered inline with the other subtitle segments, joined by a '|' separator (the separator is not part of this string).
-  ///
-  /// In en, this message translates to:
-  /// **'{n} active'**
-  String roomHeaderActiveCount(num n);
 
   /// Room header subtitle segment counting members with the agent role, e.g. '1 agent' / '2 agents'. Here 'agent' is plain UI copy for the role name (not a raw wire value) — translate it, but keep it consistent with how the agent role is named elsewhere in the app.
   ///
@@ -2677,6 +2629,12 @@ abstract class AppStrings {
   /// **'You'**
   String get commonYou;
 
+  /// How many members the signed roster reports, e.g. '3 members'. Shown by the room header subtitle and beside the roster heading — both count the same loaded roster, so both say it the same way. Never rendered before the roster answers (roomLoadingMembers covers that).
+  ///
+  /// In en, this message translates to:
+  /// **'{n, plural, one{{n} member} other{{n} members}}'**
+  String commonMemberCount(num n);
+
   /// Second line of the tooltip on an unnamed peer's sender name (the first line is their identity ID), inviting the user to assign a local nickname.
   ///
   /// In en, this message translates to:
@@ -2778,12 +2736,6 @@ abstract class AppStrings {
   /// In en, this message translates to:
   /// **'agent'**
   String get wireRoleAgentInline;
-
-  /// Member lifecycle status shown in roster pills and the agent-card footer: the member is currently active in the room. Standalone capitalized word (maps the protocol status value "active", which itself is never shown).
-  ///
-  /// In en, this message translates to:
-  /// **'Active'**
-  String get wireStatusActive;
 
   /// Member lifecycle status shown in roster pills and the agent-card footer: the member has been invited but has not joined yet. Standalone capitalized word (maps the protocol status value "invited").
   ///

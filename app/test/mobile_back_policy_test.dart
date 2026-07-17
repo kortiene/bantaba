@@ -109,7 +109,7 @@ void main() {
     // Pinned Files → Members pushes the room-detail route on the Rooms tab.
     await _tapTab(tester, en.sidebarNavFiles);
     await tester.tap(
-        find.widgetWithText(InkWell, en.panelTabMembers).hitTestable().first);
+        find.widgetWithText(InkWell, en.roomDestPeople).hitTestable().first);
     await pumpSteps(tester, steps: 6);
     expect(find.byType(BackButton).hitTestable(), findsOneWidget);
 
@@ -117,7 +117,7 @@ void main() {
     // must be replaced, never stacked under the new one.
     await _tapTab(tester, en.sidebarNavFiles);
     await tester.tap(
-        find.widgetWithText(InkWell, en.panelTabMembers).hitTestable().first);
+        find.widgetWithText(InkWell, en.roomDestPeople).hitTestable().first);
     await pumpSteps(tester, steps: 6);
     expect(find.byType(BackButton).hitTestable(), findsOneWidget);
 

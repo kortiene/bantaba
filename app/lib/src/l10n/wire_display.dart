@@ -26,14 +26,21 @@ extension WireDisplay on AppStrings {
         _ => role,
       };
 
-  /// Member status pill / agent-card footer word. Empty status maps to the
-  /// panel's Unknown label.
+  /// Member status pill / agent-card footer word — signed membership, and
+  /// nothing else (docs/room-workbench.md, decision 4).
+  ///
+  /// The wire says `active`; the screen says **Member**. This mapping is the
+  /// seam that keeps them apart: the roster used to title-case the wire value
+  /// straight onto the screen, so one word ("Active") meant signed membership
+  /// here, a live local session in the room rail, and a live forwarding
+  /// session on a pipe chip. Renaming the label renames no wire value.
+  /// Unknown status maps to the Unknown label.
   String memberStatus(String status) => switch (status) {
-        MemberStatuses.active => wireStatusActive,
+        MemberStatuses.active => memberStatusMember,
         MemberStatuses.invited => wireStatusInvited,
         MemberStatuses.left => wireStatusLeft,
         MemberStatuses.removed => wireStatusRemoved,
-        '' => panelStatusUnknown,
+        '' => memberStatusUnknown,
         _ => status,
       };
 

@@ -82,7 +82,7 @@ void main() {
 
     // A context under both FormatsScope and Localizations.
     final threeOhFourPm = DateTime(2026, 7, 8, 15, 4).millisecondsSinceEpoch;
-    BuildContext ctx() => tester.element(find.text(en.sidebarNavAgents).first);
+    BuildContext ctx() => tester.element(find.text(en.sidebarNavFleet).first);
     // The AM/PM separator is environment-dependent: flutter_localizations
     // injects its own date patterns (plain space) over intl's (NNBSP) for
     // whichever locales its delegates load — accept either space.
@@ -143,7 +143,7 @@ void main() {
     await tester.pump();
     expect(app().locale, const Locale('en'));
     // The catalog keeps resolving (en is the only catalog today).
-    expect(find.text(en.sidebarNavAgents), findsWidgets);
+    expect(find.text(en.sidebarNavFleet), findsWidgets);
   });
 
   testWidgets('Settings pickers write the separate locale prefs',

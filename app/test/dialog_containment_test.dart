@@ -168,7 +168,7 @@ Future<void> _openLeave(
   // i18n-exempt: fixture room name, not copy
   await tester.tap(find.text('Product Review').hitTestable());
   await pumpSteps(tester, steps: 6);
-  await tester.tap(find.text(en.panelTabMembers).hitTestable().first);
+  await tester.tap(find.text(en.roomDestPeople).hitTestable().first);
   await pumpSteps(tester, steps: 6);
   expect(find.byType(RightPanel).hitTestable(), findsOneWidget);
   await tester

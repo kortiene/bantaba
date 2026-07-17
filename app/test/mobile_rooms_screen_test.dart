@@ -49,8 +49,8 @@ Future<void> _expectRoomsScreenAt(WidgetTester tester, Size size,
 
   // State = dot + label: the boot-opened room reads Active, the other four
   // fixture rooms Idle (the meta stays ONE message — sidebarRoomMeta).
-  expect(find.text(s.sidebarStateActive), findsOneWidget);
-  expect(find.text(s.sidebarStateIdle), findsNWidgets(4));
+  expect(find.text(s.sidebarStateOpen), findsOneWidget);
+  expect(find.text(s.sidebarStateClosed), findsNWidgets(4));
   final open = session.rooms.firstWhere((r) => r.open);
   final openRow = find.widgetWithText(TextButton, open.name!);
   final dot = find.descendant(

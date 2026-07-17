@@ -80,17 +80,27 @@ class JeliyaButton extends StatelessWidget {
     final text = Text(label,
         maxLines: 1, overflow: TextOverflow.ellipsis, softWrap: false);
     final child = busy
-        ? Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              SizedBox(
-                width: fontSize - 2,
-                height: fontSize - 2,
-                child: CircularProgressIndicator(strokeWidth: 1.6, color: fg),
-              ),
-              const SizedBox(width: JeliyaSpacing.x6),
-              text,
-            ],
+        // The busy row needs the same promise, and a plain Text cannot keep
+        // it here: a horizontal RenderFlex hands every non-flexible child
+        // UNBOUNDED width, so the label rendered at intrinsic width and blew
+        // the button's box open regardless of its ellipsis (a 'Checking…'
+        // fetch control in a phone-width timeline tile overflowed by 65px).
+        // Flexible fixes that but is only legal once the row's own width is
+        // bounded — which is exactly the case the unbounded-Row note above
+        // warns about, so ask instead of assuming.
+        ? LayoutBuilder(
+            builder: (context, constraints) => Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SizedBox(
+                  width: fontSize - 2,
+                  height: fontSize - 2,
+                  child: CircularProgressIndicator(strokeWidth: 1.6, color: fg),
+                ),
+                const SizedBox(width: JeliyaSpacing.x6),
+                if (constraints.hasBoundedWidth) Flexible(child: text) else text,
+              ],
+            ),
           )
         : text;
 

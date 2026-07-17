@@ -24,7 +24,6 @@ import 'dart:math' as math;
 
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:jeliya_protocol/jeliya_protocol.dart'
     show
         ErrorCodes,
@@ -78,6 +77,7 @@ class RightPanel extends StatelessWidget {
     required this.onClose,
     required this.shell,
     required this.onLeaveRoom,
+    this.roomName,
     this.chrome = true,
     this.touchTargets = false,
   });
@@ -94,6 +94,12 @@ class RightPanel extends StatelessWidget {
   final VoidCallback onClose;
 
   final Shell shell;
+
+  /// The open room's display name. Room context stays visible on every
+  /// room-scoped surface (decision 3), and on compact this panel IS the
+  /// surface — the room header is on another pane. Null on medium and wide,
+  /// where the header is alongside and repeating it would be duplication.
+  final String? roomName;
 
   /// Opens the Leave Room modal.
   final VoidCallback onLeaveRoom;
@@ -133,17 +139,7 @@ class RightPanel extends StatelessWidget {
       BuildContext context, DaemonSession session, RoomStore? room) {
     final s = context.strings;
     final members = room?.members ?? const <Member>[];
-    final files = room?.files ?? const <FileEntry>[];
-    final pipes = room?.pipes ?? const <PipeEntry>[];
-    final agentCount = members.where((m) => m.role == Roles.agent).length;
-    final openPipes = pipes.where((p) => p.state == PipeStates.open).length;
-
-    final counts = <RoomDest, int>{
-      RoomDest.people: members.length,
-      RoomDest.agents: agentCount,
-      RoomDest.files: files.length,
-      RoomDest.pipes: openPipes,
-    };
+    final counts = roomNavCounts(room);
 
     final Widget body = switch (tab) {
       RoomDest.people => _MembersTab(
@@ -176,14 +172,13 @@ class RightPanel extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // Only when this panel covers the workspace: on wide it opens beside
-        // it, and the workspace keeps the one strip.
+        _InspectorHead(shell: shell, onClose: onClose, roomName: roomName),
+        // The strip belongs to whoever covers the workspace. On wide the tool
+        // opens BESIDE the workspace, so the workspace keeps the one strip and
+        // this panel does not build a second: two strips for one room would be
+        // two tablists in the semantics tree.
         if (shell != Shell.wide)
-          _InspectorHead(shell: shell, onClose: onClose, roomName: roomName),
-        if (shell != Shell.wide)
-          RoomNav(dest: tab, counts: counts, onDest: onDest)
-        else
-          _InspectorHead(shell: shell, onClose: onClose, roomName: null),
+          RoomNav(dest: tab, counts: counts, onDest: onDest),
         Expanded(
           // role='tabpanel' labelled by the active tab.
           child: Semantics(
@@ -520,18 +515,20 @@ class _MembersTab extends StatelessWidget {
             .displayName(s, a.identityId)
             .compareTo(session.displayName(s, b.identityId));
       });
-    final activeCount = members.where((m) => m.status == 'active').length;
+    // Signed membership, counted — the roster's own fact. The word for it is
+    // "Member" on every surface (decision 4); only the wire says `active`.
+    final memberCount = members.where((m) => m.status == 'active').length;
     final invitedCount = members.where((m) => m.status == 'invited').length;
     final agentCount = members.where((m) => m.role == Roles.agent).length;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _buildSummary(context, activeCount, invitedCount, agentCount),
+        _buildSummary(context, memberCount, invitedCount, agentCount),
         const SizedBox(height: JeliyaSpacing.x10),
         _SectionHead(
           title: s.panelRoomRoster,
-          summary: s.panelNActive(activeCount),
+          summary: s.commonMemberCount(memberCount),
         ),
         for (final member in sorted) ...[
           const SizedBox(height: JeliyaSpacing.x10),
@@ -546,7 +543,7 @@ class _MembersTab extends StatelessWidget {
   }
 
   Widget _buildSummary(
-      BuildContext context, int active, int invited, int agents) {
+      BuildContext context, int memberCount, int invited, int agents) {
     final s = context.strings;
     final tokens = JeliyaTokens.of(context);
     return Semantics(
@@ -588,7 +585,8 @@ class _MembersTab extends StatelessWidget {
                   children: [
                     Expanded(
                         child: _StatCell(
-                            term: s.panelStatActive, value: '$active')),
+                            term: s.panelStatMembers,
+                            value: '$memberCount')),
                     const SizedBox(width: JeliyaSpacing.x8),
                     Expanded(
                         child: _StatCell(
@@ -665,9 +663,9 @@ class _MemberRow extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Wrap, not Row: at the 320px panel width the self row's
-                  // 'this device' chip does not fit beside the name next to
-                  // the badges column — let it drop to a second line.
+                  // Wrap, not Row: at the inspector's narrowest width the self
+                  // row's 'this device' chip does not fit beside the name next
+                  // to the badges column — let it drop to a second line.
                   Wrap(
                     spacing: 7,
                     runSpacing: JeliyaSpacing.x2,
@@ -727,9 +725,9 @@ class _MemberRow extends StatelessWidget {
                   if (ownerCannotLeave) ...[
                     const SizedBox(height: 5),
                     // Under the pills, width-capped, wrapping to two lines:
-                    // inline it starved the name column at the 320px panel
-                    // width once French copy ('Le propriétaire reste') got
-                    // ~2x wider than 'Owner stays'.
+                    // inline it starved the name column at the inspector's
+                    // narrowest width once French copy ('Le propriétaire
+                    // reste') got ~2x wider than 'Owner stays'.
                     Tooltip(
                       message: s.panelOwnerStaysTitle,
                       child: ConstrainedBox(
@@ -1895,11 +1893,15 @@ class _PipeRow extends StatelessWidget {
     final closing = room?.closingPipes.contains(pipe.pipeId) ?? false;
     final authorizedPeer = pipe.authorizedPeer;
 
+    // Three facts, three words (decision 4): a pipe is exposed and forwarding
+    // (**Connected**), exposed with nothing on the other end (**Open**), or
+    // **Closed**. The forwarding state used to read "Active" — the same word
+    // the rail used for a live session and the wire uses for membership.
     final (String chipText, Color chipColor, Color chipBorder) = closed
-        ? (s.panelPipeStateClosed, tokens.textMute, tokens.borderStrong)
+        ? (s.pipeStateClosed, tokens.textMute, tokens.borderStrong)
         : pipe.connected
-            ? (s.panelPipeStateActive, tokens.accent, tokens.accentLine)
-            : (s.panelPipeStateOpen, tokens.accent, tokens.accentLine);
+            ? (s.pipeStateConnected, tokens.accent, tokens.accentLine)
+            : (s.pipeStateOpen, tokens.accent, tokens.accentLine);
 
     return Container(
       padding: const EdgeInsets.symmetric(

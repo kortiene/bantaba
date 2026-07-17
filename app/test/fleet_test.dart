@@ -28,7 +28,7 @@ void main() {
     await pumpReadyApp(tester, newMockClient());
 
     await tester.tap(find.descendant(
-        of: find.byType(Sidebar), matching: find.text(en.sidebarNavAgents)));
+        of: find.byType(Sidebar), matching: find.text(en.sidebarNavFleet)));
     await pumpSteps(tester, steps: 10);
     expect(find.byType(FleetDashboard), findsOneWidget);
 

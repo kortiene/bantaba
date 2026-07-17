@@ -52,7 +52,7 @@ void main() {
     // scale (never hard-code it — a scale change must not disarm this).
     final scaler =
         TextScaler.linear(tester.platformDispatcher.textScaleFactor);
-    for (final label in [fr.panelTabMembers, fr.panelTabFiles]) {
+    for (final label in [fr.roomDestPeople, fr.roomDestFiles]) {
       final painter = TextPainter(
         text: TextSpan(
           text: label,

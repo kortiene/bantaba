@@ -19,6 +19,7 @@ library;
 import 'package:flutter/material.dart' hide ConnectionState;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:jeliya_app/src/screens/mobile_shell.dart';
+import 'package:jeliya_app/src/routes.dart';
 import 'package:jeliya_app/src/screens/right_panel.dart';
 import 'package:jeliya_app/src/screens/timeline.dart';
 import 'package:jeliya_protocol/jeliya_protocol.dart'
@@ -90,7 +91,7 @@ void main() {
         .tap(find.textContaining(en.roomHeaderShareFile).hitTestable());
     await pumpSteps(tester, steps: 6);
 
-    expect(tester.widget<RightPanel>(_visiblePanel()).tab, PanelTab.files,
+    expect(tester.widget<RightPanel>(_visiblePanel()).tab, RoomDest.files,
         reason: "Share file must land on the detail route's Files tab");
     expect(find.text(en.panelShareCardTitle).hitTestable(), findsOneWidget,
         reason: 'the share form must be immediately in reach');
@@ -105,7 +106,7 @@ void main() {
         .tap(find.textContaining(en.roomHeaderOpenPipe).hitTestable());
     await pumpSteps(tester, steps: 6);
 
-    expect(tester.widget<RightPanel>(_visiblePanel()).tab, PanelTab.pipes,
+    expect(tester.widget<RightPanel>(_visiblePanel()).tab, RoomDest.pipes,
         reason: "Open pipe must land on the detail route's Pipes tab");
     // The fixture's open pipes render as rows (fixture targets are literal).
     expect(find.text('127.0.0.1:3000').hitTestable(), findsOneWidget);
@@ -121,7 +122,7 @@ void main() {
     await tester.tap(tile.hitTestable().first);
     await pumpSteps(tester, steps: 6);
 
-    expect(tester.widget<RightPanel>(_visiblePanel()).tab, PanelTab.pipes,
+    expect(tester.widget<RightPanel>(_visiblePanel()).tab, RoomDest.pipes,
         reason: 'the pipe tile must land on the Pipes tab');
     expect(find.text('127.0.0.1:3000').hitTestable(), findsOneWidget);
   });
@@ -203,7 +204,7 @@ void main() {
 
     await tester.tap(_bottomTab(en.sidebarNavFiles));
     await pumpSteps(tester, steps: 3);
-    for (final label in [en.panelTabMembers, en.panelTabPipes]) {
+    for (final label in [en.roomDestPeople, en.roomDestPipes]) {
       expect(tester.getSize(_panelTab(label)).height,
           greaterThanOrEqualTo(44),
           reason: "panel tab '$label' is under the 44dp floor");
@@ -261,14 +262,14 @@ void main() {
 
         // Members on the pinned strip → the shell pushes the room-detail
         // route; walk its remaining tabs (locally-owned state).
-        await tester.tap(_panelTab(s.panelTabMembers).hitTestable());
+        await tester.tap(_panelTab(s.roomDestPeople).hitTestable());
         await pumpSteps(tester, steps: 6);
         expect(find.byType(BackButton).hitTestable(), findsOneWidget,
             reason: 'members must land on the room-detail route');
         for (final tab in [
-          s.panelTabAgents,
-          s.panelTabFiles,
-          s.panelTabPipes,
+          s.roomDestAgents,
+          s.roomDestFiles,
+          s.roomDestPipes,
         ]) {
           final target = _panelTab(tab);
           await tester.ensureVisible(target);

@@ -13,11 +13,11 @@ import 'helpers.dart';
 
 void main() {
   test('memberStatus: 4 known, empty → unknown, future → raw', () {
-    expect(en.memberStatus(MemberStatuses.active), en.wireStatusActive);
+    expect(en.memberStatus(MemberStatuses.active), en.memberStatusMember);
     expect(en.memberStatus(MemberStatuses.invited), en.wireStatusInvited);
     expect(en.memberStatus(MemberStatuses.left), en.wireStatusLeft);
     expect(en.memberStatus(MemberStatuses.removed), en.wireStatusRemoved);
-    expect(en.memberStatus(''), en.panelStatusUnknown);
+    expect(en.memberStatus(''), en.memberStatusUnknown);
     expect(en.memberStatus('suspended'), 'suspended');
   });
 

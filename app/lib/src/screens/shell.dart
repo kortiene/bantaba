@@ -1,27 +1,38 @@
-/// App shell (phase 'ready'). At or above [kShellBreakpoint] it is the
-/// 3-column desktop layout per phase3-features.json "App shell" and
-/// phase3-shell.json:
+/// App shell (phase 'ready') — the Room Workbench on three shells
+/// (docs/room-workbench.md, decisions 2 and 3; web parity: ui/src/App.tsx).
 ///
-///   Sidebar 280px | center (RoomHeader + Timeline + Composer) | RightPanel 320px
+/// ONE [JeliyaRoute] is the navigation state. This screen used to hold three
+/// fields — an `_overlay`, a right-panel `_tab`, and a `_navView` intent — that
+/// could disagree with each other and with the session's open room, and every
+/// new entry point had to remember to set all of them. They are gone.
+/// Everything below is derived from `_route` on read: which global destination
+/// the rail highlights, which room is open, whether the inspector is showing
+/// and what it shows, which single pane a phone displays, and what Back does.
+/// Flutter has no URL bar, so the route lives in this State — the point is a
+/// single source, not a browser address. It is the same route family the web
+/// parses (routes.dart), so a route means the same destination in both.
 ///
-/// Fleet and Settings paint OVER the center+right columns (the sidebar stays)
-/// with the obscured panes kept alive but invisible — visibility, not
-/// unmount — so the timeline scroll position survives (the web contract's
-/// `visibility:hidden` behavior). The connection banner renders above
-/// everything whenever conn != connected.
+/// The three shells, one topology:
 ///
-/// Below the breakpoint the SAME state and handlers drive [MobileShell]
-/// (bottom tab bar, one pane at a time — issue #17); only build forks. The
-/// `_navView` intent machine already mirrors the web's `mobileView`, so it
-/// maps 1:1 onto the bottom tabs.
+///   compact  one pane at a time; the bottom bar carries the three global
+///            destinations and disappears inside a room, where the room's app
+///            bar replaces it.
+///   medium   rail + workspace; the inspector is a drawer pinned over the
+///            workspace's right edge.
+///   wide     rail + workspace + inspector column.
+///
+/// Fleet and Settings paint OVER the workspace (the rail stays) with the
+/// obscured panes kept alive but invisible — visibility, not unmount — so the
+/// timeline scroll position survives (the web's `visibility:hidden` contract).
 library;
 
 import 'package:flutter/material.dart' hide ConnectionState;
-import 'package:jeliya_protocol/jeliya_protocol.dart'
-    show ConnectionState, RoomSummary;
+import 'package:flutter/services.dart' show SystemNavigator;
+import 'package:jeliya_protocol/jeliya_protocol.dart' show RoomSummary;
 
 import '../l10n/strings_context.dart';
 import '../layout.dart';
+import '../routes.dart';
 import '../session/daemon_session.dart';
 import '../theme.dart';
 import '../widgets/connection_banner.dart';
@@ -36,12 +47,10 @@ import 'modals/join_room.dart';
 import 'modals/leave_room.dart';
 import 'right_panel.dart';
 import 'room_header.dart';
+import 'room_nav.dart';
 import 'settings_panel.dart';
 import 'sidebar.dart';
 import 'timeline.dart';
-
-/// Which full surface paints over the center+right columns.
-enum _Overlay { none, fleet, settings }
 
 class ShellScreen extends StatefulWidget {
   const ShellScreen({super.key});
@@ -51,102 +60,108 @@ class ShellScreen extends StatefulWidget {
 }
 
 class _ShellScreenState extends State<ShellScreen> {
-  static const double _sidebarWidth = 280;
-  static const double _rightPanelWidth = 320;
+  // Pane widths, reconciled with the web (ui/src/styles.css) rather than kept
+  // at the 280/320 this file used to carry. The record's arithmetic is written
+  // in these numbers — 900 - 232 = a 668dp medium workspace, 1280 - 272 - 360 =
+  // a 648dp wide one with the inspector present — and it is the arithmetic that
+  // justifies the 1280 breakpoint. Two clients disagreeing about the width of
+  // the same column would make that sum true on one of them only.
+  static const double _railWide = 272;
 
-  _Overlay _overlay = _Overlay.none;
-  PanelTab _tab = PanelTab.members;
+  /// The rail gives back 40dp at medium: the whole point of the medium shell
+  /// is to stop paying for a third column before there is room for one, and
+  /// the workspace is what it is paid back into.
+  static const double _railMedium = 232;
 
-  /// Desktop mirror of the web's `mobileView` state (initial 'rooms'): the
-  /// active-nav highlight is DERIVED from the last navigation intent, not
-  /// from the right-panel tab (App.tsx `activeNav`: settings→settings,
-  /// agents→agents, pipes→pipes, files→files, chat→home, rooms→rooms).
-  /// `NavKey.home` stands in for the web's 'chat' view.
-  NavKey _navView = NavKey.rooms;
+  static const double _inspectorWidth = 360;
 
-  /// The mobile Rooms tab's nested navigator (rooms list → chat → detail);
-  /// unmounted at desktop widths.
-  final GlobalKey<NavigatorState> _mobileRoomsNav =
-      GlobalKey<NavigatorState>();
+  /// The navigation state. Not a mirror of one — the only one.
+  JeliyaRoute _route = kRoomsRoute;
+
+  /// True once the route expresses an opinion of its own.
+  ///
+  /// The initial route is "no opinion", which is the only state in which the
+  /// session's restored room (`prefs.lastRoomId`, resolved by the daemon
+  /// bootstrap) may fill it in. After that nothing re-picks a room behind the
+  /// route's back: the bootstrap re-runs on every reconnect, and letting it
+  /// drag the user back into the room they had just left is the web's issue
+  /// #88. An explicit route always wins over a restored room.
+  bool _routeChosen = false;
 
   /// The build-time form-factor fork; handlers re-read it after awaits.
   bool get _isMobile => isMobileWidth(context);
 
-  // -- navigation (App.tsx `navigate` mapped to desktop) -------------------------
-
-  NavKey get _activeNav => _navView;
-
-  /// App.tsx `navigate('home')`: 'chat' if a room is open, else 'rooms'.
-  NavKey get _homeView => SessionScope.of(context).currentRoomId != null
-      ? NavKey.home
-      : NavKey.rooms;
-
-  void _navigate(NavKey key) {
-    setState(() {
-      switch (key) {
-        case NavKey.agents:
-          // Top-level fleet dashboard — distinct from the in-room Agents tab.
-          _overlay = _Overlay.fleet;
-          _navView = NavKey.agents;
-        case NavKey.settings:
-          _overlay = _Overlay.settings;
-          _navView = NavKey.settings;
-        case NavKey.pipes:
-          // Panel-tab deep link: sets the right-panel tab AND the nav view.
-          _tab = PanelTab.pipes;
-          _overlay = _Overlay.none;
-          _navView = NavKey.pipes;
-        case NavKey.files:
-          _tab = PanelTab.files;
-          _overlay = _Overlay.none;
-          _navView = NavKey.files;
-        case NavKey.home:
-          _overlay = _Overlay.none;
-          _navView = _homeView;
-        case NavKey.rooms:
-          _overlay = _Overlay.none;
-          _navView = NavKey.rooms;
-        case NavKey.calls:
-          break; // disabled ('Soon')
-      }
-    });
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Adopt, do not open. The bootstrap has already opened the restored room
+    // by the time this shell mounts; naming it here is what makes the route
+    // agree with the session instead of racing it.
+    if (_routeChosen) return;
+    final roomId = SessionScope.of(context).currentRoomId;
+    if (roomId == null) return;
+    _routeChosen = true;
+    _route = RoomRoute(roomId);
   }
 
-  void _setTab(PanelTab tab) => setState(() {
-        _tab = tab;
-        _overlay = _Overlay.none;
-      });
+  // -- navigation ------------------------------------------------------------
+  //
+  // Every entry point navigates. This is the ONE place that moves the session
+  // in response, so a rail row, a fleet card, a create result and a restored
+  // room all take the same path — and none of them can open a room the route
+  // does not name (the web learned that one the hard way: its create/join
+  // callbacks opened the room imperatively and the route effect promptly
+  // snapped the session back to the room the URL still named).
 
-  // -- room selection --------------------------------------------------------------
-
-  void _selectRoom(String roomId) {
-    final session = SessionScope.of(context);
-    final summary = _summaryOf(session, roomId);
-    final departed =
-        summary?.status == 'left' || summary?.status == 'removed';
-    setState(() {
-      _overlay = _Overlay.none;
-      // Web onSelectRoom: departed → just show the rooms list (no open),
-      // else view 'chat'.
-      _navView = departed ? NavKey.rooms : NavKey.home;
-    });
-    session.selectRoom(roomId); // guards departed rooms internally
+  void _navigate(JeliyaRoute next) {
+    _routeChosen = true;
+    if (next == _route) return;
+    setState(() => _route = next);
+    final roomId = next.roomId;
+    // selectRoom guards departed rooms and re-opening the room already open;
+    // a route that names no room leaves the session alone, because the open
+    // session is not navigation state — the rooms list says so out loud, with
+    // the room's Open/Closed label.
+    if (roomId != null) SessionScope.of(context).selectRoom(roomId);
   }
 
-  void _openRoomFromFleet(String roomId) {
-    final session = SessionScope.of(context);
-    final summary = _summaryOf(session, roomId);
-    if (summary == null ||
-        summary.status == 'left' ||
-        summary.status == 'removed') {
-      return; // fleet clicks ignore departed rooms
+  /// Room-row and fleet-card clicks. A room's canonical landing surface is its
+  /// timeline, so selecting one is navigating to its Activity.
+  void _selectRoom(String roomId) => _navigate(RoomRoute(roomId));
+
+  void _navigateGlobal(GlobalDest dest) => _navigate(GlobalRoute(dest));
+
+  /// The room nav's single handler. Activity closes the inspector, a tool
+  /// opens it, and both are the same navigation — which is what lets one
+  /// destination mean one thing on all three shells.
+  void _goToDest(RoomDest dest) {
+    final roomId = _route.roomId;
+    if (roomId == null) return;
+    _navigate(RoomRoute(roomId, dest));
+  }
+
+  void _closeInspector() => _goToDest(RoomDest.activity);
+
+  void _backToRooms() => _navigate(kRoomsRoute);
+
+  /// System and predictive Back, on every shell: a room tool falls back to the
+  /// room's Activity, everything else falls back to Rooms, and Rooms hands the
+  /// gesture to the platform. Back never mutates state the user cannot see —
+  /// it only ever changes where they are standing.
+  void _back() {
+    final route = _route;
+    if (route is RoomRoute && route.dest != RoomDest.activity) {
+      _navigate(RoomRoute(route.id));
+      return;
     }
-    setState(() {
-      _overlay = _Overlay.none;
-      _navView = NavKey.home; // web: mobileView 'chat'
-    });
-    if (roomId != session.currentRoomId) session.openRoom(roomId);
+    if (route != kRoomsRoute) {
+      _navigate(kRoomsRoute);
+      return;
+    }
+    SystemNavigator.pop();
   }
+
+  // -- room lookup -----------------------------------------------------------
 
   RoomSummary? _summaryOf(DaemonSession session, String? roomId) {
     for (final r in session.rooms) {
@@ -155,79 +170,7 @@ class _ShellScreenState extends State<ShellScreen> {
     return null;
   }
 
-  // -- mobile (below the width breakpoint) ---------------------------------------
-  //
-  // Thin wrappers around the shared handlers: same intents, plus the route
-  // pushes the phone IA needs (chat and room-detail live on the Rooms tab's
-  // nested navigator).
-
-  bool _isDeparted(String roomId) {
-    final summary = _summaryOf(SessionScope.of(context), roomId);
-    return summary == null ||
-        summary.status == 'left' ||
-        summary.status == 'removed';
-  }
-
-  void _popMobileRoomsToList() =>
-      _mobileRoomsNav.currentState?.popUntil((route) => route.isFirst);
-
-  /// Opens the chat route fresh over the rooms list (never stacks two).
-  void _pushMobileChat() {
-    final nav = _mobileRoomsNav.currentState;
-    if (nav == null) return;
-    nav.popUntil((route) => route.isFirst);
-    nav.push(
-        mobileRoomRoute(onInvite: _openInvite, onLeaveRoom: _openLeaveRoom));
-  }
-
-  /// Bottom-tab taps. Re-tapping Rooms while its stack is open pops back to
-  /// the list (web `navigate('rooms')` always shows the list); merely
-  /// RETURNING to Rooms from another tab leaves the stack alone so the chat
-  /// route — and its timeline scroll — survives the round trip.
-  void _onMobileNav(NavKey key) {
-    if (key == NavKey.rooms &&
-        (_navView == NavKey.rooms || _navView == NavKey.home)) {
-      _popMobileRoomsToList();
-    }
-    _navigate(key);
-  }
-
-  void _selectRoomMobile(String roomId) {
-    final departed = _isDeparted(roomId);
-    _selectRoom(roomId);
-    if (!departed) _pushMobileChat();
-  }
-
-  void _openRoomFromFleetMobile(String roomId) {
-    if (_isDeparted(roomId)) return; // fleet clicks ignore departed rooms
-    _openRoomFromFleet(roomId);
-    _pushMobileChat();
-  }
-
-  /// RightPanel tab-strip taps on the pinned Pipes/Files surfaces:
-  /// pipes/files map to their bottom tabs; the room-scoped Members/Agents
-  /// land on the room-detail route under the Rooms tab.
-  void _onMobilePanelTab(PanelTab tab) {
-    switch (tab) {
-      case PanelTab.pipes:
-        _navigate(NavKey.pipes);
-      case PanelTab.files:
-        _navigate(NavKey.files);
-      case PanelTab.members:
-      case PanelTab.agents:
-        _navigate(NavKey.home);
-        final nav = _mobileRoomsNav.currentState;
-        if (nav == null) return;
-        // Replace any detail route already on the stack — stacking a second
-        // one would make the next back press a visual no-op.
-        nav.popUntil(
-            (route) => route.settings.name != mobileRoomDetailRouteName);
-        nav.push(mobileRoomDetailRoute(
-            initialTab: tab, onLeaveRoom: _openLeaveRoom));
-    }
-  }
-
-  // -- modals ------------------------------------------------------------------------
+  // -- modals ----------------------------------------------------------------
 
   Future<void> _openCreateRoom() async {
     final session = SessionScope.of(context);
@@ -237,16 +180,12 @@ class _ShellScreenState extends State<ShellScreen> {
       builder: (_) => const CreateRoomModal(),
     );
     if (roomId == null) return;
+    // Refresh first, and await it: the rail resolves a room against this list,
+    // so naming one room.list has not returned yet would show the user the
+    // "no such room" treatment for the room they just made.
     await session.refreshRooms();
-    await session.openRoom(roomId);
-    if (mounted) {
-      setState(() {
-        _overlay = _Overlay.none;
-        _navView = NavKey.home;
-      });
-      // Web parity: mobileView 'chat' after create.
-      if (_isMobile) _pushMobileChat();
-    }
+    if (!mounted) return;
+    _navigate(RoomRoute(roomId));
   }
 
   Future<void> _openJoinRoom() async {
@@ -266,15 +205,9 @@ class _ShellScreenState extends State<ShellScreen> {
       );
     }
     if (roomId == null) return;
-    await session.refreshRooms();
-    await session.openRoom(roomId);
-    if (mounted) {
-      setState(() {
-        _overlay = _Overlay.none;
-        _navView = NavKey.home;
-      });
-      if (_isMobile) _pushMobileChat();
-    }
+    await session.refreshRooms(); // see _openCreateRoom
+    if (!mounted) return;
+    _navigate(RoomRoute(roomId));
   }
 
   Future<void> _openInvite() async {
@@ -296,7 +229,7 @@ class _ShellScreenState extends State<ShellScreen> {
   Future<void> _openLeaveRoom() async {
     final session = SessionScope.of(context);
     final room = session.room;
-    final summary = _currentSummary(session);
+    final summary = _summaryOf(session, _route.roomId);
     if (room == null) return;
     // A destructive confirm stays a centered dialog on every form factor.
     final left = await showJeliyaModal<bool>(
@@ -306,131 +239,173 @@ class _ShellScreenState extends State<ShellScreen> {
         roomName: summary?.name,
       ),
     );
-    if (left == true) {
-      session.leaveCurrentRoom();
-      // Web leaveCurrentRoom sets mobileView 'rooms'.
-      if (mounted) {
-        setState(() => _navView = NavKey.rooms);
-        // The chat/detail routes point at the departed room — back to the list.
-        if (_isMobile) _popMobileRoomsToList();
-      }
-    }
+    if (left != true || !mounted) return;
+    session.leaveCurrentRoom();
+    // The route named a room this identity has now published a departure from.
+    // It is not a destination any more.
+    _navigate(kRoomsRoute);
   }
 
-  RoomSummary? _currentSummary(DaemonSession session) =>
-      _summaryOf(session, session.currentRoomId);
-
-  // -- build -------------------------------------------------------------------------
+  // -- build -----------------------------------------------------------------
 
   @override
   Widget build(BuildContext context) {
+    final shell = shellOf(context);
+    return PopScope(
+      canPop: false,
+      // Dialogs and full-screen modal routes live on the root navigator ABOVE
+      // this route, so the system back reaches here only with the shell on
+      // top. The shell claims every back and answers all of them from the
+      // route: with no nested navigator left to dispatch its own
+      // NavigationNotification, this PopScope is the only authority the engine
+      // hears, and WidgetsApp keeps reporting setFrameworkHandlesBack(true)
+      // for as long as the shell is up. (Android predictive back takes the
+      // NEXT gesture entirely once the framework reports false, so a stray
+      // `false` here would silently retire this policy — pinned by
+      // predictive_back_test.dart.)
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) return;
+        _back();
+      },
+      child: shell == Shell.compact
+          ? MobileShell(
+              route: _route,
+              onGlobal: _navigateGlobal,
+              onSelectRoom: _selectRoom,
+              onCreateRoom: _openCreateRoom,
+              onJoinRoom: _openJoinRoom,
+              onDest: _goToDest,
+              onBackToRooms: _backToRooms,
+              onInvite: _openInvite,
+              onLeaveRoom: _openLeaveRoom,
+            )
+          : _buildDesktop(context, shell),
+    );
+  }
+
+  Widget _buildDesktop(BuildContext context, Shell shell) {
     final s = context.strings;
     final session = SessionScope.of(context);
     final tokens = JeliyaTokens.of(context);
-    final overlayActive = _overlay != _Overlay.none;
-
-    // The ONLY form-factor fork: state, handlers, and _navView above are
-    // shared; below the breakpoint the same machine drives the bottom-tab
-    // shell (issue #17). At or above it, the three-pane layout renders
-    // exactly as before.
-    if (_isMobile) {
-      return MobileShell(
-        activeNav: _activeNav,
-        onNav: _onMobileNav,
-        roomsNavigatorKey: _mobileRoomsNav,
-        onSelectRoom: _selectRoomMobile,
-        onCreateRoom: _openCreateRoom,
-        onJoinRoom: _openJoinRoom,
-        onOpenRoomFromFleet: _openRoomFromFleetMobile,
-        onPanelTab: _onMobilePanelTab,
-        onLeaveRoom: _openLeaveRoom,
-      );
-    }
+    final fleetOpen = _route == const GlobalRoute(GlobalDest.fleet);
+    final settingsOpen = _route == const GlobalRoute(GlobalDest.settings);
+    final overlayActive = fleetOpen || settingsOpen;
+    final inspector = _route.inspectorDest;
 
     return Scaffold(
-      body: Stack(
+      body: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              SizedBox(
-                width: _sidebarWidth,
-                child: Sidebar(
-                  activeNav: _activeNav,
-                  onNav: _navigate,
-                  onSelectRoom: _selectRoom,
-                  onCreateRoom: _openCreateRoom,
-                  onJoinRoom: _openJoinRoom,
+          // A row, not a Positioned overlay: connection status reserves its
+          // space so it can never cover Back, a header, or list content. It
+          // renders itself away while connected.
+          ConnectionBanner(
+              conn: session.conn, wsUrl: session.transportDescription),
+          Expanded(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                SizedBox(
+                  width: shell == Shell.wide ? _railWide : _railMedium,
+                  child: Sidebar(
+                    activeNav: _route.activeGlobal,
+                    currentRoomId: _route.roomId,
+                    onNav: _navigateGlobal,
+                    onSelectRoom: _selectRoom,
+                    onCreateRoom: _openCreateRoom,
+                    onJoinRoom: _openJoinRoom,
+                  ),
                 ),
-              ),
-              // Center + right, with the fleet/settings surfaces stacked over
-              // them. Visibility (not removal) preserves timeline scroll.
-              Expanded(
-                child: Stack(
-                  children: [
-                    Positioned.fill(
-                      child: Visibility(
-                        visible: !overlayActive,
-                        maintainState: true,
-                        maintainAnimation: true,
-                        maintainSize: true,
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            Expanded(child: _buildCenter(s, session, tokens)),
-                            SizedBox(
-                              width: _rightPanelWidth,
-                              child: RightPanel(
-                                tab: _tab,
-                                onTab: _setTab,
-                                onLeaveRoom: _openLeaveRoom,
-                              ),
-                            ),
-                          ],
+                // Workspace + inspector, with the fleet/settings surfaces
+                // stacked over them. Visibility (not removal) preserves
+                // timeline scroll.
+                Expanded(
+                  child: Stack(
+                    children: [
+                      Positioned.fill(
+                        child: Visibility(
+                          visible: !overlayActive,
+                          maintainState: true,
+                          maintainAnimation: true,
+                          maintainSize: true,
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              Expanded(
+                                  child: _buildWorkspace(
+                                      context, shell, session, s, tokens)),
+                              // Wide only: the inspector stops being a drawer
+                              // and takes a column of its own, in flow.
+                              if (shell == Shell.wide && inspector != null)
+                                SizedBox(
+                                  width: _inspectorWidth,
+                                  child: RightPanel(
+                                    tab: inspector,
+                                    onDest: _goToDest,
+                                    onClose: _closeInspector,
+                                    shell: shell,
+                                    onLeaveRoom: _openLeaveRoom,
+                                  ),
+                                ),
+                            ],
+                          ),
                         ),
                       ),
-                    ),
-                    // FleetDashboard mounts only while active (its 4s poll
-                    // loop must not run in the background) — web parity.
-                    if (_overlay == _Overlay.fleet)
+                      // FleetDashboard mounts only while active (its 4s poll
+                      // loop must not run in the background) — web parity.
+                      if (fleetOpen)
+                        Positioned.fill(
+                          child: FleetDashboard(onOpenRoom: _selectRoom),
+                        ),
+                      // Settings stays mounted (cheap, stateful copy feedback).
                       Positioned.fill(
-                        child: FleetDashboard(onOpenRoom: _openRoomFromFleet),
+                        child: Offstage(
+                          offstage: !settingsOpen,
+                          child: SettingsPanel(onCreateRoom: _openCreateRoom),
+                        ),
                       ),
-                    // Settings stays mounted (cheap, stateful copy feedback).
-                    Positioned.fill(
-                      child: Offstage(
-                        offstage: _overlay != _Overlay.settings,
-                        child: SettingsPanel(onCreateRoom: _openCreateRoom),
-                      ),
-                    ),
-                  ],
+                      // Medium only: the inspector is a drawer pinned to the
+                      // workspace's right edge. No scrim — it is dismissible,
+                      // not modal, and the timeline beside it keeps working
+                      // (web parity: .app > .right-panel at medium).
+                      if (shell == Shell.medium && inspector != null)
+                        Positioned(
+                          top: 0,
+                          bottom: 0,
+                          right: 0,
+                          width: _inspectorWidth,
+                          child: Material(
+                            elevation: 12,
+                            color: tokens.bgRaise,
+                            child: RightPanel(
+                              tab: inspector,
+                              onDest: _goToDest,
+                              onClose: _closeInspector,
+                              shell: shell,
+                              onLeaveRoom: _openLeaveRoom,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
                 ),
-              ),
-            ],
-          ),
-          // Connection banner above everything when not connected.
-          if (session.conn != ConnectionState.connected)
-            Positioned(
-              top: 0,
-              left: 0,
-              right: 0,
-              child: Center(
-                child: ConnectionBanner(
-                  conn: session.conn,
-                  wsUrl: session.transportDescription,
-                ),
-              ),
+              ],
             ),
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildCenter(
-      AppStrings s, DaemonSession session, JeliyaTokens tokens) {
+  Widget _buildWorkspace(BuildContext context, Shell shell,
+      DaemonSession session, AppStrings s, JeliyaTokens tokens) {
     final room = session.room;
-    final summary = _currentSummary(session);
-    if (room == null) {
+    final summary = _summaryOf(session, _route.roomId);
+    // The workspace renders the room the ROUTE names. A store whose id has
+    // moved on belongs to a different room, and drawing it under this route's
+    // name is exactly the disagreement the route model exists to make
+    // impossible.
+    if (room == null || room.roomId != _route.roomId) {
       return ColoredBox(
         color: tokens.bg,
         child: Center(
@@ -448,13 +423,29 @@ class _ShellScreenState extends State<ShellScreen> {
           children: [
             RoomHeader(
               name: summary?.name ?? s.shellUntitledRoom,
-              memberCount: room.members.isNotEmpty
-                  ? room.members.length
-                  : summary?.memberCount ?? 0,
+              summary: summary,
+              compact: false,
+              onBack: _backToRooms,
               onInvite: _openInvite,
-              onShareFile: () => _setTab(PanelTab.files),
-              onOpenPipe: () => _setTab(PanelTab.pipes),
+              onShareFile: () => _goToDest(RoomDest.files),
+              onOpenPipe: () => _goToDest(RoomDest.pipes),
             ),
+            // The room's nested navigation, under its header. Without it,
+            // People and Agents & Runs would have no entry point at all while
+            // the inspector is closed.
+            //
+            // At medium an open drawer floats over most of this strip, and the
+            // drawer carries its own — so this one stands down rather than
+            // lying buried underneath, where it would still report selection,
+            // still take focus, and still swallow taps meant for what floats
+            // on top of it. On wide the inspector opens beside the workspace,
+            // so this stays the one strip.
+            if (shell == Shell.wide || _route.inspectorDest == null)
+              RoomNav(
+                dest: _route.inspectorDest ?? RoomDest.activity,
+                counts: roomNavCounts(room),
+                onDest: _goToDest,
+              ),
             if (room.openError != null)
               Padding(
                 padding: const EdgeInsets.symmetric(
@@ -465,7 +456,7 @@ class _ShellScreenState extends State<ShellScreen> {
             Expanded(
               child: TimelineView(
                 key: ValueKey(room.roomId),
-                onShowPipes: () => _setTab(PanelTab.pipes),
+                onShowPipes: () => _goToDest(RoomDest.pipes),
               ),
             ),
             const Composer(),

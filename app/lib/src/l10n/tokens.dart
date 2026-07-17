@@ -77,6 +77,12 @@ abstract final class Tokens {
   /// Decorative glyph rendered beside the 'Invite' action button label. Not translatable.
   static const String roomHeaderInviteGlyph = '⊕';
 
+  /// Back chevron on the compact room app bar; decorative (the control is labelled 'Back to Rooms'). Not translatable.
+  static const String roomAppBarBackGlyph = '‹';
+
+  /// Overflow glyph on the compact room app bar's room-information disclosure; decorative. Not translatable.
+  static const String roomAppBarMoreGlyph = '⋮';
+
   /// Plain hyphen shown as the value of any Settings row the daemon has not reported yet; punctuation-only, not translatable. Likely dedupes with other areas' '-' token.
   static const String missingValue = '-';
 

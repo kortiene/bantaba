@@ -295,9 +295,6 @@ class AppStringsFr extends AppStrings {
       'Ce fichier a échoué à un contrôle de sécurité et n’a pas été enregistré — il a peut-être été corrompu ou altéré pendant le transfert.';
 
   @override
-  String get fleetAgentsTitle => 'Agents';
-
-  @override
   String get fleetSearchPlaceholder => 'Rechercher des agents…';
 
   @override
@@ -311,9 +308,6 @@ class AppStringsFr extends AppStrings {
 
   @override
   String get fleetFilterAll => 'Tous';
-
-  @override
-  String get fleetFilterActive => 'Actifs';
 
   @override
   String get fleetFilterNeedsAttention => 'Attention requise';
@@ -703,27 +697,16 @@ class AppStringsFr extends AppStrings {
   String get panelMemberCountsLabel => 'Décompte des membres';
 
   @override
-  String get panelStatActive => 'Actifs';
+  String get panelStatAgents => 'Agents';
 
   @override
-  String get panelStatAgents => 'Agents';
+  String get panelStatMembers => 'Membres';
 
   @override
   String get panelStatInvited => 'Invités';
 
   @override
   String get panelRoomRoster => 'Liste des membres du salon';
-
-  @override
-  String panelNActive(num n) {
-    String _temp0 = intl.Intl.pluralLogic(
-      n,
-      locale: localeName,
-      other: '$n actifs',
-      one: '$n actif',
-    );
-    return '$_temp0';
-  }
 
   @override
   String get panelThisDevice => 'cet appareil';
@@ -736,9 +719,6 @@ class AppStringsFr extends AppStrings {
 
   @override
   String get panelRoleMember => 'Membre';
-
-  @override
-  String get panelStatusUnknown => 'Inconnu';
 
   @override
   String get panelLeave => 'Quitter';
@@ -916,15 +896,6 @@ class AppStringsFr extends AppStrings {
   @override
   String get panelPipesEmpty =>
       'Aucun pipe pour l’instant — exposez ci-dessous un port local à un seul pair autorisé.';
-
-  @override
-  String get panelPipeStateActive => 'Actif';
-
-  @override
-  String get panelPipeStateOpen => 'Ouvert';
-
-  @override
-  String get panelPipeStateClosed => 'Fermé';
 
   @override
   String panelPipeMeta(String openedBy, String authorized) {
@@ -1178,17 +1149,6 @@ class AppStringsFr extends AppStrings {
 
   @override
   String get fetchOpenLocalFileCopy => 'Ouvrir la copie locale du fichier';
-
-  @override
-  String roomHeaderActiveCount(num n) {
-    String _temp0 = intl.Intl.pluralLogic(
-      n,
-      locale: localeName,
-      other: '$n actifs',
-      one: '$n actif',
-    );
-    return '$_temp0';
-  }
 
   @override
   String roomHeaderAgentCount(num n) {
@@ -1611,6 +1571,22 @@ class AppStringsFr extends AppStrings {
   String get commonYou => 'Vous';
 
   @override
+  String commonMemberCount(num n) {
+    final intl.NumberFormat nNumberFormat = intl.NumberFormat.decimalPattern(
+      localeName,
+    );
+    final String nString = nNumberFormat.format(n);
+
+    String _temp0 = intl.Intl.pluralLogic(
+      n,
+      locale: localeName,
+      other: '$nString membres',
+      one: '$nString membre',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get commonClickToSetLocalName => 'Cliquez pour définir un nom local';
 
   @override
@@ -1663,9 +1639,6 @@ class AppStringsFr extends AppStrings {
 
   @override
   String get wireRoleAgentInline => 'agent';
-
-  @override
-  String get wireStatusActive => 'Actif';
 
   @override
   String get wireStatusInvited => 'Invité';

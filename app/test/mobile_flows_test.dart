@@ -37,7 +37,7 @@ void main() {
     expect(find.byType(Composer).hitTestable(), findsOneWidget);
 
     // Members affordance → room-detail route hosting the RightPanel.
-    await tester.tap(find.text(en.panelTabMembers).hitTestable().first);
+    await tester.tap(find.text(en.roomDestPeople).hitTestable().first);
     await pumpSteps(tester, steps: 6);
     expect(find.byType(RightPanel).hitTestable(), findsOneWidget);
 

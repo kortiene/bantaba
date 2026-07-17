@@ -1,225 +1,176 @@
-/// Mobile bottom-tab shell (issue #17) — the below-[kShellBreakpoint] fork of
-/// the app shell, one pane at a time behind a min-58dp five-tab bar
-/// (Rooms / Agents / Pipes / Files / Settings, DESIGN.md "Mobile tab bar";
-/// executable spec: ui/src/components/MobileTabBar.tsx + the styles.css
-/// mv-* pane mapping):
+/// The compact shell — one pane at a time, below [kShellBreakpoint]
+/// (docs/room-workbench.md, decision 3; web parity: the `pane-*` rules in
+/// ui/src/styles.css and ui/src/components/MobileTabBar.tsx).
 ///
-/// - Rooms hosts a NESTED navigator: rooms list (mobile_rooms.dart) →
-///   pushed chat route (mobile_room.dart: RoomHeader + Timeline + Composer)
-///   → pushed room-detail route (mobile_panel.dart: the RightPanel tabs,
-///   Members first). Chat is a sub-view of Rooms — the tab stays highlighted
-///   while it is open (web `active === 'home'` rule) and the routes stay
-///   mounted across tab switches (IndexedStack) so timeline scroll survives,
-///   mirroring the desktop shell's Visibility contract.
-/// - Agents mounts FleetDashboard ONLY while active (its FleetStore polls
-///   every 4s and must never run in the background — web parity).
-/// - Pipes/Files pin the room-scoped RightPanel full width to that panel
-///   tab (mobile_panel.dart), with an honest select-a-room empty state when
-///   no room is open.
+/// Which pane shows is DERIVED from the shell's route, never held here. That
+/// is the whole point of the compact shell: a phone shows one thing, so the
+/// question "which one" has exactly one answer, and it is the same answer the
+/// rail and the inspector give on a desktop.
+///
+///   /rooms                    the rooms list
+///   /rooms/:id/activity       the room: app bar + timeline + composer
+///   /rooms/:id/`<tool>`       the room's tool, pushed over the room
+///   /fleet                    the Agent Fleet
+///   /settings                 Settings
+///
+/// - The bottom bar carries the three GLOBAL destinations, and only those.
+///   Room destinations are nested navigation inside Rooms — they were never
+///   bottom-bar tabs, and the ambiguity of pretending otherwise (a global
+///   Files tab that was always secretly about one room, chosen elsewhere) is
+///   what the record exists to remove.
+/// - Inside a room the bar is GONE: the room's app bar replaces it, and the
+///   ~72dp it stops reserving is what buys the timeline its height back on a
+///   568dp phone.
+/// - The panes are hidden, not unmounted (IndexedStack — the mobile analogue
+///   of the desktop shell's Visibility maintainState), so opening and closing
+///   a room tool preserves the timeline's scroll position. IndexedStack also
+///   keeps its offstage children out of the semantics tree, so the room's nav
+///   strip and the inspector's are never both live at once.
+/// - Agent Fleet mounts FleetDashboard ONLY while it is the visible pane (its
+///   FleetStore polls every 4s and must never run in the background).
 /// - Settings reuses SettingsPanel (already a max-640 single column).
 ///
-/// All state and handlers live in the shell screen (shared with the desktop
-/// three-pane layout); this file is presentation only. Back policy
-/// (PopScope): a non-Rooms tab returns to Rooms, a visible Rooms stack pops
-/// its pushed routes, then the app exits — back never mutates hidden state.
+/// Presentation only: every intent arrives as a shell callback, and Back is
+/// the shell's PopScope — there is no nested navigator here to hold a second
+/// opinion about where the user is.
 library;
 
 import 'package:flutter/material.dart' hide ConnectionState;
-import 'package:flutter/services.dart' show SystemNavigator;
-import 'package:jeliya_protocol/jeliya_protocol.dart' show ConnectionState;
 
 import '../l10n/strings_context.dart';
 import '../l10n/tokens.dart';
+import '../routes.dart';
 import '../session/daemon_session.dart';
 import '../theme.dart';
 import '../widgets/connection_banner.dart';
 import 'fleet_dashboard.dart';
 import 'mobile_panel.dart';
+import 'mobile_room.dart';
 import 'mobile_rooms.dart';
-import 'right_panel.dart';
 import 'settings_panel.dart';
-import 'sidebar.dart' show NavKey;
 
-// The chat route is defined next to the rooms screen it is pushed over, and
-// the room-detail route next to the panel surfaces it hosts; both are
-// re-exported here so the shell keeps a single mobile-IA import seam.
-export 'mobile_panel.dart'
-    show mobileRoomDetailRoute, mobileRoomDetailRouteName;
-export 'mobile_room.dart' show mobileRoomRoute;
+/// The single pane the compact shell shows. Derived — so the bar, the pane,
+/// and the room's tab strip cannot disagree, because there is nothing left for
+/// them to disagree *with*.
+enum _Pane { rooms, room, inspector, fleet, settings }
 
-/// The five bottom tabs, in bar order (MobileTabBar.tsx `TABS`).
-const List<NavKey> _tabs = [
-  NavKey.rooms,
-  NavKey.agents,
-  NavKey.pipes,
-  NavKey.files,
-  NavKey.settings,
-];
-
-/// Web rule (MobileTabBar.tsx): the chat view ('home') and 'calls' keep the
-/// Rooms tab highlighted — chat is a sub-view of Rooms, never its own tab.
-NavKey _foldNav(NavKey nav) => switch (nav) {
-      NavKey.home || NavKey.calls => NavKey.rooms,
-      _ => nav,
+_Pane _paneOf(JeliyaRoute route) => switch (route) {
+      GlobalRoute(dest: GlobalDest.rooms) => _Pane.rooms,
+      GlobalRoute(dest: GlobalDest.fleet) => _Pane.fleet,
+      GlobalRoute(dest: GlobalDest.settings) => _Pane.settings,
+      RoomRoute(:final dest) =>
+        dest == RoomDest.activity ? _Pane.room : _Pane.inspector,
     };
 
 class MobileShell extends StatelessWidget {
   const MobileShell({
     super.key,
-    required this.activeNav,
-    required this.onNav,
-    required this.roomsNavigatorKey,
+    required this.route,
+    required this.onGlobal,
     required this.onSelectRoom,
     required this.onCreateRoom,
     required this.onJoinRoom,
-    required this.onOpenRoomFromFleet,
-    required this.onPanelTab,
+    required this.onDest,
+    required this.onBackToRooms,
+    required this.onInvite,
     required this.onLeaveRoom,
   });
 
-  /// The shell's last navigation intent ([_foldNav] maps it onto a tab).
-  final NavKey activeNav;
+  /// The navigation state. Everything this widget renders is read off it.
+  final JeliyaRoute route;
 
-  /// Bottom-tab taps — the shell's mobile-aware `navigate`.
-  final ValueChanged<NavKey> onNav;
+  /// Bottom-bar taps.
+  final ValueChanged<GlobalDest> onGlobal;
 
-  /// The Rooms tab's nested navigator — owned by the shell so its handlers
-  /// (create/join/fleet-open/leave) can push and pop the chat route.
-  final GlobalKey<NavigatorState> roomsNavigatorKey;
-
-  /// Room-row taps; the shell guards departed rooms and pushes the chat.
+  /// Room-row and fleet-card taps.
   final ValueChanged<String> onSelectRoom;
 
   final VoidCallback onCreateRoom;
   final VoidCallback onJoinRoom;
 
-  /// Fleet card "Open room" — the shell ignores departed rooms.
-  final ValueChanged<String> onOpenRoomFromFleet;
+  /// Room-nav taps (Activity included — closing a tool is navigating to it).
+  final ValueChanged<RoomDest> onDest;
 
-  /// RightPanel tab-strip taps on the pinned Pipes/Files surfaces — the
-  /// shell translates them (pipes/files → bottom tabs, members/agents → the
-  /// room-detail route).
-  final ValueChanged<PanelTab> onPanelTab;
+  /// The room app bar's Back.
+  final VoidCallback onBackToRooms;
 
+  final VoidCallback onInvite;
   final VoidCallback onLeaveRoom;
 
   @override
   Widget build(BuildContext context) {
     final session = SessionScope.of(context);
     final tokens = JeliyaTokens.of(context);
-    final tab = _foldNav(activeNav);
-    final index = _tabs.indexOf(tab);
+    final pane = _paneOf(route);
+    // The bar belongs to the global destinations. Inside a room the app bar
+    // carries the room, so there is nothing for it to say.
+    final showBar = route.roomId == null;
 
-    return PopScope(
-      canPop: false,
-      onPopInvokedWithResult: (didPop, _) {
-        if (didPop) return;
-        // Dialogs and full-screen modal routes live on the root navigator
-        // ABOVE this route, so the system back reaches here only with the
-        // shell on top. A back press must always change what is VISIBLE:
-        // the Rooms stack pops only while its tab shows (popping it from
-        // another tab would silently destroy the chat route), any other tab
-        // returns to Rooms, and an unstacked Rooms tab exits.
-        if (tab != NavKey.rooms) {
-          onNav(NavKey.rooms);
-          return;
-        }
-        final rooms = roomsNavigatorKey.currentState;
-        if (rooms != null && rooms.canPop()) {
-          rooms.pop();
-          return;
-        }
-        SystemNavigator.pop();
-      },
-      child: Scaffold(
-        backgroundColor: tokens.bg,
-        body: SafeArea(
-          bottom: false, // the tab bar owns the bottom inset
-          child: Stack(
-            children: [
-              Positioned.fill(
-                // IndexedStack (not conditional mounting) is the mobile
-                // analogue of the desktop shell's Visibility maintainState:
-                // the Rooms stack — including a pushed chat route — stays
-                // alive across tab switches, preserving timeline scroll.
-                child: IndexedStack(
-                  index: index,
-                  children: [
-                    // Predictive back (AndroidManifest
-                    // enableOnBackInvokedCallback): WidgetsApp mirrors every
-                    // ascending NavigationNotification.canHandlePop to the
-                    // engine as setFrameworkHandlesBack, and after a `false`
-                    // the OS takes the NEXT system back entirely (predictive
-                    // back-to-home) — the PopScope policy above never runs.
-                    // This nested navigator reports canHandlePop:false
-                    // whenever its stack is back at the rooms list, and the
-                    // root navigator forwards that verbatim (it only
-                    // rewrites when it can pop itself; it ignores the shell
-                    // route's PopScope block). The shell claims EVERY back,
-                    // so absorb the nested notifications: the route-level
-                    // dispatch driven by canPop:false — emitted from above
-                    // this subtree — stays the only authority the engine
-                    // hears. Pinned by predictive_back_test.dart.
-                    NotificationListener<NavigationNotification>(
-                      onNotification: (_) => true,
-                      child: Navigator(
-                        key: roomsNavigatorKey,
-                        onGenerateRoute: (settings) => MaterialPageRoute<void>(
-                          settings: settings,
-                          builder: (_) => MobileRoomsScreen(
-                            onSelectRoom: onSelectRoom,
-                            onCreateRoom: onCreateRoom,
-                            onJoinRoom: onJoinRoom,
-                          ),
-                        ),
-                      ),
-                    ),
-                    // FleetDashboard mounts only while its tab is active —
-                    // the FleetStore 4s poll loop must not run offstage.
-                    if (tab == NavKey.agents)
-                      FleetDashboard(onOpenRoom: onOpenRoomFromFleet)
-                    else
-                      const SizedBox.shrink(),
-                    MobilePanelSurface(
-                      tab: PanelTab.pipes,
-                      onTab: onPanelTab,
-                      onLeaveRoom: onLeaveRoom,
-                    ),
-                    MobilePanelSurface(
-                      tab: PanelTab.files,
-                      onTab: onPanelTab,
-                      onLeaveRoom: onLeaveRoom,
-                    ),
-                    SettingsPanel(onCreateRoom: onCreateRoom),
-                  ],
-                ),
-              ),
-              // Connection banner above every mobile surface (desktop shell
-              // parity) whenever conn != connected.
-              if (session.conn != ConnectionState.connected)
-                Positioned(
-                  top: 0,
-                  left: 0,
-                  right: 0,
-                  child: Center(
-                    child: ConnectionBanner(
-                      conn: session.conn,
-                      wsUrl: session.transportDescription,
-                    ),
+    return Scaffold(
+      backgroundColor: tokens.bg,
+      body: SafeArea(
+        // The tab bar owns the bottom inset while it exists; without it these
+        // panes owe themselves the reservation, or the composer sits under the
+        // home indicator.
+        bottom: !showBar,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // A row above the panes, not an overlay: it may not cover the room
+            // app bar's Back or the first rows of a list. It renders itself
+            // away while connected.
+            ConnectionBanner(
+                conn: session.conn, wsUrl: session.transportDescription),
+            Expanded(
+              // The children are in [_Pane] order — `pane.index` is the
+              // selector, so a child added here needs its case there.
+              child: IndexedStack(
+                index: pane.index,
+                children: [
+                  MobileRoomsScreen(
+                    currentRoomId: route.roomId,
+                    onSelectRoom: onSelectRoom,
+                    onCreateRoom: onCreateRoom,
+                    onJoinRoom: onJoinRoom,
                   ),
-                ),
-            ],
-          ),
+                  MobileRoomScreen(
+                    roomId: route.roomId,
+                    onBack: onBackToRooms,
+                    onInvite: onInvite,
+                    onDest: onDest,
+                  ),
+                  MobileInspectorPane(
+                    roomId: route.roomId,
+                    // Offstage on every route that names no tool. People is
+                    // simply the first one — nothing reads it there, and a
+                    // remembered last tool would be route state kept twice.
+                    dest: route.inspectorDest ?? RoomDest.people,
+                    onDest: onDest,
+                    onLeaveRoom: onLeaveRoom,
+                  ),
+                  // FleetDashboard mounts only while its pane is visible —
+                  // the FleetStore 4s poll loop must not run offstage.
+                  if (pane == _Pane.fleet)
+                    FleetDashboard(onOpenRoom: onSelectRoom)
+                  else
+                    const SizedBox.shrink(),
+                  SettingsPanel(onCreateRoom: onCreateRoom),
+                ],
+              ),
+            ),
+          ],
         ),
-        bottomNavigationBar: MobileTabBar(active: tab, onNav: onNav),
       ),
+      bottomNavigationBar: showBar
+          ? MobileTabBar(active: route.activeGlobal, onNav: onGlobal)
+          : null,
     );
   }
 }
 
 // -- tab bar -------------------------------------------------------------------------
 
-/// 58dp bottom bar, five glyph+label tabs, active = accent TEXT only
+/// 58dp bottom bar, three glyph+label tabs, active = accent TEXT only
 /// (One Emerald Voice — no fills), with bottom/left/right safe-area padding
 /// (DESIGN.md "Mobile tab bar"; ui/src/styles.css .tabbar). It sits under
 /// the soft keyboard when one opens (the Scaffold body resizes above it).
@@ -233,10 +184,11 @@ class MobileShell extends StatelessWidget {
 class MobileTabBar extends StatelessWidget {
   const MobileTabBar({super.key, required this.active, required this.onNav});
 
-  /// The highlighted tab (already folded: chat/calls highlight Rooms).
-  final NavKey active;
+  /// The highlighted tab. A room route highlights Rooms — the workbench is
+  /// somewhere you stand inside Rooms, never a fourth global destination.
+  final GlobalDest active;
 
-  final ValueChanged<NavKey> onNav;
+  final ValueChanged<GlobalDest> onNav;
 
   /// 58dp bar MIN height (--tabbar-h), before the bottom safe-area inset;
   /// large font scales grow the bar past it (see the class doc).
@@ -247,11 +199,9 @@ class MobileTabBar extends StatelessWidget {
     final s = context.strings;
     final tokens = JeliyaTokens.of(context);
     final entries = [
-      (NavKey.rooms, Tokens.sidebarGlyphRooms, s.sidebarNavRooms),
-      (NavKey.agents, Tokens.sidebarGlyphAgents, s.sidebarNavAgents),
-      (NavKey.pipes, Tokens.sidebarGlyphPipes, s.sidebarNavPipes),
-      (NavKey.files, Tokens.sidebarGlyphFiles, s.sidebarNavFiles),
-      (NavKey.settings, Tokens.sidebarGlyphSettings, s.sidebarNavSettings),
+      (GlobalDest.rooms, Tokens.sidebarGlyphRooms, s.sidebarNavRooms),
+      (GlobalDest.fleet, Tokens.sidebarGlyphAgents, s.sidebarNavFleet),
+      (GlobalDest.settings, Tokens.sidebarGlyphSettings, s.sidebarNavSettings),
     ];
     return Container(
       decoration: BoxDecoration(

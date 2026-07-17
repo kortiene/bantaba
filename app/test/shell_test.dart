@@ -140,9 +140,9 @@ void main() {
     await pumpReadyApp(tester, newMockClient());
 
     // Fixture room: 7 members (4 with role agent), 5 files, 2 open pipes.
-    expectTabCount(tester, en.panelTabMembers, 7);
-    expectTabCount(tester, en.panelTabAgents, 4);
-    expectTabCount(tester, en.panelTabFiles, 5);
-    expectTabCount(tester, en.panelTabPipes, 2);
+    expectTabCount(tester, en.roomDestPeople, 7);
+    expectTabCount(tester, en.roomDestAgents, 4);
+    expectTabCount(tester, en.roomDestFiles, 5);
+    expectTabCount(tester, en.roomDestPipes, 2);
   });
 }

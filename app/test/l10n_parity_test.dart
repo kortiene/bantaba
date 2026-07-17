@@ -83,13 +83,11 @@ void main() {
     expect(en.fetchErrFileUnavailable, "No provider is online for this file yet. Recheck when the sender is back online.");
     expect(en.fetchErrFileUnauthorized, "Every provider refused this fetch — your identity is not authorized for it. Ask the sender to re-share or re-invite you.");
     expect(en.fetchErrHashMismatch, "This file failed a security check and wasn't saved — it may have been corrupted or tampered with in transit.");
-    expect(en.fleetAgentsTitle, "Agents");
     expect(en.fleetSearchPlaceholder, "Search agents…");
     expect(en.fleetSearchAgents, "Search agents");
     expect(en.fleetAddAgent, "＋ Add agent");
     expect(en.fleetFilterAgents, "Filter agents");
     expect(en.fleetFilterAll, "All");
-    expect(en.fleetFilterActive, "Active");
     expect(en.fleetFilterNeedsAttention, "Needs attention");
     expect(en.fleetFilterWorking, "Working");
     expect(en.fleetFilterOffline, "Offline");
@@ -182,15 +180,14 @@ void main() {
     expect(en.panelMembersSummaryLabel, "Room members summary");
     expect(en.panelRosterCopy, "Roster from the signed room history. Statuses reflect membership events, not live peer reachability.");
     expect(en.panelMemberCountsLabel, "Member counts");
-    expect(en.panelStatActive, "Active");
     expect(en.panelStatAgents, "Agents");
+    expect(en.panelStatMembers, "Members");
     expect(en.panelStatInvited, "Invited");
     expect(en.panelRoomRoster, "Room roster");
     expect(en.panelThisDevice, "this device");
     expect(en.panelRoleOwner, "Owner");
     expect(en.panelRoleAgent, "Agent");
     expect(en.panelRoleMember, "Member");
-    expect(en.panelStatusUnknown, "Unknown");
     expect(en.panelLeave, "Leave");
     expect(en.panelOwnerStays, "Owner stays");
     expect(en.panelOwnerStaysTitle, "Owners cannot leave until ownership transfer exists.");
@@ -226,9 +223,6 @@ void main() {
     expect(en.panelKindText, "text");
     expect(en.panelKindFile, "file");
     expect(en.panelPipesEmpty, "No pipes yet — expose a local port to one authorized peer below.");
-    expect(en.panelPipeStateActive, "Active");
-    expect(en.panelPipeStateOpen, "Open");
-    expect(en.panelPipeStateClosed, "Closed");
     expect(en.panelConnect, "Connect");
     expect(en.panelConnecting, "Connecting…");
     expect(en.panelOpenPreview, "Open preview ↗");
@@ -397,7 +391,6 @@ void main() {
     expect(en.wireRoleOwnerInline, "owner");
     expect(en.wireRoleMemberInline, "member");
     expect(en.wireRoleAgentInline, "agent");
-    expect(en.wireStatusActive, "Active");
     expect(en.wireStatusInvited, "Invited");
     expect(en.wireStatusLeft, "Left");
     expect(en.wireStatusRemoved, "Removed");
@@ -436,7 +429,6 @@ void main() {
     expect(en.panelRoomMemberCount(7), "7 room members");
     expect(en.panelRoomMemberCount(1), "1 room member");
     expect(en.panelRoomMemberCount(2), "2 room members");
-    expect(en.panelNActive(7), "7 active");
     expect(en.panelAgentStatusFooter('XstatusX'), "status: XstatusX");
     expect(en.panelSharedFileCount(7), "7 shared files");
     expect(en.panelSharedFileCount(1), "1 shared file");
@@ -461,7 +453,6 @@ void main() {
     expect(en.fetchFetchedTooltip('XpathX'), "fetched · XpathX");
     expect(en.fetchDetailVerified('XbytesX', 'XpathX'), "Verified · XbytesX · saved to XpathX");
     expect(en.fetchDetailFetched('XbytesX', 'XpathX'), "Fetched · XbytesX · saved to XpathX");
-    expect(en.roomHeaderActiveCount(7), "7 active");
     expect(en.roomHeaderAgentCount(7), "7 agents");
     expect(en.roomHeaderAgentCount(1), "1 agent");
     expect(en.roomHeaderAgentCount(2), "2 agents");
@@ -491,6 +482,9 @@ void main() {
     expect(en.timelineBytesMb('XnX'), "XnX MB");
     expect(en.timelineBytesGb('XnX'), "XnX GB");
     expect(en.commonOptionalFieldLabel('XlabelX', 'XoptionalX'), "XlabelX XoptionalX");
+    expect(en.commonMemberCount(7), "7 members");
+    expect(en.commonMemberCount(1), "1 member");
+    expect(en.commonMemberCount(2), "2 members");
     expect(en.commonPercent('XnX'), "XnX%");
   });
 }

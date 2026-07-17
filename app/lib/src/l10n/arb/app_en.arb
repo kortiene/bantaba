@@ -340,10 +340,6 @@
   "@fetchErrHashMismatch": {
     "description": "Fetch-specific error copy shown in a file row's fetch detail when the downloaded bytes failed the integrity (hash) check; overrides the generic errHashMismatch* card copy. Contains an em dash (—). Serious security tone: the file was discarded, not saved."
   },
-  "fleetAgentsTitle": "Agents",
-  "@fleetAgentsTitle": {
-    "description": "Fleet dashboard page title (the top-level view listing all agents across rooms)."
-  },
   "fleetSearchPlaceholder": "Search agents…",
   "@fleetSearchPlaceholder": {
     "description": "Placeholder text inside the fleet dashboard search field. Keep the trailing ellipsis character (…)."
@@ -363,10 +359,6 @@
   "fleetFilterAll": "All",
   "@fleetFilterAll": {
     "description": "Filter button on the fleet dashboard: show all agents regardless of state."
-  },
-  "fleetFilterActive": "Active",
-  "@fleetFilterActive": {
-    "description": "Filter button on the fleet dashboard: show only active agents (working or online)."
   },
   "fleetFilterNeedsAttention": "Needs attention",
   "@fleetFilterNeedsAttention": {
@@ -902,13 +894,13 @@
   "@panelMemberCountsLabel": {
     "description": "Accessibility label for the Active / Agents / Invited stat row on the Members tab."
   },
-  "panelStatActive": "Active",
-  "@panelStatActive": {
-    "description": "Stat tile label on the Members tab: number of active members. Separate key from the 'Active' pipe state (panelPipeStateActive)."
-  },
   "panelStatAgents": "Agents",
   "@panelStatAgents": {
     "description": "Stat tile label on the Members tab: number of agent members. Separate key from the Agents tab label."
+  },
+  "panelStatMembers": "Members",
+  "@panelStatMembers": {
+    "description": "Stat tile label on the People tab: how many members the signed roster reports."
   },
   "panelStatInvited": "Invited",
   "@panelStatInvited": {
@@ -917,15 +909,6 @@
   "panelRoomRoster": "Room roster",
   "@panelRoomRoster": {
     "description": "Heading above the member list on the Members tab."
-  },
-  "panelNActive": "{n} active",
-  "@panelNActive": {
-    "description": "Short counter beside the 'Room roster' heading; {n} is the number of active members.",
-    "placeholders": {
-      "n": {
-        "type": "num"
-      }
-    }
   },
   "panelThisDevice": "this device",
   "@panelThisDevice": {
@@ -942,10 +925,6 @@
   "panelRoleMember": "Member",
   "@panelRoleMember": {
     "description": "Display label for the ordinary member role on roster rows and pickers. Translating it does not affect the wire role value."
-  },
-  "panelStatusUnknown": "Unknown",
-  "@panelStatusUnknown": {
-    "description": "Fallback membership-status label on a roster row when the status is unrecognized."
   },
   "panelLeave": "Leave",
   "@panelLeave": {
@@ -1166,18 +1145,6 @@
   "panelPipesEmpty": "No pipes yet — expose a local port to one authorized peer below.",
   "@panelPipesEmpty": {
     "description": "Empty state of the Pipes tab, pointing at the expose form below it. 'Pipe' is the product term for a forwarded local port."
-  },
-  "panelPipeStateActive": "Active",
-  "@panelPipeStateActive": {
-    "description": "Pipe state label on a pipe row: a connection is established and usable. Separate key from the Members 'Active' stat."
-  },
-  "panelPipeStateOpen": "Open",
-  "@panelPipeStateOpen": {
-    "description": "Pipe state label on a pipe row: the pipe is exposed and waiting for the authorized peer to connect."
-  },
-  "panelPipeStateClosed": "Closed",
-  "@panelPipeStateClosed": {
-    "description": "Pipe state label on a pipe row: the pipe has been closed."
   },
   "panelPipeMeta": "by {openedBy} · authorized: {authorized}",
   "@panelPipeMeta": {
@@ -1504,16 +1471,6 @@
   "fetchOpenLocalFileCopy": "Open local file copy",
   "@fetchOpenLocalFileCopy": {
     "description": "Accessibility label / tooltip for the action that opens the locally saved copy of a fetched file."
-  },
-  "roomHeaderActiveCount": "{n} active",
-  "@roomHeaderActiveCount": {
-    "description": "Room header subtitle segment showing how many room members are currently active, e.g. '3 active'. Rendered inline with the other subtitle segments, joined by a '|' separator (the separator is not part of this string).",
-    "placeholders": {
-      "n": {
-        "type": "num",
-        "example": "3"
-      }
-    }
   },
   "roomHeaderAgentCount": "{n, plural, one{{n} agent} other{{n} agents}}",
   "@roomHeaderAgentCount": {
@@ -2154,6 +2111,16 @@
   "@commonYou": {
     "description": "Shown instead of your own name on messages you sent (sender name in the chat timeline and member lists)."
   },
+  "commonMemberCount": "{n, plural, one{{n} member} other{{n} members}}",
+  "@commonMemberCount": {
+    "description": "How many members the signed roster reports, e.g. '3 members'. Shown by the room header subtitle and beside the roster heading — both count the same loaded roster, so both say it the same way. Never rendered before the roster answers (roomLoadingMembers covers that).",
+    "placeholders": {
+      "n": {
+        "type": "num",
+        "format": "decimalPattern"
+      }
+    }
+  },
   "commonClickToSetLocalName": "Click to set a local name",
   "@commonClickToSetLocalName": {
     "description": "Second line of the tooltip on an unnamed peer's sender name (the first line is their identity ID), inviting the user to assign a local nickname."
@@ -2228,10 +2195,6 @@
   "wireRoleAgentInline": "agent",
   "@wireRoleAgentInline": {
     "description": "Role word for the protocol role value \"agent\" (an automated/bot participant), lowercase for mid-sentence use. Capitalized role pills use the panelRole* keys instead. Translate as the natural mid-sentence word for an automated agent; the raw wire value itself is never displayed."
-  },
-  "wireStatusActive": "Active",
-  "@wireStatusActive": {
-    "description": "Member lifecycle status shown in roster pills and the agent-card footer: the member is currently active in the room. Standalone capitalized word (maps the protocol status value \"active\", which itself is never shown)."
   },
   "wireStatusInvited": "Invited",
   "@wireStatusInvited": {

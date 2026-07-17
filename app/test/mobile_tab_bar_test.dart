@@ -21,7 +21,7 @@ import 'helpers.dart';
 
 List<String> _tabLabels(AppStrings s) => [
       s.sidebarNavRooms,
-      s.sidebarNavAgents,
+      s.sidebarNavFleet,
       s.sidebarNavPipes,
       s.sidebarNavFiles,
       s.sidebarNavSettings,

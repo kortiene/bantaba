@@ -1,19 +1,34 @@
-/// RoomHeader — ported from ui/src/components/RoomHeader.tsx per
-/// phase3-features.json "RoomHeader": h1 room name, honest subtitle
-/// ('{n} active | {n} agent(s) | {n} invite(s) pending | P2P badge'), the
-/// three-state P2P badge (Alone / Peer-to-Peer / Relay only — NEVER invented
-/// presence, P4), the action buttons, and the peer chip strip showing only
-/// proven connection state + path.
+/// RoomHeader — the room's identity and its reach, in two forms.
+///
+/// Desktop (medium/wide) is the reference header: h1 room name, the subtitle
+/// ('{n} members | {n} agent(s) | {n} invite(s) pending | P2P badge'), the
+/// action buttons, and the peer chip strip showing only proven connection
+/// state + path.
+///
+/// Compact is the room's APP BAR (docs/room-workbench.md, decision 3; web
+/// parity: the `compact` branch of ui/src/components/RoomHeader.tsx). Inside a
+/// room the bottom bar is gone and this bar replaces it, so it owns Back. It
+/// is one non-wrapping row — Back, a single-line title, the connectivity
+/// summary, Invite, and a ⋮ disclosure — because the height it does not take
+/// is the timeline's: at 320x568 the bar stays under 150dp so the timeline
+/// keeps at least 180dp above the composer. The peer chips and the room's
+/// facts live behind the disclosure; they are diagnostic detail, and it was
+/// the chip strip that pushed the timeline under that floor.
+///
+/// Both forms show the roster count ONLY once the roster has answered
+/// (decision 4). The header used to substitute the room's *total*
+/// member_count under an "N active" label whenever the roster had not loaded —
+/// a fact asserted from data it did not have. There is no fallback now: there
+/// is a count, or there is the loading state.
 library;
 
 import 'package:flutter/material.dart';
 import 'package:jeliya_protocol/jeliya_protocol.dart'
-    show Member, PeerPaths, PeerStates, PeerStatus, Roles, shortId;
+    show Member, PeerPaths, PeerStates, PeerStatus, RoomSummary, Roles, shortId;
 
 import '../l10n/strings_context.dart';
 import '../l10n/tokens.dart';
 import '../l10n/wire_display.dart';
-import '../layout.dart';
 import '../session/daemon_session.dart';
 import '../theme.dart';
 import '../widgets/buttons.dart';
@@ -28,36 +43,40 @@ class RoomHeader extends StatelessWidget {
   const RoomHeader({
     super.key,
     required this.name,
-    required this.memberCount,
+    required this.summary,
+    required this.compact,
+    required this.onBack,
     required this.onInvite,
     required this.onShareFile,
     required this.onOpenPipe,
-    this.onMembers,
-    this.leading,
   });
 
   /// Room display name ('Untitled room' fallback supplied by the shell).
   final String name;
 
-  /// RoomSummary.memberCount — used until members have loaded.
-  final int memberCount;
+  /// The room's `room.list` row. It carries the two facts the open session
+  /// does not: the short id that disambiguates homonyms, and whether this
+  /// daemon holds a live session for the room. Null until room.list has
+  /// answered for this room.
+  final RoomSummary? summary;
+
+  /// Render the app-bar form. Passed by the shell rather than measured here:
+  /// which form exists is a shell decision (layout.dart), and the two are
+  /// different elements — building both to hide one would put two room titles
+  /// in the semantics tree.
+  final bool compact;
+
+  /// Leaves the room for the rooms list. Compact-only chrome, but every shell
+  /// wires it: it is the same navigation the system Back performs.
+  final VoidCallback onBack;
 
   final VoidCallback onInvite;
 
-  /// Switches the right panel to the Files tab.
+  /// Navigates to the room's Files destination.
   final VoidCallback onShareFile;
 
-  /// Switches the right panel to the Pipes tab.
+  /// Navigates to the room's Pipes destination.
   final VoidCallback onOpenPipe;
-
-  /// Mobile-only members affordance: opens the room-detail Members tab
-  /// (desktop keeps Members in the always-visible right panel and passes
-  /// null, rendering exactly the reference header).
-  final VoidCallback? onMembers;
-
-  /// Mobile-only slot before the title (the chat route's back affordance);
-  /// null on desktop.
-  final Widget? leading;
 
   @override
   Widget build(BuildContext context) {
@@ -68,12 +87,30 @@ class RoomHeader extends StatelessWidget {
     final members = room?.members ?? const <Member>[];
     final peers = room?.peers ?? const <PeerStatus>[];
 
-    final activeCount = members.isNotEmpty
-        ? members.where((m) => m.status == _statusActive).length
-        : memberCount;
+    // Whether `room.open` has answered with a roster. Until it has, the count
+    // is unknown — not zero, and not the room's total.
+    final membersLoaded =
+        room != null && !room.loading && room.openError == null;
+    final memberCount = members.where((m) => m.status == _statusActive).length;
     final invitedCount =
         members.where((m) => m.status == _statusInvited).length;
     final agentCount = members.where((m) => m.role == Roles.agent).length;
+
+    if (compact) {
+      return _RoomAppBar(
+        name: name,
+        summary: summary,
+        membersLoaded: membersLoaded,
+        memberCount: memberCount,
+        agentCount: agentCount,
+        invitedCount: invitedCount,
+        peers: peers,
+        onBack: onBack,
+        onInvite: onInvite,
+        onShareFile: onShareFile,
+        onOpenPipe: onOpenPipe,
+      );
+    }
 
     return Container(
       padding: const EdgeInsets.fromLTRB(
@@ -86,7 +123,7 @@ class RoomHeader extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           LayoutBuilder(builder: (context, constraints) {
-            Widget title = Column(
+            final Widget title = Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
@@ -97,65 +134,41 @@ class RoomHeader extends StatelessWidget {
                 ),
                 const SizedBox(height: JeliyaSpacing.x2),
                 _Subtitle(
-                  activeCount: activeCount,
+                  membersLoaded: membersLoaded,
+                  memberCount: memberCount,
                   agentCount: agentCount,
                   invitedCount: invitedCount,
                   peers: peers,
                 ),
               ],
             );
-            final leading = this.leading;
-            if (leading != null) {
-              title = Row(
-                children: [
-                  leading,
-                  const SizedBox(width: JeliyaSpacing.x4),
-                  Expanded(child: title),
-                ],
-              );
-            }
-            final onMembers = this.onMembers;
-            // Below the shell breakpoint every header action grows to the
-            // 44dp touch floor; desktop widths render exactly as before.
-            final mobile = isMobileWidth(context);
-            Widget action(Widget button) => mobile
-                ? ConstrainedBox(
-                    constraints: const BoxConstraints(minHeight: 44),
-                    child: button)
-                : button;
             final actions = Wrap(
               spacing: JeliyaSpacing.x8,
               runSpacing: JeliyaSpacing.x8,
               children: [
-                if (onMembers != null)
-                  action(JeliyaButton(
-                    label: s.panelTabMembers,
-                    semanticLabel: s.panelTabMembers,
-                    onPressed: onMembers,
-                  )),
-                action(JeliyaButton(
+                JeliyaButton(
                   label:
                       '${Tokens.roomHeaderShareFileGlyph} ${s.roomHeaderShareFile}',
                   semanticLabel: s.roomHeaderShareFile,
                   onPressed: onShareFile,
-                )),
-                action(JeliyaButton(
+                ),
+                JeliyaButton(
                   label:
                       '${Tokens.roomHeaderOpenPipeGlyph} ${s.roomHeaderOpenPipe}',
                   semanticLabel: s.roomHeaderOpenPipe,
                   onPressed: onOpenPipe,
-                )),
-                action(JeliyaButton(
+                ),
+                JeliyaButton(
                   label:
                       '${Tokens.roomHeaderInviteGlyph} ${s.roomHeaderInvite}',
                   semanticLabel: s.roomHeaderInvite,
                   variant: JeliyaButtonVariant.primary,
                   onPressed: onInvite,
-                )),
+                ),
               ],
             );
-            // A Wrap inside a Row can never actually wrap; at the 960px
-            // minimum window the center column is too narrow for title +
+            // A Wrap inside a Row can never actually wrap; at the medium
+            // shell's narrowest workspace the column is too narrow for title +
             // three buttons on one line, so stack and let the Wrap run.
             if (constraints.maxWidth < 560) {
               return Column(
@@ -195,17 +208,372 @@ class RoomHeader extends StatelessWidget {
   }
 }
 
-/// '{n} active | {n} agent(s) | {n} invite(s) pending | P2P badge' — the
-/// agent/invite segments render only when non-zero.
+// -- compact: the room's app bar -------------------------------------------------
+
+class _RoomAppBar extends StatefulWidget {
+  const _RoomAppBar({
+    required this.name,
+    required this.summary,
+    required this.membersLoaded,
+    required this.memberCount,
+    required this.agentCount,
+    required this.invitedCount,
+    required this.peers,
+    required this.onBack,
+    required this.onInvite,
+    required this.onShareFile,
+    required this.onOpenPipe,
+  });
+
+  final String name;
+  final RoomSummary? summary;
+  final bool membersLoaded;
+  final int memberCount;
+  final int agentCount;
+  final int invitedCount;
+  final List<PeerStatus> peers;
+  final VoidCallback onBack;
+  final VoidCallback onInvite;
+  final VoidCallback onShareFile;
+  final VoidCallback onOpenPipe;
+
+  @override
+  State<_RoomAppBar> createState() => _RoomAppBarState();
+}
+
+class _RoomAppBarState extends State<_RoomAppBar> {
+  bool _infoOpen = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final s = context.strings;
+    final tokens = JeliyaTokens.of(context);
+    return Container(
+      padding: const EdgeInsets.fromLTRB(
+          JeliyaSpacing.x4, JeliyaSpacing.x4, JeliyaSpacing.x8, JeliyaSpacing.x4),
+      decoration: BoxDecoration(
+        color: tokens.bgRaise,
+        border: Border(bottom: BorderSide(color: tokens.border)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              _IconButton(
+                glyph: Tokens.roomAppBarBackGlyph,
+                fontSize: 22,
+                tooltip: s.roomBackToRooms,
+                onPressed: widget.onBack,
+              ),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      widget.name,
+                      style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                          color: tokens.text),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    _AppBarSub(
+                      membersLoaded: widget.membersLoaded,
+                      memberCount: widget.memberCount,
+                      peers: widget.peers,
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: JeliyaSpacing.x6),
+              // The one action the bar keeps: a room nobody else is in is the
+              // state an invite exists to leave.
+              ConstrainedBox(
+                constraints: const BoxConstraints(minHeight: 44),
+                child: JeliyaButton(
+                  label: s.roomHeaderInvite,
+                  semanticLabel: s.roomHeaderInvite,
+                  size: JeliyaButtonSize.sm,
+                  variant: JeliyaButtonVariant.primary,
+                  onPressed: widget.onInvite,
+                ),
+              ),
+              _IconButton(
+                glyph: Tokens.roomAppBarMoreGlyph,
+                fontSize: 18,
+                tooltip: s.roomInformation,
+                expanded: _infoOpen,
+                onPressed: () => setState(() => _infoOpen = !_infoOpen),
+              ),
+            ],
+          ),
+          if (_infoOpen) _RoomInfo(
+            summary: widget.summary,
+            agentCount: widget.agentCount,
+            invitedCount: widget.invitedCount,
+            peers: widget.peers,
+            onShareFile: widget.onShareFile,
+            onOpenPipe: widget.onOpenPipe,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The app bar's one-line connectivity summary: how many members the roster
+/// proves, and what the transport actually reports.
+class _AppBarSub extends StatelessWidget {
+  const _AppBarSub({
+    required this.membersLoaded,
+    required this.memberCount,
+    required this.peers,
+  });
+
+  final bool membersLoaded;
+  final int memberCount;
+  final List<PeerStatus> peers;
+
+  @override
+  Widget build(BuildContext context) {
+    final s = context.strings;
+    final tokens = JeliyaTokens.of(context);
+    final (dotColor, glow, label) = _peerSummary(tokens, s, peers);
+    // ONE clipped line, not a Row of independently flexing parts (web parity:
+    // `.appbar-sub` is `white-space: nowrap; overflow: hidden; text-overflow:
+    // ellipsis`). Two Flexible children would each get half of a ~150dp column
+    // and truncate the short count to make room for space the long label then
+    // truncates anyway. Read as one sentence, it degrades the way a sentence
+    // does: the count survives, the reach fact runs out of room last.
+    return Text.rich(
+      TextSpan(
+        children: [
+          TextSpan(
+            text: membersLoaded
+                ? s.commonMemberCount(memberCount)
+                : s.roomLoadingMembers,
+            style: TextStyle(
+                color: membersLoaded ? tokens.textDim : tokens.textMute),
+          ),
+          TextSpan(
+            text: ' ${Tokens.roomHeaderSeparator} ',
+            style: TextStyle(color: tokens.textMute),
+          ),
+          WidgetSpan(
+            alignment: PlaceholderAlignment.middle,
+            child: ExcludeSemantics(
+              child: Padding(
+                padding: const EdgeInsets.only(right: 5),
+                child: _Dot(color: dotColor, glow: glow),
+              ),
+            ),
+          ),
+          TextSpan(text: label, style: TextStyle(color: tokens.accent)),
+        ],
+      ),
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: const TextStyle(fontSize: 11.5),
+    );
+  }
+}
+
+/// The ⋮ disclosure: the room's facts, its observed peers, and the two room
+/// tools the bar had no width for. Everything here is reachable from the room
+/// nav as well — this is the app bar's shortcut, not its only door.
+class _RoomInfo extends StatelessWidget {
+  const _RoomInfo({
+    required this.summary,
+    required this.agentCount,
+    required this.invitedCount,
+    required this.peers,
+    required this.onShareFile,
+    required this.onOpenPipe,
+  });
+
+  final RoomSummary? summary;
+  final int agentCount;
+  final int invitedCount;
+  final List<PeerStatus> peers;
+  final VoidCallback onShareFile;
+  final VoidCallback onOpenPipe;
+
+  @override
+  Widget build(BuildContext context) {
+    final s = context.strings;
+    final tokens = JeliyaTokens.of(context);
+    final summary = this.summary;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+          JeliyaSpacing.x8, JeliyaSpacing.x8, 0, JeliyaSpacing.x4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (summary != null) ...[
+            // room_id is identity; the name is a label two rooms may share
+            // (decision 6). The short id is the disambiguator, via the shared
+            // shortId helper — not a second id-shortening rule.
+            _Fact(term: s.roomInfoRoom, value: shortId(summary.roomId), mono: true),
+            _Fact(
+              term: s.roomInfoSession,
+              value: summary.open ? s.sidebarStateOpen : s.sidebarStateClosed,
+            ),
+          ],
+          if (agentCount > 0)
+            // i18n-exempt: a number.
+            _Fact(term: s.roomInfoAgents, value: '$agentCount'),
+          if (invitedCount > 0)
+            _Fact(
+                term: s.roomInfoInvites,
+                value: s.roomHeaderInvitesPending(invitedCount)),
+          const SizedBox(height: JeliyaSpacing.x8),
+          if (peers.isEmpty)
+            Text(s.roomHeaderNoPeersConnected,
+                style: TextStyle(fontSize: 12, color: tokens.textMute))
+          else
+            Semantics(
+              container: true,
+              label: s.roomHeaderPeerConnections,
+              child: Wrap(
+                spacing: JeliyaSpacing.x6,
+                runSpacing: JeliyaSpacing.x6,
+                children: [for (final p in peers) _PeerChip(peer: p)],
+              ),
+            ),
+          const SizedBox(height: JeliyaSpacing.x10),
+          Wrap(
+            spacing: JeliyaSpacing.x8,
+            runSpacing: JeliyaSpacing.x8,
+            children: [
+              ConstrainedBox(
+                constraints: const BoxConstraints(minHeight: 44),
+                child: JeliyaButton(
+                  label:
+                      '${Tokens.roomHeaderShareFileGlyph} ${s.roomHeaderShareFile}',
+                  semanticLabel: s.roomHeaderShareFile,
+                  onPressed: onShareFile,
+                ),
+              ),
+              ConstrainedBox(
+                constraints: const BoxConstraints(minHeight: 44),
+                child: JeliyaButton(
+                  label:
+                      '${Tokens.roomHeaderOpenPipeGlyph} ${s.roomHeaderOpenPipe}',
+                  semanticLabel: s.roomHeaderOpenPipe,
+                  onPressed: onOpenPipe,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// One term/value row of the disclosure (the web's `<dl>`).
+class _Fact extends StatelessWidget {
+  const _Fact({required this.term, required this.value, this.mono = false});
+
+  final String term;
+  final String value;
+  final bool mono;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = JeliyaTokens.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: JeliyaSpacing.x2),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.baseline,
+        textBaseline: TextBaseline.alphabetic,
+        children: [
+          SizedBox(
+            width: 76,
+            child: Text(term,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: 12, color: tokens.textMute)),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: mono
+                  ? JeliyaText.mono(fontSize: 12, color: tokens.textDim)
+                  : TextStyle(fontSize: 12, color: tokens.textDim),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// A bare glyph button at the touch floor. The app bar's Back and ⋮ are the
+/// only two, and they bracket the title.
+class _IconButton extends StatelessWidget {
+  const _IconButton({
+    required this.glyph,
+    required this.fontSize,
+    required this.tooltip,
+    required this.onPressed,
+    this.expanded,
+  });
+
+  final String glyph;
+  final double fontSize;
+  final String tooltip;
+  final VoidCallback onPressed;
+
+  /// aria-expanded, for the disclosure.
+  final bool? expanded;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = JeliyaTokens.of(context);
+    return Semantics(
+      button: true,
+      label: tooltip,
+      expanded: expanded,
+      child: ExcludeSemantics(
+        child: Tooltip(
+          message: tooltip,
+          child: InkWell(
+            onTap: onPressed,
+            customBorder: const CircleBorder(),
+            child: Container(
+              constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
+              alignment: Alignment.center,
+              child: Text(glyph,
+                  style: TextStyle(
+                      fontSize: fontSize, height: 1, color: tokens.textDim)),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// '{n} members | {n} agent(s) | {n} invite(s) pending | P2P badge' — the
+/// agent/invite segments render only when non-zero, and the member count only
+/// once the roster has answered.
 class _Subtitle extends StatelessWidget {
   const _Subtitle({
-    required this.activeCount,
+    required this.membersLoaded,
+    required this.memberCount,
     required this.agentCount,
     required this.invitedCount,
     required this.peers,
   });
 
-  final int activeCount;
+  final bool membersLoaded;
+  final int memberCount;
   final int agentCount;
   final int invitedCount;
   final List<PeerStatus> peers;
@@ -223,7 +591,13 @@ class _Subtitle extends StatelessWidget {
       runSpacing: JeliyaSpacing.x4,
       crossAxisAlignment: WrapCrossAlignment.center,
       children: [
-        Text(s.roomHeaderActiveCount(activeCount), style: base),
+        if (membersLoaded)
+          Text(s.commonMemberCount(memberCount), style: base)
+        else
+          // The roster has not answered. The room's total member_count is a
+          // different fact and cannot stand in for it under this label.
+          Text(s.roomLoadingMembers,
+              style: TextStyle(fontSize: 12.5, color: tokens.textMute)),
         if (agentCount > 0) ...[
           sep,
           Text(s.roomHeaderAgentCount(agentCount), style: base),
@@ -243,9 +617,27 @@ class _Subtitle extends StatelessWidget {
   }
 }
 
-/// Three honest states: nobody here, a live direct link, or relay-only.
-/// Peers that are merely connecting/offline read as the same "alone" state —
-/// there's no live link to call peer-to-peer yet either way (P4).
+/// What the daemon's peer list actually proves, and nothing more
+/// (docs/room-workbench.md, decision 4). Peer reachability is an observed
+/// transport path: it is not presence, and it is not who is in the room.
+///
+/// "Alone in this room" used to be one of these states — it rendered whenever
+/// zero connections were observed, including in a five-member room whose peers
+/// are merely offline. Absence of an observed connection is not evidence of
+/// solitude. **No peers connected** is what the daemon reported, so it is what
+/// the badge says. Peers that are merely connecting/offline read the same way:
+/// there is no live link to call peer-to-peer yet either way (P4).
+(Color, bool, String) _peerSummary(
+    JeliyaTokens tokens, AppStrings s, List<PeerStatus> peers) {
+  final connected =
+      peers.where((p) => p.state == PeerStates.connected).toList();
+  if (connected.any((p) => p.path == PeerPaths.direct)) {
+    return (tokens.accent, true, s.roomHeaderPeerToPeer);
+  }
+  if (connected.isNotEmpty) return (tokens.amber, false, s.roomHeaderRelayOnly);
+  return (tokens.textMute, false, s.roomHeaderNoPeersConnected);
+}
+
 class _P2pBadge extends StatelessWidget {
   const _P2pBadge({required this.peers});
 
@@ -254,19 +646,8 @@ class _P2pBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = JeliyaTokens.of(context);
-    final s = context.strings;
-    final connected =
-        peers.where((p) => p.state == PeerStates.connected).toList();
-    final hasDirect = connected.any((p) => p.path == PeerPaths.direct);
-
-    final (Color dotColor, bool glow, String label) = peers.isEmpty
-        ? (tokens.textMute, false, s.roomHeaderAloneInRoom)
-        : hasDirect
-            ? (tokens.accent, true, s.roomHeaderPeerToPeer)
-            : connected.isNotEmpty
-                ? (tokens.amber, false, s.roomHeaderRelayOnly)
-                : (tokens.textMute, false, s.roomHeaderAloneInRoom);
-
+    final (dotColor, glow, label) =
+        _peerSummary(tokens, context.strings, peers);
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -274,7 +655,12 @@ class _P2pBadge extends StatelessWidget {
         const SizedBox(width: 5),
         // .p2p-badge colors the label accent in every state; only the dot
         // carries the neutral/green/amber truth.
-        Text(label, style: TextStyle(fontSize: 12.5, color: tokens.accent)),
+        Flexible(
+          child: Text(label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 12.5, color: tokens.accent)),
+        ),
       ],
     );
   }

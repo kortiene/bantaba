@@ -16,9 +16,12 @@
 library;
 
 import 'package:flutter/material.dart';
+import 'package:jeliya_protocol/jeliya_protocol.dart'
+    show Member, PipeStates, Roles;
 
 import '../l10n/strings_context.dart';
 import '../routes.dart';
+import '../session/room_store.dart';
 import '../theme.dart';
 
 String roomDestLabel(AppStrings s, RoomDest dest) => switch (dest) {
@@ -28,6 +31,25 @@ String roomDestLabel(AppStrings s, RoomDest dest) => switch (dest) {
       RoomDest.files => s.roomDestFiles,
       RoomDest.pipes => s.roomDestPipes,
     };
+
+/// The strip's counts — facts the daemon has answered with, so a room that has
+/// not answered yet counts nothing rather than counting zero (decision 5:
+/// loading and empty are different sentences, and a `0` badge is the empty
+/// one). Derived here, in one place, because two surfaces carry the strip on
+/// different shells and a count that disagreed between them would be a third
+/// answer to a question with one.
+///
+/// Activity is absent on purpose: the room's workspace is not a quantity.
+Map<RoomDest, int> roomNavCounts(RoomStore? room) {
+  final members = room?.members ?? const <Member>[];
+  return {
+    RoomDest.people: members.length,
+    RoomDest.agents: members.where((m) => m.role == Roles.agent).length,
+    RoomDest.files: room?.files.length ?? 0,
+    RoomDest.pipes:
+        room?.pipes.where((p) => p.state == PipeStates.open).length ?? 0,
+  };
+}
 
 class RoomNav extends StatelessWidget {
   const RoomNav({

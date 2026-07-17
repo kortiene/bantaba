@@ -22,12 +22,18 @@ import 'sidebar.dart' show IdentityFooter;
 class MobileRoomsScreen extends StatelessWidget {
   const MobileRoomsScreen({
     super.key,
+    required this.currentRoomId,
     required this.onSelectRoom,
     required this.onCreateRoom,
     required this.onJoinRoom,
   });
 
-  /// Room-row taps; the shell guards departed rooms and pushes the chat.
+  /// The room the ROUTE names — "you are here". Not the session's open room:
+  /// standing on this list with a session still open highlights nothing, and
+  /// the row's own Open/Closed label is where that fact belongs.
+  final String? currentRoomId;
+
+  /// Room-row taps; the shell navigates.
   final ValueChanged<String> onSelectRoom;
 
   final VoidCallback onCreateRoom;
@@ -88,8 +94,8 @@ class MobileRoomsScreen extends StatelessWidget {
                           const SizedBox(height: JeliyaSpacing.x4),
                       itemBuilder: (context, index) => _MobileRoomRow(
                         room: session.rooms[index],
-                        selected: session.rooms[index].roomId ==
-                            session.currentRoomId,
+                        selected:
+                            session.rooms[index].roomId == currentRoomId,
                         onSelectRoom: onSelectRoom,
                       ),
                     ),
@@ -145,11 +151,15 @@ class _MobileRoomRow extends StatelessWidget {
     final tokens = JeliyaTokens.of(context);
     final tint = tokens.colorForId(room.roomId);
     final departed = room.status == 'left' || room.status == 'removed';
+    // One label, one fact (docs/room-workbench.md, decision 4). `status` is
+    // signed membership; `open` is whether this daemon holds a live session.
+    // "Active"/"Idle" described the latter in the word the wire uses for the
+    // former, so the room rail and the roster disagreed by construction.
     final stateLabel = departed
         ? (room.status == 'left' ? s.sidebarStateLeft : s.sidebarStateRemoved)
         : room.open
-            ? s.sidebarStateActive
-            : s.sidebarStateIdle;
+            ? s.sidebarStateOpen
+            : s.sidebarStateClosed;
 
     Widget row = TextButton(
       onPressed: departed ? null : () => onSelectRoom(room.roomId),
