@@ -45,6 +45,9 @@ import 'package:url_launcher/url_launcher.dart';
 import '../format.dart';
 import '../l10n/error_display.dart';
 import '../l10n/strings_context.dart';
+import '../layout.dart';
+import '../routes.dart';
+import 'room_nav.dart';
 import '../l10n/tokens.dart';
 import '../l10n/wire_display.dart';
 import '../session/daemon_session.dart';
@@ -58,36 +61,39 @@ import '../widgets/progress_bar.dart';
 import '../widgets/sender_name.dart';
 import '../widgets/template_text.dart';
 
-/// Right-panel tabs (RightPanel.tsx `PanelTab`).
-enum PanelTab { members, agents, files, pipes }
-
-String _tabLabel(AppStrings s, PanelTab tab) => switch (tab) {
-      PanelTab.members => s.panelTabMembers,
-      PanelTab.agents => s.panelTabAgents,
-      PanelTab.files => s.panelTabFiles,
-      PanelTab.pipes => s.panelTabPipes,
-    };
 
 // Clock formatting goes through ../format.dart context.formats clock — one
 // consistent (and later locale-aware) clock for every surface.
 
 // prettyLabel / extOf live in ../format.dart — the shared single home.
 
+/// The room's tool surface — an inspector (docs/room-workbench.md,
+/// decision 3). It renders the room destination the route names; it never
+/// decides which one that is.
 class RightPanel extends StatelessWidget {
   const RightPanel({
     super.key,
     required this.tab,
-    required this.onTab,
+    required this.onDest,
+    required this.onClose,
+    required this.shell,
     required this.onLeaveRoom,
     this.chrome = true,
     this.touchTargets = false,
   });
 
-  /// The active tab — owned by the shell (RoomHeader's Share File / Open Pipe
-  /// buttons and the nav rail also switch it).
-  final PanelTab tab;
+  /// The tool to render — derived from the route, never held here.
+  final RoomDest tab;
 
-  final ValueChanged<PanelTab> onTab;
+  /// Room-nav taps. This panel carries the strip whenever it covers the
+  /// workspace (compact and medium); on wide the workspace keeps it.
+  final ValueChanged<RoomDest> onDest;
+
+  /// Close the inspector — which is navigating to the room's Activity, not a
+  /// local visibility toggle.
+  final VoidCallback onClose;
+
+  final Shell shell;
 
   /// Opens the Leave Room modal.
   final VoidCallback onLeaveRoom;
@@ -132,51 +138,57 @@ class RightPanel extends StatelessWidget {
     final agentCount = members.where((m) => m.role == Roles.agent).length;
     final openPipes = pipes.where((p) => p.state == PipeStates.open).length;
 
-    final counts = <PanelTab, int>{
-      PanelTab.members: members.length,
-      PanelTab.agents: agentCount,
-      PanelTab.files: files.length,
-      PanelTab.pipes: openPipes,
+    final counts = <RoomDest, int>{
+      RoomDest.people: members.length,
+      RoomDest.agents: agentCount,
+      RoomDest.files: files.length,
+      RoomDest.pipes: openPipes,
     };
 
     final Widget body = switch (tab) {
-      PanelTab.members => _MembersTab(
+      RoomDest.people => _MembersTab(
           members: members,
           session: session,
           onLeaveRoom: onLeaveRoom,
           touchTargets: touchTargets,
         ),
-      PanelTab.agents => _AgentsTab(
+      RoomDest.agents => _AgentsTab(
           members: members,
           timeline: room?.timeline ?? const <TimelineEvent>[],
         ),
-      PanelTab.files => _FilesTab(
+      RoomDest.files => _FilesTab(
           key: ValueKey('files-${room?.roomId}'),
           room: room,
           session: session,
           touchTargets: touchTargets,
         ),
-      PanelTab.pipes => _PipesTab(
+      RoomDest.pipes => _PipesTab(
           key: ValueKey('pipes-${room?.roomId}'),
           room: room,
           session: session,
           touchTargets: touchTargets,
         ),
+      // Activity is the workspace, not a tool: the shell closes this panel
+      // for it rather than building an empty one.
+      RoomDest.activity => const SizedBox.shrink(),
     };
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _PanelTabs(
-            tab: tab,
-            onTab: onTab,
-            counts: counts,
-            touchTargets: touchTargets),
+        // Only when this panel covers the workspace: on wide it opens beside
+        // it, and the workspace keeps the one strip.
+        if (shell != Shell.wide)
+          _InspectorHead(shell: shell, onClose: onClose, roomName: roomName),
+        if (shell != Shell.wide)
+          RoomNav(dest: tab, counts: counts, onDest: onDest)
+        else
+          _InspectorHead(shell: shell, onClose: onClose, roomName: null),
         Expanded(
           // role='tabpanel' labelled by the active tab.
           child: Semantics(
             container: true,
-            label: _tabLabel(s, tab),
+            label: roomDestLabel(s, tab),
             child: SingleChildScrollView(
               padding: const EdgeInsets.all(JeliyaSpacing.panel),
               child: body,
@@ -188,225 +200,74 @@ class RightPanel extends StatelessWidget {
   }
 }
 
-// -- tab strip ----------------------------------------------------------------------
+// -- inspector head -----------------------------------------------------------------
 
-class _PanelTabs extends StatefulWidget {
-  const _PanelTabs({
-    required this.tab,
-    required this.onTab,
-    required this.counts,
-    this.touchTargets = false,
+/// The room stays named on every room-scoped surface (decision 3), but how it
+/// is delivered differs: on compact this panel IS the screen, so it carries
+/// the room name itself; on medium and wide the room header is alongside, so
+/// repeating it would be duplication and this row is only the way out.
+class _InspectorHead extends StatelessWidget {
+  const _InspectorHead({
+    required this.shell,
+    required this.onClose,
+    required this.roomName,
   });
 
-  final PanelTab tab;
-  final ValueChanged<PanelTab> onTab;
-  final Map<PanelTab, int> counts;
-  final bool touchTargets;
-
-  @override
-  State<_PanelTabs> createState() => _PanelTabsState();
-}
-
-class _PanelTabsState extends State<_PanelTabs> {
-  late final Map<PanelTab, FocusNode> _nodes = {
-    for (final tab in PanelTab.values)
-      tab: FocusNode(debugLabel: 'panel-tab-${tab.name}', onKeyEvent: _onKey),
-  };
-
-  @override
-  void dispose() {
-    for (final node in _nodes.values) {
-      node.dispose();
-    }
-    super.dispose();
-  }
-
-  /// Full ARIA tabs keyboard pattern: arrow keys move between tabs (one tab
-  /// stop via roving focus), Home/End jump to the ends — selection AND focus.
-  KeyEventResult _onKey(FocusNode node, KeyEvent event) {
-    if (event is KeyUpEvent) return KeyEventResult.ignored;
-    final tabs = PanelTab.values;
-    final idx = tabs.indexOf(widget.tab);
-    final key = event.logicalKey;
-    int next;
-    if (key == LogicalKeyboardKey.arrowRight ||
-        key == LogicalKeyboardKey.arrowDown) {
-      next = (idx + 1) % tabs.length;
-    } else if (key == LogicalKeyboardKey.arrowLeft ||
-        key == LogicalKeyboardKey.arrowUp) {
-      next = (idx - 1 + tabs.length) % tabs.length;
-    } else if (key == LogicalKeyboardKey.home) {
-      next = 0;
-    } else if (key == LogicalKeyboardKey.end) {
-      next = tabs.length - 1;
-    } else {
-      return KeyEventResult.ignored;
-    }
-    widget.onTab(tabs[next]);
-    _nodes[tabs[next]]!.requestFocus();
-    return KeyEventResult.handled;
-  }
+  final Shell shell;
+  final VoidCallback onClose;
+  final String? roomName;
 
   @override
   Widget build(BuildContext context) {
     final s = context.strings;
     final tokens = JeliyaTokens.of(context);
-    // Roving tabindex: only the active tab participates in Tab traversal.
-    for (final tab in PanelTab.values) {
-      _nodes[tab]!.skipTraversal = tab != widget.tab;
-    }
-    return Semantics(
-      container: true,
-      label: s.panelRoomPanel,
-      child: Container(
-        padding: const EdgeInsets.fromLTRB(
-            JeliyaSpacing.x8, JeliyaSpacing.x12, JeliyaSpacing.x8, 0),
-        decoration: BoxDecoration(
-          border: Border(bottom: BorderSide(color: tokens.border)),
-        ),
-        // Content-sized tabs, not width quarters: any flex wrapper caps a
-        // tab at 1/4 of the row, truncating the longest label under wider
-        // locales ('Membres' + count badge ellipsized to 'Me…' in fr). The
-        // ConstrainedBox keeps the justified spaceBetween layout whenever
-        // the tabs fit (fr with every badge populated does, with slack);
-        // only pathological states (e.g. four 99+ badges) engage the
-        // horizontal scroll instead of clipping the last tab — a focused
-        // tab auto-scrolls into view (InkResponse ensures visibility).
-        child: LayoutBuilder(
-          builder: (context, constraints) => SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: ConstrainedBox(
-              constraints: BoxConstraints(minWidth: constraints.maxWidth),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  for (final tab in PanelTab.values)
-                    _PanelTabButton(
-                      label: _tabLabel(s, tab),
-                      count: widget.counts[tab] ?? 0,
-                      active: tab == widget.tab,
-                      focusNode: _nodes[tab]!,
-                      touchTarget: widget.touchTargets,
-                      onTap: () => widget.onTab(tab),
-                    ),
-                ],
-              ),
+    // One navigation, two affordances. Compact needs a Back of its own: this
+    // panel is the whole screen there and the bottom bar is gone, so without
+    // it there would be no in-app way back to the room's Activity.
+    final compact = shell == Shell.compact;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+          JeliyaSpacing.x4, JeliyaSpacing.x4, JeliyaSpacing.x4, 0),
+      child: Row(
+        children: [
+          if (compact)
+            IconButton(
+              onPressed: onClose,
+              icon: const Text('\u2039',
+                  style: TextStyle(fontSize: 22, height: 1)),
+              tooltip: s.roomBackToActivity,
+              constraints:
+                  const BoxConstraints(minWidth: 44, minHeight: 44),
             ),
+          Expanded(
+            child: roomName == null
+                ? const SizedBox.shrink()
+                : Text(
+                    roomName!,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                        color: tokens.text),
+                  ),
           ),
-        ),
+          if (!compact)
+            IconButton(
+              onPressed: onClose,
+              icon: const Text('\u00d7',
+                  style: TextStyle(fontSize: 18, height: 1)),
+              tooltip: s.roomCloseInspector,
+              constraints:
+                  const BoxConstraints(minWidth: 32, minHeight: 32),
+            ),
+        ],
       ),
     );
   }
 }
 
-class _PanelTabButton extends StatefulWidget {
-  const _PanelTabButton({
-    required this.label,
-    required this.count,
-    required this.active,
-    required this.focusNode,
-    required this.onTap,
-    this.touchTarget = false,
-  });
 
-  final String label;
-  final int count;
-  final bool active;
-  final FocusNode focusNode;
-  final VoidCallback onTap;
-
-  /// 44dp-floor variant (web `.app .panel-tabs button` min-height 44px).
-  final bool touchTarget;
-
-  @override
-  State<_PanelTabButton> createState() => _PanelTabButtonState();
-}
-
-class _PanelTabButtonState extends State<_PanelTabButton> {
-  bool _hovered = false;
-  bool _focused = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = JeliyaTokens.of(context);
-    final ink = widget.active || _hovered ? tokens.text : tokens.textDim;
-    return Semantics(
-      button: true,
-      selected: widget.active,
-      child: InkWell(
-        focusNode: widget.focusNode,
-        onTap: widget.onTap,
-        onHover: (hovered) => setState(() => _hovered = hovered),
-        onFocusChange: (focused) => setState(() => _focused = focused),
-        focusColor: Colors.transparent,
-        child: Container(
-          // x4, not x6: the four French labels + all four count badges must
-          // fit the 303px strip without engaging the overflow scroll.
-          padding: const EdgeInsets.fromLTRB(
-              JeliyaSpacing.x4, JeliyaSpacing.x8, JeliyaSpacing.x4, JeliyaSpacing.x10),
-          // Touch surfaces grow each tab to the 44dp floor; the min-height
-          // flows through to the label Row, whose default cross-axis
-          // centering keeps the label vertically centered in the taller box.
-          constraints: widget.touchTarget
-              ? const BoxConstraints(minHeight: 44)
-              : null,
-          decoration: BoxDecoration(
-            // 2px active-tab underline; a focus ring for keyboard users.
-            border: Border(
-              bottom: BorderSide(
-                color: widget.active ? tokens.accent : Colors.transparent,
-                width: 2,
-              ),
-            ),
-            boxShadow: _focused
-                ? [BoxShadow(color: tokens.accent, spreadRadius: 1)]
-                : null,
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Flexible(
-                child: Text(
-                  widget.label,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                      fontSize: 13, fontWeight: FontWeight.w600, color: ink),
-                ),
-              ),
-              if (widget.count > 0) ...[
-                const SizedBox(width: JeliyaSpacing.x4),
-                Container(
-                  constraints: const BoxConstraints(minWidth: 17),
-                  height: 17,
-                  padding: const EdgeInsets.symmetric(horizontal: 4),
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    color: tokens.bgCard2,
-                    borderRadius: BorderRadius.circular(JeliyaRadii.pill),
-                    border: Border.all(color: tokens.borderStrong),
-                  ),
-                  child: Text(
-                    widget.count > 99
-                        ? Tokens.countCap
-                        : '${widget.count}',
-                    style: TextStyle(fontSize: 10, color: tokens.textDim),
-                  ),
-                ),
-              ],
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// The ~44dp platform touch floor around one compact control (web parity:
-/// the mobile media query grows `.btn` to min-height 44px). The min-height
-/// constraint reaches the control itself, so the whole floor is tappable;
-/// a no-op on desktop ([on] false), which keeps its compact controls.
 class _TouchFloor extends StatelessWidget {
   const _TouchFloor({required this.on, required this.child});
 

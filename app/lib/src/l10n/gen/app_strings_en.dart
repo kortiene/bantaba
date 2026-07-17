@@ -611,16 +611,67 @@ class AppStringsEn extends AppStrings {
   String get panelRoomPanel => 'Room panel';
 
   @override
-  String get panelTabMembers => 'Members';
+  String get roomDestPeople => 'People';
 
   @override
-  String get panelTabAgents => 'Agents';
+  String get roomDestAgents => 'Agents & Runs';
 
   @override
-  String get panelTabFiles => 'Files';
+  String get roomDestFiles => 'Files';
 
   @override
-  String get panelTabPipes => 'Pipes';
+  String get roomDestPipes => 'Pipes';
+
+  @override
+  String get roomDestActivity => 'Activity';
+
+  @override
+  String get roomNavLabel => 'Room tools';
+
+  @override
+  String get roomBackToRooms => 'Back to Rooms';
+
+  @override
+  String get roomBackToActivity => 'Back to Activity';
+
+  @override
+  String get roomCloseInspector => 'Close inspector';
+
+  @override
+  String get roomInformation => 'Room information';
+
+  @override
+  String get roomInfoRoom => 'Room';
+
+  @override
+  String get roomInfoSession => 'Session';
+
+  @override
+  String get roomInfoAgents => 'Agents';
+
+  @override
+  String get roomInfoInvites => 'Invites';
+
+  @override
+  String get memberStatusMember => 'Member';
+
+  @override
+  String get memberStatusUnknown => 'Unknown';
+
+  @override
+  String get pipeStateConnected => 'Connected';
+
+  @override
+  String get pipeStateOpen => 'Open';
+
+  @override
+  String get pipeStateClosed => 'Closed';
+
+  @override
+  String get fleetFilterLive => 'Live';
+
+  @override
+  String get roomLoadingMembers => 'Loading members…';
 
   @override
   String get panelMembersEmpty => 'No members have synced for this room yet.';
@@ -1127,7 +1178,7 @@ class AppStringsEn extends AppStrings {
   }
 
   @override
-  String get roomHeaderAloneInRoom => 'Alone in this room';
+  String get roomHeaderNoPeersConnected => 'No peers connected';
 
   @override
   String get roomHeaderPeerToPeer => 'Peer-to-Peer';
@@ -1301,13 +1352,10 @@ class AppStringsEn extends AppStrings {
   String get sidebarNavPrimaryLabel => 'Primary';
 
   @override
-  String get sidebarNavHome => 'Home';
-
-  @override
   String get sidebarNavRooms => 'Rooms';
 
   @override
-  String get sidebarNavAgents => 'Agents';
+  String get sidebarNavFleet => 'Agent Fleet';
 
   @override
   String get sidebarNavPipes => 'Pipes';
@@ -1316,13 +1364,7 @@ class AppStringsEn extends AppStrings {
   String get sidebarNavFiles => 'Files';
 
   @override
-  String get sidebarNavCalls => 'Calls';
-
-  @override
   String get sidebarNavSettings => 'Settings';
-
-  @override
-  String get sidebarNavSoon => 'Soon';
 
   @override
   String get sidebarYourRooms => 'Your Rooms';
@@ -1337,10 +1379,10 @@ class AppStringsEn extends AppStrings {
   String get sidebarNoRoomsYet => 'No rooms yet';
 
   @override
-  String get sidebarStateActive => 'Active';
+  String get sidebarStateOpen => 'Open';
 
   @override
-  String get sidebarStateIdle => 'Idle';
+  String get sidebarStateClosed => 'Closed';
 
   @override
   String get sidebarStateLeft => 'Left';

@@ -615,16 +615,67 @@ class AppStringsFr extends AppStrings {
   String get panelRoomPanel => 'Panneau du salon';
 
   @override
-  String get panelTabMembers => 'Membres';
+  String get roomDestPeople => 'Personnes';
 
   @override
-  String get panelTabAgents => 'Agents';
+  String get roomDestAgents => 'Agents et exécutions';
 
   @override
-  String get panelTabFiles => 'Fichiers';
+  String get roomDestFiles => 'Fichiers';
 
   @override
-  String get panelTabPipes => 'Pipes';
+  String get roomDestPipes => 'Pipes';
+
+  @override
+  String get roomDestActivity => 'Activité';
+
+  @override
+  String get roomNavLabel => 'Outils du salon';
+
+  @override
+  String get roomBackToRooms => 'Retour aux salons';
+
+  @override
+  String get roomBackToActivity => 'Retour à l’activité';
+
+  @override
+  String get roomCloseInspector => 'Fermer l’inspecteur';
+
+  @override
+  String get roomInformation => 'Informations du salon';
+
+  @override
+  String get roomInfoRoom => 'Salon';
+
+  @override
+  String get roomInfoSession => 'Session';
+
+  @override
+  String get roomInfoAgents => 'Agents';
+
+  @override
+  String get roomInfoInvites => 'Invitations';
+
+  @override
+  String get memberStatusMember => 'Membre';
+
+  @override
+  String get memberStatusUnknown => 'Inconnu';
+
+  @override
+  String get pipeStateConnected => 'Connecté';
+
+  @override
+  String get pipeStateOpen => 'Ouvert';
+
+  @override
+  String get pipeStateClosed => 'Fermé';
+
+  @override
+  String get fleetFilterLive => 'En ligne';
+
+  @override
+  String get roomLoadingMembers => 'Chargement des membres…';
 
   @override
   String get panelMembersEmpty =>
@@ -1162,7 +1213,7 @@ class AppStringsFr extends AppStrings {
   }
 
   @override
-  String get roomHeaderAloneInRoom => 'Personne d’autre dans ce salon';
+  String get roomHeaderNoPeersConnected => 'Aucun pair connecté';
 
   @override
   String get roomHeaderPeerToPeer => 'Pair-à-pair';
@@ -1338,13 +1389,10 @@ class AppStringsFr extends AppStrings {
   String get sidebarNavPrimaryLabel => 'Principal';
 
   @override
-  String get sidebarNavHome => 'Accueil';
-
-  @override
   String get sidebarNavRooms => 'Salons';
 
   @override
-  String get sidebarNavAgents => 'Agents';
+  String get sidebarNavFleet => 'Flotte d’agents';
 
   @override
   String get sidebarNavPipes => 'Pipes';
@@ -1353,13 +1401,7 @@ class AppStringsFr extends AppStrings {
   String get sidebarNavFiles => 'Fichiers';
 
   @override
-  String get sidebarNavCalls => 'Appels';
-
-  @override
   String get sidebarNavSettings => 'Réglages';
-
-  @override
-  String get sidebarNavSoon => 'Bientôt';
 
   @override
   String get sidebarYourRooms => 'Vos salons';
@@ -1374,10 +1416,10 @@ class AppStringsFr extends AppStrings {
   String get sidebarNoRoomsYet => 'Aucun salon pour l’instant';
 
   @override
-  String get sidebarStateActive => 'Actif';
+  String get sidebarStateOpen => 'Ouvert';
 
   @override
-  String get sidebarStateIdle => 'Inactif';
+  String get sidebarStateClosed => 'Fermé';
 
   @override
   String get sidebarStateLeft => 'Quitté';

@@ -1,6 +1,7 @@
 /// Desktop left rail — exact port of ui/src/components/Sidebar.tsx per
 /// phase3-features.json "Sidebar (desktop left rail)": brand (TreeMark 30 +
-/// Wordmark), profile card (→ settings), primary nav (Calls disabled 'Soon'),
+/// Wordmark), profile card (→ settings), primary nav (the three global
+/// destinations — docs/room-workbench.md, decision 1),
 /// 'Your Rooms' header + room list (hex glyph tinted by colorForId, member/
 /// state meta line, green session-open dot, departed rooms disabled),
 /// '⊕ Create Room' / '⇥ Join with a ticket' rows, identity footer (shortId +
@@ -16,34 +17,32 @@ import 'package:jeliya_protocol/jeliya_protocol.dart'
 
 import '../l10n/strings_context.dart';
 import '../l10n/tokens.dart';
+import '../routes.dart';
 import '../session/daemon_session.dart';
 import '../theme.dart';
 import '../widgets/copy_button.dart';
 import '../widgets/tree_mark.dart';
 
-/// Primary navigation keys (Sidebar.tsx `NavKey`).
-enum NavKey { home, rooms, agents, pipes, files, calls, settings }
-
 /// One primary-nav entry (Sidebar.tsx `NAV`).
 class _NavEntry {
-  const _NavEntry(this.key, this.glyph, this.label, {this.soon = false});
+  const _NavEntry(this.key, this.glyph, this.label);
 
-  final NavKey key;
+  final GlobalDest key;
   final String glyph;
   final String label;
-  final bool soon;
 }
 
+/// The global destinations — the only three (docs/room-workbench.md,
+/// decision 1). Files and Pipes left this rail because neither can answer a
+/// question without a room_id: they were always secretly about one room,
+/// chosen elsewhere, and now live in the room's own workbench. Home went
+/// because it duplicated Rooms, and Calls because a destination that only says
+/// "Soon" is a promise the product has not earned.
 List<_NavEntry> _nav(AppStrings s) => [
-  _NavEntry(NavKey.home, Tokens.sidebarGlyphHome, s.sidebarNavHome),
-  _NavEntry(NavKey.rooms, Tokens.sidebarGlyphRooms, s.sidebarNavRooms),
-  _NavEntry(NavKey.agents, Tokens.sidebarGlyphAgents, s.sidebarNavAgents),
-  _NavEntry(NavKey.pipes, Tokens.sidebarGlyphPipes, s.sidebarNavPipes),
-  _NavEntry(NavKey.files, Tokens.sidebarGlyphFiles, s.sidebarNavFiles),
-  _NavEntry(NavKey.calls, Tokens.sidebarGlyphCalls, s.sidebarNavCalls,
-      soon: true),
+  _NavEntry(GlobalDest.rooms, Tokens.sidebarGlyphRooms, s.sidebarNavRooms),
+  _NavEntry(GlobalDest.fleet, Tokens.sidebarGlyphAgents, s.sidebarNavFleet),
   _NavEntry(
-      NavKey.settings, Tokens.sidebarGlyphSettings, s.sidebarNavSettings),
+      GlobalDest.settings, Tokens.sidebarGlyphSettings, s.sidebarNavSettings),
 ];
 
 class Sidebar extends StatelessWidget {
@@ -56,12 +55,13 @@ class Sidebar extends StatelessWidget {
     required this.onJoinRoom,
   });
 
-  /// Derived by the shell from the last navigation intent (the web's
-  /// mobileView → activeNav mapping).
-  final NavKey activeNav;
+  /// Derived from the route (docs/room-workbench.md, decision 2) — a room
+  /// route highlights Rooms, because the workbench is somewhere you stand
+  /// inside Rooms rather than a fourth global destination.
+  final GlobalDest activeNav;
 
   /// Same handler for every nav item (Calls stays disabled).
-  final ValueChanged<NavKey> onNav;
+  final ValueChanged<GlobalDest> onNav;
 
   /// Room row click — the shell guards departed rooms.
   final ValueChanged<String> onSelectRoom;
@@ -88,7 +88,7 @@ class Sidebar extends StatelessWidget {
           const _Brand(),
           _ProfileCard(
             session: session,
-            onTap: () => onNav(NavKey.settings),
+            onTap: () => onNav(GlobalDest.settings),
           ),
           // Nav + rooms share ONE scrollable: the fixed rows above/below
           // total ~646dp at textScale 1.0, so a rooms-only Expanded lays the
@@ -280,8 +280,8 @@ class _ProfileAvatar extends StatelessWidget {
 class _NavList extends StatelessWidget {
   const _NavList({required this.activeNav, required this.onNav});
 
-  final NavKey activeNav;
-  final ValueChanged<NavKey> onNav;
+  final GlobalDest activeNav;
+  final ValueChanged<GlobalDest> onNav;
 
   @override
   Widget build(BuildContext context) {
@@ -304,7 +304,7 @@ class _NavList extends StatelessWidget {
                 child: _NavItem(
                   entry: entry,
                   active: activeNav == entry.key,
-                  onTap: entry.soon ? null : () => onNav(entry.key),
+                  onTap: () => onNav(entry.key),
                 ),
               ),
           ],
@@ -319,22 +319,15 @@ class _NavItem extends StatelessWidget {
 
   final _NavEntry entry;
   final bool active;
-
-  /// Null renders the disabled ('Soon') state.
-  final VoidCallback? onTap;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    final s = context.strings;
     final tokens = JeliyaTokens.of(context);
-    // Disabled nav (Calls) recedes with 0.5 opacity like the reference.
-    final disabled = onTap == null;
-    Color glyphColor = active ? tokens.accent : tokens.textMute;
-    Color labelColor = active ? tokens.text : tokens.textDim;
-    if (disabled) {
-      glyphColor = glyphColor.withValues(alpha: 0.5);
-      labelColor = labelColor.withValues(alpha: 0.5);
-    }
+    // Every entry is a real destination now, so none of them is dimmed: the
+    // disabled 'Soon' treatment existed only for Calls (decision 1).
+    final Color glyphColor = active ? tokens.accent : tokens.textMute;
+    final Color labelColor = active ? tokens.text : tokens.textDim;
     return Semantics(
       selected: active, // aria-current="page"
       child: TextButton(
@@ -371,22 +364,6 @@ class _NavItem extends StatelessWidget {
               child: Text(entry.label,
                   style: TextStyle(fontSize: 13.5, color: labelColor)),
             ),
-            if (entry.soon)
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-                decoration: BoxDecoration(
-                  color: tokens.bgCard2,
-                  borderRadius: BorderRadius.circular(JeliyaRadii.pill),
-                  border: Border.all(color: tokens.border),
-                ),
-                child: Text(
-                  s.sidebarNavSoon.toUpperCase(),
-                  style: TextStyle(
-                      fontSize: 9.5,
-                      letterSpacing: 0.76,
-                      color: tokens.textMute),
-                ),
-              ),
           ],
         ),
       ),
@@ -527,13 +504,17 @@ class _RoomItem extends StatelessWidget {
     final tokens = JeliyaTokens.of(context);
     final tint = tokens.colorForId(room.roomId);
     final departed = room.status == 'left' || room.status == 'removed';
+    // One label, one fact (docs/room-workbench.md, decision 4). `status` is
+    // signed membership; `open` is whether this daemon holds a live session.
+    // "Active" used to mean the latter here while meaning the former on the
+    // wire — so it is gone.
     final stateLabel = departed
         ? (room.status == 'left'
             ? s.sidebarStateLeft
             : s.sidebarStateRemoved)
         : room.open
-            ? s.sidebarStateActive
-            : s.sidebarStateIdle;
+            ? s.sidebarStateOpen
+            : s.sidebarStateClosed;
 
     Widget row = TextButton(
       onPressed: departed ? null : () => onSelectRoom(room.roomId),

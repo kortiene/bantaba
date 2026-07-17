@@ -1088,29 +1088,131 @@ abstract class AppStrings {
   /// **'Room panel'**
   String get panelRoomPanel;
 
-  /// Tab label in the right room panel; opens the member roster. Also the room-header button on the mobile chat screen that opens the same roster (room-detail view).
+  /// Room destination: the signed roster (members, invites, roles). Tab label in the room's tab strip, on every shell. Was 'Members'; 'People' keeps the destination name distinct from the roster status 'Member' (memberStatusMember), which is one row's fact rather than the whole surface.
   ///
   /// In en, this message translates to:
-  /// **'Members'**
-  String get panelTabMembers;
+  /// **'People'**
+  String get roomDestPeople;
 
-  /// Tab label in the right room panel; opens the list of agent members. Same English word as the 'Agents' stat tile (panelStatAgents) but a separate key — translate for a tab context.
+  /// Room destination: the agents in THIS room and their latest signed status. Distinct from the global Agent Fleet destination (sidebarNavFleet), which answers 'are my agents alive anywhere' — these two used to share the word 'Agents'. Keep short: it is a tab label.
   ///
   /// In en, this message translates to:
-  /// **'Agents'**
-  String get panelTabAgents;
+  /// **'Agents & Runs'**
+  String get roomDestAgents;
 
-  /// Tab label in the right room panel; opens the shared-files view.
+  /// Room destination: the files shared into this room. Tab label in the room's tab strip.
   ///
   /// In en, this message translates to:
   /// **'Files'**
-  String get panelTabFiles;
+  String get roomDestFiles;
 
-  /// Tab label in the right room panel; opens the port-forwarding pipes view. 'Pipe' is the product term for a forwarded local port.
+  /// Room destination: the pipes exposed and connected in this room. Tab label in the room's tab strip. 'pipe' is a protocol term and is never translated (docs/glossary-fr.md, Tier 2).
   ///
   /// In en, this message translates to:
   /// **'Pipes'**
-  String get panelTabPipes;
+  String get roomDestPipes;
+
+  /// Room destination: the room's signed timeline and composer — its home surface, and the destination where no room tool is open. Tab label in the room's tab strip. A real destination, not a synonym for 'a room is selected': navigating here is how the inspector closes.
+  ///
+  /// In en, this message translates to:
+  /// **'Activity'**
+  String get roomDestActivity;
+
+  /// Accessibility label for the room's tab strip (the group of Activity / People / Agents & Runs / Files / Pipes tabs). Names the group for screen-reader users; never shown as visible text.
+  ///
+  /// In en, this message translates to:
+  /// **'Room tools'**
+  String get roomNavLabel;
+
+  /// Accessibility label for the back control in the compact room app bar; leaves the room for the rooms list. 'Rooms' is the global destination name (sidebarNavRooms) — keep the two consistent.
+  ///
+  /// In en, this message translates to:
+  /// **'Back to Rooms'**
+  String get roomBackToRooms;
+
+  /// Accessibility label for the back control shown at the top of a room tool on a phone; returns to the room's Activity (roomDestActivity).
+  ///
+  /// In en, this message translates to:
+  /// **'Back to Activity'**
+  String get roomBackToActivity;
+
+  /// Accessibility label for the control that closes the room's tool panel on wide and medium windows, returning to the room's Activity.
+  ///
+  /// In en, this message translates to:
+  /// **'Close inspector'**
+  String get roomCloseInspector;
+
+  /// Accessibility label for the overflow control in the compact room app bar. Opens a disclosure holding the room's short id, session state, and peer connection detail — facts kept out of the bar itself so it stays one row on a narrow phone.
+  ///
+  /// In en, this message translates to:
+  /// **'Room information'**
+  String get roomInformation;
+
+  /// Label in the room-information disclosure for the room's short identifier. The id is the room's identity; the name is a label that two rooms may share (docs/room-workbench.md, decision 6).
+  ///
+  /// In en, this message translates to:
+  /// **'Room'**
+  String get roomInfoRoom;
+
+  /// Label in the room-information disclosure for whether this daemon holds a live session for the room. Its value is sidebarStateOpen or sidebarStateClosed.
+  ///
+  /// In en, this message translates to:
+  /// **'Session'**
+  String get roomInfoSession;
+
+  /// Label in the room-information disclosure for how many members of this room are agents.
+  ///
+  /// In en, this message translates to:
+  /// **'Agents'**
+  String get roomInfoAgents;
+
+  /// Label in the room-information disclosure for how many invitations to this room are still pending.
+  ///
+  /// In en, this message translates to:
+  /// **'Invites'**
+  String get roomInfoInvites;
+
+  /// Roster status for an identity whose signed membership is current (protocol `active`). Display label only: the wire value is never rendered directly (docs/i18n.md, rule 3). Distinct from sidebarStateOpen, which is about this daemon's session rather than membership.
+  ///
+  /// In en, this message translates to:
+  /// **'Member'**
+  String get memberStatusMember;
+
+  /// Roster status shown when the daemon reports a membership status this client does not recognize. Says so rather than guessing — never rendered as a normal state.
+  ///
+  /// In en, this message translates to:
+  /// **'Unknown'**
+  String get memberStatusUnknown;
+
+  /// Pipe state chip: the pipe is exposed AND a local forwarding session is live. Distinct from pipeStateOpen (exposed, nothing connected).
+  ///
+  /// In en, this message translates to:
+  /// **'Connected'**
+  String get pipeStateConnected;
+
+  /// Pipe state chip: the pipe is exposed but nothing is connected through it. An honest third state — not a synonym for connected.
+  ///
+  /// In en, this message translates to:
+  /// **'Open'**
+  String get pipeStateOpen;
+
+  /// Pipe state chip: the pipe is closed.
+  ///
+  /// In en, this message translates to:
+  /// **'Closed'**
+  String get pipeStateClosed;
+
+  /// Agent fleet filter: agents whose peer is reachable — liveness `working` or `online-idle`. Named for what it selects; 'Active' is retired as a display label because it also meant a local room session and signed membership (docs/room-workbench.md, decision 4).
+  ///
+  /// In en, this message translates to:
+  /// **'Live'**
+  String get fleetFilterLive;
+
+  /// Room header placeholder shown while the roster is still loading. Shown INSTEAD of a member count: the room's total member_count is a different fact and must not stand in for the roster (docs/room-workbench.md, decision 5 — loading is distinct from empty).
+  ///
+  /// In en, this message translates to:
+  /// **'Loading members…'**
+  String get roomLoadingMembers;
 
   /// Empty state of the Members tab, shown before any membership events have synced from the room history.
   ///
@@ -1898,11 +2000,11 @@ abstract class AppStrings {
   /// **'{n, plural, one{{n} invite pending} other{{n} invites pending}}'**
   String roomHeaderInvitesPending(num n);
 
-  /// Connectivity badge in the room header — one of three honest peer-to-peer states (the app never invents presence). Shown when the user is the only member present, so there are no peers to connect to.
+  /// Connectivity summary in the room header when the daemon reports no connected peers. States exactly that and nothing more: a room with other members whose peers are merely offline shows this too, so it must not imply the user is alone or that nobody else is in the room.
   ///
   /// In en, this message translates to:
-  /// **'Alone in this room'**
-  String get roomHeaderAloneInRoom;
+  /// **'No peers connected'**
+  String get roomHeaderNoPeersConnected;
 
   /// Connectivity badge in the room header — shown when at least one direct peer-to-peer connection to another member exists. Title-cased label; keep it short, it sits in a small badge.
   ///
@@ -2228,23 +2330,17 @@ abstract class AppStrings {
   /// **'Primary'**
   String get sidebarNavPrimaryLabel;
 
-  /// Primary navigation item in the left sidebar: the app's home/overview screen.
-  ///
-  /// In en, this message translates to:
-  /// **'Home'**
-  String get sidebarNavHome;
-
   /// Primary navigation label: the list of chat rooms. Shown in the left sidebar (desktop) and as a bottom tab (phone) — keep it short enough for a tab. 'Room' is the product's term for a peer-to-peer group conversation — keep consistent with other 'room' strings.
   ///
   /// In en, this message translates to:
   /// **'Rooms'**
   String get sidebarNavRooms;
 
-  /// Primary navigation label: the AI agents (fleet) screen. Shown in the left sidebar (desktop) and as a bottom tab (phone) — keep it short enough for a tab. Translate as the feature name for AI agents.
+  /// Primary navigation label: the global agent dashboard — agent liveness and runs across every authorized room. Shown in the room rail (desktop) and as a bottom tab (phone), and used as the dashboard's own title, so the entry and the page it opens agree. Distinct from a room's 'Agents & Runs' (roomDestAgents).
   ///
   /// In en, this message translates to:
-  /// **'Agents'**
-  String get sidebarNavAgents;
+  /// **'Agent Fleet'**
+  String get sidebarNavFleet;
 
   /// Primary navigation label: the peer-to-peer data pipes feature. Shown in the left sidebar (desktop) and as a bottom tab (phone) — keep it short enough for a tab. Translate as a feature name. (Distinct from the lowercase wire token “pipe” quoted in protocol copy, which is never translated.)
   ///
@@ -2258,23 +2354,11 @@ abstract class AppStrings {
   /// **'Files'**
   String get sidebarNavFiles;
 
-  /// Primary navigation item in the left sidebar: voice/video calls.
-  ///
-  /// In en, this message translates to:
-  /// **'Calls'**
-  String get sidebarNavCalls;
-
   /// Primary navigation label: app settings. Shown in the left sidebar (desktop) and as a bottom tab (phone) — keep it short enough for a tab.
   ///
   /// In en, this message translates to:
   /// **'Settings'**
   String get sidebarNavSettings;
-
-  /// Tiny badge/pill on sidebar navigation items that are not yet available (coming soon). Keep very short — it must fit in a small pill.
-  ///
-  /// In en, this message translates to:
-  /// **'Soon'**
-  String get sidebarNavSoon;
 
   /// Heading of the rooms list section in the sidebar — the rooms the user belongs to. English uses Title Case; follow the locale's heading convention.
   ///
@@ -2300,17 +2384,17 @@ abstract class AppStrings {
   /// **'No rooms yet'**
   String get sidebarNoRoomsYet;
 
-  /// Room state shown in the room row subtitle (see sidebarRoomMeta): the room has recent activity.
+  /// Room state in the room row subtitle (see sidebarRoomMeta): this daemon holds a live session for the room (room.list `open`). NOT membership — a room can be Open and Closed while membership never changes. Keep distinct from the roster's 'Member' (memberStatusMember).
   ///
   /// In en, this message translates to:
-  /// **'Active'**
-  String get sidebarStateActive;
+  /// **'Open'**
+  String get sidebarStateOpen;
 
-  /// Room state shown in the room row subtitle (see sidebarRoomMeta): the room is quiet / no recent activity.
+  /// Room state in the room row subtitle (see sidebarRoomMeta): this daemon holds no live session for the room. The counterpart of sidebarStateOpen; says nothing about membership or whether peers are reachable.
   ///
   /// In en, this message translates to:
-  /// **'Idle'**
-  String get sidebarStateIdle;
+  /// **'Closed'**
+  String get sidebarStateClosed;
 
   /// Room state shown in the room row subtitle (see sidebarRoomMeta): the user has left this room — past tense of 'to leave', NOT the direction left/right.
   ///
