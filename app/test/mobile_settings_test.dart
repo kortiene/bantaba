@@ -11,7 +11,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:jeliya_app/src/l10n/strings_context.dart';
 import 'package:jeliya_app/src/l10n/tokens.dart';
-import 'package:jeliya_app/src/screens/mobile_shell.dart';
 import 'package:jeliya_app/src/screens/settings_panel.dart';
 import 'package:jeliya_app/src/theme.dart';
 
@@ -48,17 +47,18 @@ Future<void> _reveal(
 Future<void> _expectSettingsAt(WidgetTester tester, Size size,
     {required bool french}) async {
   final ready = await pumpReadyMobileApp(tester, newMockClient(), size: size);
+  // Boot lands inside a room now, where the bottom bar is gone — reach the
+  // Settings pane through the rooms list. The shared nav helper keys off the
+  // English Back-to-Rooms label, so navigate BEFORE switching locale, then
+  // flip the pref (the panel_fr_layout_test live-switch idiom) and let the
+  // Settings pane re-render in French in place.
+  await mobileGoToGlobal(tester, en.sidebarNavSettings);
   if (french) {
-    // The live-switch idiom (panel_fr_layout_test): flip the pref, repump.
     ready.session.prefs.textLocale = 'fr';
     await pumpSteps(tester, steps: 3);
   }
   final s = french ? fr : en;
 
-  await tester.tap(find.descendant(
-      of: find.byType(MobileTabBar),
-      matching: find.widgetWithText(InkWell, s.sidebarNavSettings)));
-  await pumpSteps(tester, steps: 6);
   expect(find.byType(SettingsPanel).hitTestable(), findsOneWidget);
 
   final scrollable = find

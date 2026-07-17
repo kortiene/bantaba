@@ -1,14 +1,18 @@
-/// Mobile chat route (issue #17 polish): a room tap pushes the chat surface
-/// (RoomHeader with back affordance + honest P2P badge + Members affordance,
-/// room-keyed timeline, composer) — laid out with ZERO recorded overflows at
-/// 360x800 AND 360x640 in English AND French, with 44dp send/attach/header
-/// targets; the timeline keeps stick-to-bottom across a soft-keyboard inset,
-/// shows the new-messages pill when scrolled up (tap returns to the tail),
-/// and long-press text selection does not fight drag-to-scroll.
+/// Mobile chat route (issue #17 polish, on the Room Workbench IA of
+/// docs/room-workbench.md): a room row selects the room pane — its compact app
+/// bar (Back to Rooms + the room's P2P reach folded into one connectivity line),
+/// the room-nav strip (People and the other tools live there now, not as header
+/// buttons), a room-keyed timeline, and the composer — laid out with ZERO
+/// recorded overflows at 360x800 AND 360x640 in English AND French, with 44dp
+/// send/attach/nav targets; the timeline keeps stick-to-bottom across a
+/// soft-keyboard inset, shows the new-messages pill when scrolled up (tap
+/// returns to the tail), and long-press text selection does not fight
+/// drag-to-scroll.
 library;
 
 import 'package:flutter/material.dart' hide ConnectionState;
 import 'package:flutter_test/flutter_test.dart';
+import 'package:jeliya_app/src/l10n/strings_context.dart';
 import 'package:jeliya_app/src/l10n/tokens.dart';
 import 'package:jeliya_app/src/screens/composer.dart';
 import 'package:jeliya_app/src/screens/room_header.dart';
@@ -20,8 +24,18 @@ import 'helpers.dart';
 // i18n-exempt: fixture room name (coincides with modalRoomNamePlaceholder)
 const String _mainRoomName = 'Build Iroh Rooms MVP';
 
-Future<void> _openChat(WidgetTester tester) async {
-  await tester.tap(find.text(_mainRoomName).hitTestable());
+/// Boot restores this room and lands inside its Activity (decision 3), so reach
+/// the rooms list and re-open the room the way a user would — the room row →
+/// Activity selection the route drives — rather than depending on the boot
+/// pane. Locale-aware: the compact Back carries the active catalog's label.
+Future<void> _openChat(WidgetTester tester, [AppStrings? strings]) async {
+  final s = strings ?? en;
+  final back = find.bySemanticsLabel(s.roomBackToRooms);
+  if (back.evaluate().isNotEmpty) {
+    await tester.tap(back.first);
+    await pumpSteps(tester, steps: 4);
+  }
+  await tester.tap(find.text(_mainRoomName).hitTestable().first);
   await pumpSteps(tester, steps: 6);
   expect(find.byType(RoomHeader).hitTestable(), findsOneWidget);
 }
@@ -49,17 +63,31 @@ void main() {
         }
         final s = french ? fr : en;
 
-        await _openChat(tester);
+        await _openChat(tester, s);
 
-        // Header parity: room name, honest P2P badge (the fixture room has
-        // live direct peers), and the mobile Members affordance — all from
-        // the shared catalog.
-        expect(find.text(_mainRoomName), findsOneWidget);
-        expect(find.text(s.roomHeaderPeerToPeer), findsOneWidget);
-        final members = find.widgetWithText(TextButton, s.roomDestPeople);
-        expect(members.hitTestable(), findsOneWidget);
-        expect(tester.getSize(members).height, greaterThanOrEqualTo(44),
-            reason: 'Members header action is under the 44dp touch floor');
+        // Header parity in the compact form: the app bar carries the room name
+        // and folds the room's P2P reach into its single connectivity line —
+        // the fixture room has live direct peers, so that line reads
+        // Peer-to-Peer (a rich-text span, not a standalone badge, so match on
+        // containing text). People is reached from the room via the nav strip,
+        // not a header button. All copy from the shared catalog.
+        expect(
+            find.descendant(
+                of: find.byType(RoomHeader),
+                matching: find.text(_mainRoomName)),
+            findsOneWidget);
+        expect(
+            find.descendant(
+                of: find.byType(RoomHeader),
+                matching: find.textContaining(s.roomHeaderPeerToPeer)),
+            findsOneWidget,
+            reason: 'the compact app bar states the P2P reach on its '
+                'connectivity line');
+        final people = find.widgetWithText(InkWell, s.roomDestPeople);
+        expect(people, findsOneWidget,
+            reason: 'People is reached from the room via the nav strip');
+        expect(tester.getSize(people).height, greaterThanOrEqualTo(44),
+            reason: 'the People room-nav tab is under the 44dp touch floor');
 
         // Composer ergonomics: 44dp send and attach targets.
         expect(find.byType(Composer).hitTestable(), findsOneWidget);

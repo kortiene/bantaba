@@ -11,14 +11,12 @@ library;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:jeliya_app/src/l10n/strings_context.dart';
-import 'package:jeliya_app/src/l10n/tokens.dart';
 import 'package:jeliya_app/src/screens/modals/create_room.dart';
 import 'package:jeliya_app/src/screens/modals/invite.dart';
 import 'package:jeliya_app/src/screens/modals/join_room.dart';
 import 'package:jeliya_app/src/screens/modals/leave_room.dart';
 import 'package:jeliya_app/src/screens/modals/rename_peer.dart';
 import 'package:jeliya_app/src/screens/right_panel.dart';
-import 'package:jeliya_app/src/screens/room_header.dart';
 import 'package:jeliya_app/src/widgets/buttons.dart';
 import 'package:jeliya_app/src/widgets/sender_name.dart';
 
@@ -37,6 +35,9 @@ void main() {
         (tester) async {
       final ready =
           await pumpReadyMobileApp(tester, newMockClient(), size: size);
+      // Boot lands INSIDE a room now; Create is a rooms-list affordance, so
+      // step back out to the list to reach it (docs/room-workbench.md).
+      await mobileShowRoomsList(tester);
 
       await tester.tap(find.text(en.modalCreateRoom).hitTestable());
       await pumpSteps(tester, steps: 3);
@@ -58,6 +59,8 @@ void main() {
         (tester) async {
       final ready =
           await pumpReadyMobileApp(tester, newMockClient(), size: size);
+      // Boot lands INSIDE a room; Join lives on the rooms list.
+      await mobileShowRoomsList(tester);
 
       await tester.tap(find.text(en.modalJoinRoomTitle).hitTestable());
       await pumpSteps(tester, steps: 3);
@@ -94,22 +97,16 @@ void main() {
         'in en and fr', (tester) async {
       final ready =
           await pumpReadyMobileApp(tester, newMockClient(), size: size);
-      await tester.tap(find.text('Product Review').hitTestable());
-      await pumpSteps(tester, steps: 6);
+      // Boot lands in a room; open the one this flow targets from the list.
+      await mobileOpenRoom(tester, 'Product Review');
 
       Future<void> exercise(AppStrings s) async {
         final mark = ready.overflows.length;
-        // The chat header scrolls internally on short viewports — bring its
-        // primary Invite action into view first.
-        final invite = find
-            .text('${Tokens.roomHeaderInviteGlyph} ${s.roomHeaderInvite}');
-        await tester.scrollUntilVisible(invite, 60,
-            scrollable: find
-                .ancestor(
-                    of: find.byType(RoomHeader),
-                    matching: find.byType(Scrollable))
-                .first);
-        await tester.tap(invite.hitTestable());
+        // The compact app bar is one bounded, non-scrolling row now, and Invite
+        // is the one action it always keeps visible (room_header.dart) — so tap
+        // it directly rather than scrolling a header that no longer scrolls.
+        await tester.tap(
+            find.widgetWithText(JeliyaButton, s.roomHeaderInvite).hitTestable());
         await pumpSteps(tester, steps: 3);
         expect(find.byType(InviteModal), findsOneWidget);
         expect(_newOverflows(ready.overflows, mark), isEmpty);
@@ -151,10 +148,10 @@ void main() {
       client.memberRoomId = ready.session.rooms
           .firstWhere((r) => r.name == 'Product Review')
           .roomId;
-      await tester.tap(find.text('Product Review').hitTestable());
-      await pumpSteps(tester, steps: 6);
-      await tester.tap(find.text(en.roomDestPeople).hitTestable().first);
-      await pumpSteps(tester, steps: 6);
+      // Boot lands in a room; open Product Review, then step into its People
+      // tool (the roster carries Leave) via the room-nav strip.
+      await mobileOpenRoom(tester, 'Product Review');
+      await mobileGoToDest(tester, en.roomDestPeople);
       expect(find.byType(RightPanel).hitTestable(), findsOneWidget);
 
       Future<void> exercise(AppStrings s) async {
@@ -182,10 +179,9 @@ void main() {
       final session = ready.session;
       // Member rows carry tappable SenderNames near the top of the roster
       // (the timeline's are scrolled above its stick-to-bottom viewport).
-      await tester.tap(find.text('Product Review').hitTestable());
-      await pumpSteps(tester, steps: 6);
-      await tester.tap(find.text(en.roomDestPeople).hitTestable().first);
-      await pumpSteps(tester, steps: 6);
+      // Boot lands in a room; open Product Review and step into People.
+      await mobileOpenRoom(tester, 'Product Review');
+      await mobileGoToDest(tester, en.roomDestPeople);
       expect(find.byType(RightPanel).hitTestable(), findsOneWidget);
 
       // Any non-self sender opens the local-alias dialog on tap; the

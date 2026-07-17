@@ -11,7 +11,6 @@ library;
 
 import 'package:flutter/material.dart' hide ConnectionState;
 import 'package:flutter_test/flutter_test.dart';
-import 'package:jeliya_app/src/l10n/tokens.dart';
 import 'package:jeliya_app/src/screens/modals/create_room.dart';
 import 'package:jeliya_app/src/screens/modals/invite.dart';
 import 'package:jeliya_app/src/screens/modals/join_room.dart';
@@ -96,6 +95,9 @@ void main() {
     final session = ready.session;
     final roomsBefore = session.rooms.length;
 
+    // Boot lands inside the restored room; the create affordance lives on the
+    // rooms list, a Back away.
+    await mobileShowRoomsList(tester);
     await tester.tap(find.text(en.modalCreateRoom).hitTestable());
     await pumpSteps(tester, steps: 3);
     expect(find.byType(CreateRoomModal), findsOneWidget);
@@ -136,6 +138,8 @@ void main() {
     await pumpSteps(tester, steps: 2);
     final ticket = await minted;
 
+    // The join affordance lives on the rooms list; boot lands in a room.
+    await mobileShowRoomsList(tester);
     await tester.tap(find.text(en.modalJoinRoomTitle).hitTestable());
     await pumpSteps(tester, steps: 3);
     expect(find.byType(JoinRoomModal), findsOneWidget);
@@ -172,10 +176,10 @@ void main() {
     client.memberRoomId =
         session.rooms.firstWhere((r) => r.name == 'Product Review').roomId;
 
-    await tester.tap(find.text('Product Review').hitTestable());
-    await pumpSteps(tester, steps: 6);
-    await tester.tap(find.text(en.roomDestPeople).hitTestable().first);
-    await pumpSteps(tester, steps: 6);
+    // Open the room and its People tool (the inspector), where a plain
+    // member's Leave affordance lives.
+    await mobileOpenRoom(tester, 'Product Review');
+    await mobileGoToDest(tester, en.roomDestPeople);
     expect(find.byType(RightPanel).hitTestable(), findsOneWidget);
 
     await tester.tap(
@@ -209,19 +213,11 @@ void main() {
     final session = ready.session;
     final review =
         session.rooms.firstWhere((r) => r.name == 'Product Review');
-    await tester.tap(find.text('Product Review').hitTestable());
-    await pumpSteps(tester, steps: 6);
+    await mobileOpenRoom(tester, 'Product Review');
 
-    // The chat header scrolls internally on short viewports — bring its
-    // primary Invite action into view first.
-    final invite =
-        find.text('${Tokens.roomHeaderInviteGlyph} ${en.roomHeaderInvite}');
-    await tester.scrollUntilVisible(invite, 60,
-        scrollable: find
-            .ancestor(
-                of: find.byType(RoomHeader), matching: find.byType(Scrollable))
-            .first);
-    await tester.tap(invite.hitTestable());
+    // The compact room app bar carries Invite directly — no glyph prefix and
+    // no internal scroll: it is a fixed row at the top of the room pane.
+    await tester.tap(find.text(en.roomHeaderInvite).hitTestable().first);
     await pumpSteps(tester, steps: 3);
     expect(find.byType(InviteModal), findsOneWidget);
     expect(find.byType(Dialog), findsNothing); // full screen, not a dialog

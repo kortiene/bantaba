@@ -189,8 +189,17 @@ Future<void> mobileOpenRoom(WidgetTester tester, String roomName) async {
 
 /// Tap a room-nav destination (the "Room tools" tab strip): Activity, People,
 /// Agents & Runs, Files, or Pipes. Must be called while a room is open.
+///
+/// The strip is a horizontal scroller — at 360dp under the fat test font the
+/// right-hand tabs (Files, Pipes) sit off-screen, and the active tab's bold
+/// width shifts the scroll offset either way — so this reveals the target
+/// before tapping instead of tapping blind. `ensureVisible` on the tab's
+/// RenderObject scrolls it into view.
 Future<void> mobileGoToDest(WidgetTester tester, String destLabel) async {
-  await tester.tap(find.text(destLabel).hitTestable().first);
+  final tab = find.text(destLabel);
+  await tester.ensureVisible(tab.first);
+  await tester.pump();
+  await tester.tap(tab.first);
   await pumpSteps(tester, steps: 4);
 }
 

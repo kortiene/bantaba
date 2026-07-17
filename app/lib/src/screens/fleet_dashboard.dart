@@ -187,17 +187,26 @@ class _FleetDashboardState extends State<FleetDashboard> {
     final title = <Widget>[
       const TreeMark(size: 26),
       const SizedBox(width: JeliyaSpacing.x10),
-      Semantics(
-        header: true,
-        child: Text(
-          // The same words as the rail entry that opens it (decision 1). A
-          // rail reading "Agent Fleet" that lands on a page titled "Agents" —
-          // the name the room's own Agents & Runs destination also answers
-          // to — leaves the user to guess which question they just asked.
-          s.sidebarNavFleet,
-          style: const TextStyle(
-            fontSize: 22,
-            fontWeight: FontWeight.w700,
+      // Flexible with ellipsis: the title shares its row with the mark (and,
+      // on desktop, the search + Add Agent), and "Flotte d'agents" is wide
+      // enough to overrun a 360dp phone. It shortens rather than overflowing —
+      // and the same guard holds at 200% text, where even the English title
+      // needs the room to give.
+      Flexible(
+        child: Semantics(
+          header: true,
+          child: Text(
+            // The same words as the rail entry that opens it (decision 1). A
+            // rail reading "Agent Fleet" that lands on a page titled "Agents" —
+            // the name the room's own Agents & Runs destination also answers
+            // to — leaves the user to guess which question they just asked.
+            s.sidebarNavFleet,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              fontSize: 22,
+              fontWeight: FontWeight.w700,
+            ),
           ),
         ),
       ),

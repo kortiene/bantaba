@@ -13,7 +13,6 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:jeliya_app/src/l10n/tokens.dart';
 import 'package:jeliya_app/src/screens/modals/invite.dart';
-import 'package:jeliya_app/src/screens/room_header.dart';
 import 'package:jeliya_app/src/widgets/buttons.dart';
 import 'package:jeliya_app/src/widgets/copy_button.dart';
 
@@ -43,22 +42,24 @@ List<MethodCall> mockShareChannel(WidgetTester tester) {
 }
 
 /// Drives the running app to the invite screen's combined result view. On
-/// phones the chat header and the full-screen invite route scroll
-/// internally; the 1440x900 desktop shows everything without scrolling.
+/// phones the full-screen invite route scrolls internally; the 1440x900
+/// desktop shows everything without scrolling.
 Future<void> generateInvite(WidgetTester tester, {required bool mobile}) async {
-  await tester.tap(find.text('Product Review').hitTestable());
-  await pumpSteps(tester, steps: 6);
-
-  final invite =
-      find.text('${Tokens.roomHeaderInviteGlyph} ${en.roomHeaderInvite}');
+  // Reach Product Review. On phones boot lands inside a room and the rooms
+  // list is a Back away; on desktop the rail lists every room already.
   if (mobile) {
-    await tester.scrollUntilVisible(invite, 60,
-        scrollable: find
-            .ancestor(
-                of: find.byType(RoomHeader), matching: find.byType(Scrollable))
-            .first);
+    await mobileOpenRoom(tester, 'Product Review');
+  } else {
+    await tester.tap(find.text('Product Review').hitTestable());
+    await pumpSteps(tester, steps: 6);
   }
-  await tester.tap(invite.hitTestable());
+
+  // The Invite affordance differs by shell: the compact room app bar keeps it
+  // fixed at the top with a plain label; the desktop header prefixes the glyph.
+  final invite = mobile
+      ? find.text(en.roomHeaderInvite)
+      : find.text('${Tokens.roomHeaderInviteGlyph} ${en.roomHeaderInvite}');
+  await tester.tap(invite.hitTestable().first);
   await pumpSteps(tester, steps: 3);
   expect(find.byType(InviteModal), findsOneWidget);
 

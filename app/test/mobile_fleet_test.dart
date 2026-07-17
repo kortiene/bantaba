@@ -11,7 +11,6 @@ library;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:jeliya_app/src/screens/fleet_dashboard.dart';
-import 'package:jeliya_app/src/screens/mobile_shell.dart';
 import 'package:jeliya_protocol/jeliya_protocol.dart' show shortId;
 import 'package:jeliya_protocol/testing.dart' show MockPeople;
 
@@ -29,13 +28,6 @@ class _FleetCountingClient extends DelegatingClient {
     if (method == 'agents.fleet') fleetCalls += 1;
     return super.call(method, params);
   }
-}
-
-Future<void> _tapTab(WidgetTester tester, String label) async {
-  await tester.tap(find.descendant(
-      of: find.byType(MobileTabBar),
-      matching: find.widgetWithText(InkWell, label)));
-  await pumpSteps(tester, steps: 6);
 }
 
 /// Deterministically reveals [target] inside [scrollable]: jumpTo in fixed
@@ -59,14 +51,18 @@ Future<void> _reveal(
 Future<void> _expectAgentsSurfaceAt(WidgetTester tester, Size size,
     {required bool french}) async {
   final ready = await pumpReadyMobileApp(tester, newMockClient(), size: size);
+  // Boot lands inside a room now, where the bottom bar is gone — reach the
+  // Fleet pane through the rooms list. The shared nav helper keys off the
+  // English Back-to-Rooms label, so navigate BEFORE switching locale, then
+  // flip the pref (the panel_fr_layout_test live-switch idiom) and let the
+  // fleet surface re-render in French in place.
+  await mobileGoToGlobal(tester, en.sidebarNavFleet);
   if (french) {
-    // The live-switch idiom (panel_fr_layout_test): flip the pref, repump.
     ready.session.prefs.textLocale = 'fr';
     await pumpSteps(tester, steps: 3);
   }
   final s = french ? fr : en;
 
-  await _tapTab(tester, s.sidebarNavFleet);
   await pumpSteps(tester, steps: 10);
   expect(find.byType(FleetDashboard), findsOneWidget);
 
@@ -77,7 +73,7 @@ Future<void> _expectAgentsSurfaceAt(WidgetTester tester, Size size,
   expect(find.text(s.fleetStatRoomCoverage), findsNothing);
 
   // ...and the filter chips carry the live counts instead. Fixture fleet:
-  // 4 agents — backend working + frontend online-idle are Active, backend
+  // 4 agents — backend working + frontend online-idle are Live, backend
   // alone is Working, research (stale) + qa (offline) fold into Offline.
   Finder chipCount(String label, String count) => find.descendant(
       of: find.widgetWithText(TextButton, label), matching: find.text(count));
@@ -160,7 +156,7 @@ void main() {
     expect(client.fleetCalls, 0,
         reason: 'no fleet polling before the Agents tab first activates');
 
-    await _tapTab(tester, en.sidebarNavFleet);
+    await mobileGoToGlobal(tester, en.sidebarNavFleet);
     expect(find.byType(FleetDashboard), findsOneWidget);
     final afterMount = client.fleetCalls;
     expect(afterMount, greaterThanOrEqualTo(1),
@@ -170,7 +166,7 @@ void main() {
     expect(client.fleetCalls, greaterThanOrEqualTo(afterMount + 2),
         reason: 'the 4s poll must run while the tab is active');
 
-    await _tapTab(tester, en.sidebarNavRooms);
+    await mobileGoToGlobal(tester, en.sidebarNavRooms);
     expect(find.byType(FleetDashboard), findsNothing,
         reason: 'FleetDashboard must unmount when its tab deactivates');
     final afterLeave = client.fleetCalls;
@@ -180,7 +176,7 @@ void main() {
             'never run in the background');
 
     // Re-activating mounts a fresh store: one immediate reload.
-    await _tapTab(tester, en.sidebarNavFleet);
+    await mobileGoToGlobal(tester, en.sidebarNavFleet);
     expect(client.fleetCalls, greaterThan(afterLeave),
         reason: 're-activation reloads immediately');
   });

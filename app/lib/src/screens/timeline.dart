@@ -1083,11 +1083,27 @@ class _TimelineViewState extends State<TimelineView> {
             ),
           ),
           const SizedBox(width: JeliyaSpacing.x12),
-          JeliyaButton(
-            label: s.timelineOpenInPipes,
-            size: JeliyaButtonSize.sm,
-            onPressed: widget.onShowPipes,
-          ),
+          // A Row hands its trailing (non-flex) child unbounded width, so the
+          // fixed "Open in Pipes" button overruns a phone-width tile — the
+          // same defect _fileTile's control was already given a Flexible for.
+          // Surfaced by the compact room hiding the bottom bar (buying back
+          // ~72dp of timeline), which scrolls this pipe card into view where
+          // the shorter old room never reached it. Desktop keeps the
+          // intrinsic, right-flushed button.
+          if (isMobileWidth(context))
+            Flexible(
+              child: JeliyaButton(
+                label: s.timelineOpenInPipes,
+                size: JeliyaButtonSize.sm,
+                onPressed: widget.onShowPipes,
+              ),
+            )
+          else
+            JeliyaButton(
+              label: s.timelineOpenInPipes,
+              size: JeliyaButtonSize.sm,
+              onPressed: widget.onShowPipes,
+            ),
         ],
       ),
     );

@@ -1,11 +1,14 @@
-/// Shared-behavior ports to the mobile shell (issue #17 integration): the
-/// cross-cutting connection banner (shell_test idiom) and the optimistic-send
-/// pending lifecycle (timeline_test) run against the SAME DaemonSession and
-/// injected fakes as their desktop suites — only the surface differs: the
-/// strict 360x800 phone shell, with the chat a pushed route under the Rooms
-/// tab. The banner must overlay pushed routes too (the mobile shell renders
-/// it above the whole tab stack), and every pending phase renders in the
-/// mobile timeline without overflowing the strict surface.
+/// Shared-behavior ports to the mobile shell (issue #17 integration, re-cut for
+/// the Room Workbench): the cross-cutting connection banner (shell_test idiom)
+/// and the optimistic-send pending lifecycle (timeline_test) run against the
+/// SAME DaemonSession and injected fakes as their desktop suites — only the
+/// surface differs: the strict 360x800 phone shell, with the chat now the
+/// route-derived room pane (boot restores the last room and lands on its
+/// Activity), not a pushed route. The banner now RESERVES a row above the panes
+/// (a Column child, no longer a Positioned overlay), so it narrates over the
+/// rooms list AND inside a room without covering Back or the header, and every
+/// pending phase renders in the mobile timeline without overflowing the strict
+/// surface.
 library;
 
 import 'package:flutter/material.dart' hide ConnectionState;
@@ -22,9 +25,11 @@ import 'helpers.dart';
 // i18n-exempt: fixture room name (coincides with modalRoomNamePlaceholder)
 const String _mainRoomName = 'Build Iroh Rooms MVP';
 
+/// Open the main fixture room to its Activity. Boot already lands in a room, so
+/// this reaches the rooms list and re-opens the named one explicitly — robust
+/// regardless of which room boot restored, and it exercises the real open path.
 Future<void> _openChat(WidgetTester tester) async {
-  await tester.tap(find.text(_mainRoomName).hitTestable());
-  await pumpSteps(tester, steps: 6);
+  await mobileOpenRoom(tester, _mainRoomName);
   expect(find.byType(RoomHeader).hitTestable(), findsOneWidget);
 }
 
@@ -34,7 +39,7 @@ Finder _composerField() => find.descendant(
 void main() {
   testWidgets(
       'connection banner narrates reconnecting and disconnected over the '
-      'rooms home AND the pushed chat route', (tester) async {
+      'rooms list AND inside a room', (tester) async {
     final client = ConnectionFakeClient(newMockClient());
     final ready = await pumpReadyMobileApp(tester, client);
 
@@ -42,8 +47,10 @@ void main() {
     final reconnectingBanner = en.shellBannerReconnecting(client.describe());
     final disconnectedBanner = en.shellBannerDisconnected;
 
-    // Connected, on the rooms home: no banner; the identity footer's badge
-    // (the sidebar badge's mobile counterpart) reads Connected.
+    // Boot lands inside a room; the identity footer's connection badge (the
+    // sidebar badge's compact counterpart) lives on the rooms list, so read it
+    // there. Connected: no banner anywhere, footer reads Connected.
+    await mobileShowRoomsList(tester);
     expect(find.text(reconnectingBanner), findsNothing);
     expect(find.text(disconnectedBanner), findsNothing);
     expect(find.text(en.shellConnConnected), findsOneWidget);
@@ -53,8 +60,9 @@ void main() {
     expect(find.text(reconnectingBanner), findsOneWidget);
     expect(find.text(en.shellConnReconnecting), findsOneWidget); // footer badge
 
-    // Recover, then push the chat route: the banner must overlay pushed
-    // routes too — the mobile shell hangs it above the whole tab stack.
+    // Recover, then enter the room: the banner reserves its row above EVERY
+    // pane, so it narrates inside the room too — no longer an overlay hung
+    // above a tab stack, but a Column row above the route-derived pane.
     client.setConnection(ConnectionState.connected);
     await pumpSteps(tester, steps: 8);
     expect(find.text(reconnectingBanner), findsNothing);

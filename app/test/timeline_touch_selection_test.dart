@@ -42,9 +42,11 @@ void main() {
       'and starts no selection', (tester) async {
     final client = newMockClient();
     final ready = await pumpReadyMobileApp(tester, client);
-    await tester.tap(find.text(_mainRoomName).hitTestable());
-    await pumpSteps(tester, steps: 6);
+    // Boot restores the last room and lands on its Activity, so the richest
+    // fixture room (files, pipes, agent cards) is already open — the rooms-list
+    // hop the old compact shell needed is gone. Confirm we are standing in it.
     expect(find.byType(RoomHeader).hitTestable(), findsOneWidget);
+    expect(find.text(_mainRoomName), findsWidgets);
 
     // Land a fresh bubble at the stuck-to-bottom tail so the drag can start
     // on message TEXT (the worst case for a selection-vs-scroll conflict),

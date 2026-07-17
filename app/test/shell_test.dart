@@ -13,12 +13,14 @@ import 'package:jeliya_protocol/jeliya_protocol.dart' show ConnectionState;
 
 import 'helpers.dart';
 
-/// Asserts one right-panel tab shows [count] in its badge. Scoped to the tab
-/// strip (Semantics label `panelRoomPanel`) because the Agents/Files/Pipes
-/// labels also appear in the sidebar nav and the members-summary stats.
+/// Asserts one room-nav tab shows [count] in its badge. Scoped to the room
+/// tools strip (Semantics label `roomNavLabel`) because the People/Agents/
+/// Files/Pipes labels also appear in the sidebar nav and the members-summary
+/// stats. On wide the workspace carries this strip — the inspector is closed
+/// at Activity — so the route-derived counts are asserted there.
 void expectTabCount(WidgetTester tester, String label, int count) {
   final strip = find.byWidgetPredicate((widget) =>
-      widget is Semantics && widget.properties.label == en.panelRoomPanel);
+      widget is Semantics && widget.properties.label == en.roomNavLabel);
   final tabLabel =
       find.descendant(of: strip, matching: find.text(label));
   expect(tabLabel, findsOneWidget, reason: 'tab "$label" should exist');
@@ -135,11 +137,13 @@ void main() {
     expect(session.conn, ConnectionState.connected);
   });
 
-  testWidgets('right-panel tabs count members, agents, files, and open pipes',
+  testWidgets('room tools strip counts people, agents, files, and open pipes',
       (tester) async {
     await pumpReadyApp(tester, newMockClient());
 
-    // Fixture room: 7 members (4 with role agent), 5 files, 2 open pipes.
+    // Fixture room: 7 members (4 with role agent), 5 files, 2 open pipes. The
+    // strip's badges are route-derived (roomNavCounts) and identical wherever
+    // the strip is carried, so the wide workspace's copy is the one to read.
     expectTabCount(tester, en.roomDestPeople, 7);
     expectTabCount(tester, en.roomDestAgents, 4);
     expectTabCount(tester, en.roomDestFiles, 5);

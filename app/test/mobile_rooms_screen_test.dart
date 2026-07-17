@@ -1,7 +1,7 @@
 /// Mobile Rooms tab home (issue #17 polish): the fixture rooms render as
 /// rows with the identity-hash tile tint (theme colorForId), member-count +
 /// state meta whose state segment is a dot + label (status never color
-/// alone; the open room reads Active, closed rooms Idle), create/join
+/// alone; the open room reads Open, closed rooms Closed), create/join
 /// affordances and every row at the 44dp touch floor, and the identity
 /// footer (mono id + copy + connection badge) — at 360x800 AND 360x640, in
 /// English AND French (the #14 lesson), textScale 1.0, DPR 1.0, with ZERO
@@ -22,6 +22,11 @@ Future<void> _expectRoomsScreenAt(WidgetTester tester, Size size,
     {required bool french}) async {
   final ready = await pumpReadyMobileApp(tester, newMockClient(), size: size);
   final session = ready.session;
+  // Boot restores the last room and lands INSIDE it (docs/room-workbench.md,
+  // decision 3), so the rooms list is no longer the first pane — reach it the
+  // way a user does, via the room app bar's Back to Rooms. Before the French
+  // flip: the shared helper matches the English Back label.
+  await mobileShowRoomsList(tester);
   if (french) {
     // The live-switch idiom (panel_fr_layout_test): flip the pref, repump.
     session.prefs.textLocale = 'fr';
@@ -47,8 +52,8 @@ Future<void> _expectRoomsScreenAt(WidgetTester tester, Size size,
         reason: "room row '${room.name}' is under the 44dp touch floor");
   }
 
-  // State = dot + label: the boot-opened room reads Active, the other four
-  // fixture rooms Idle (the meta stays ONE message — sidebarRoomMeta).
+  // State = dot + label: the boot-opened room reads Open, the other four
+  // fixture rooms Closed (the meta stays ONE message — sidebarRoomMeta).
   expect(find.text(s.sidebarStateOpen), findsOneWidget);
   expect(find.text(s.sidebarStateClosed), findsNWidgets(4));
   final open = session.rooms.firstWhere((r) => r.open);

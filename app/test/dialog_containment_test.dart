@@ -137,8 +137,11 @@ Future<void> _expectContained(WidgetTester tester, Finder modal,
       reason: 'the ✕ must be visibly disabled while busy');
 }
 
-/// Opens the create-room dialog from the mobile rooms screen.
+/// Opens the create-room dialog from the mobile rooms screen. Boot lands
+/// inside a room now, so reach the rooms list — where the create affordance
+/// lives — first.
 Future<void> _openCreate(WidgetTester tester) async {
+  await mobileShowRoomsList(tester);
   await tester.tap(find.text(en.modalCreateRoom).hitTestable());
   await pumpSteps(tester, steps: 3);
   expect(find.byType(CreateRoomModal), findsOneWidget);
@@ -162,14 +165,13 @@ Future<int> _submitCreateGated(WidgetTester tester, _GatedClient client,
   return mark;
 }
 
-/// Navigates chat → Members and opens the leave dialog (member-self seam).
+/// Opens a room, its People tool (the inspector), and the leave dialog from
+/// the plain-member Leave affordance (member-self seam).
 Future<void> _openLeave(
     WidgetTester tester, _GatedMemberSelfClient client) async {
   // i18n-exempt: fixture room name, not copy
-  await tester.tap(find.text('Product Review').hitTestable());
-  await pumpSteps(tester, steps: 6);
-  await tester.tap(find.text(en.roomDestPeople).hitTestable().first);
-  await pumpSteps(tester, steps: 6);
+  await mobileOpenRoom(tester, 'Product Review');
+  await mobileGoToDest(tester, en.roomDestPeople);
   expect(find.byType(RightPanel).hitTestable(), findsOneWidget);
   await tester
       .tap(find.widgetWithText(JeliyaButton, en.panelLeave).hitTestable());
@@ -279,6 +281,8 @@ void main() {
     await pumpSteps(tester, steps: 2);
     final ticket = await minted;
 
+    // The join affordance lives on the rooms list; boot lands in a room.
+    await mobileShowRoomsList(tester);
     await tester.tap(find.text(en.modalJoinRoomTitle).hitTestable());
     await pumpSteps(tester, steps: 3);
     expect(find.byType(JoinRoomModal), findsOneWidget);
@@ -328,6 +332,8 @@ void main() {
     final ticket = await minted;
     final openedBefore = session.currentRoomId;
 
+    // The join affordance lives on the rooms list; boot lands in a room.
+    await mobileShowRoomsList(tester);
     await tester.tap(find.text(en.modalJoinRoomTitle).hitTestable());
     await pumpSteps(tester, steps: 3);
     await tester.enterText(
@@ -523,7 +529,9 @@ void main() {
     await pumpSteps(tester, steps: 3);
     expect(find.byType(CreateRoomModal), findsNothing);
 
-    // The full-screen presentation dismisses via system back too.
+    // The full-screen presentation dismisses via system back too. (The ✕
+    // above closed the create dialog back onto the rooms list, where Join is.)
+    await mobileShowRoomsList(tester);
     await tester.tap(find.text(en.modalJoinRoomTitle).hitTestable());
     await pumpSteps(tester, steps: 3);
     expect(find.byType(JoinRoomModal), findsOneWidget);

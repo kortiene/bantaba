@@ -1,16 +1,18 @@
-/// Mobile Pipes/Files surfaces + room-detail route (issue #17 polish):
+/// Mobile room tools — the compact inspector surfaces (issue #17 polish, on the
+/// Room Workbench IA of docs/room-workbench.md):
 ///
-/// - deep links keep their intent: the chat header's Share file / Open pipe
-///   and the timeline pipe tile each land on the room-detail route with the
-///   matching RightPanel tab;
-/// - the pinned Pipes/Files tabs show the honest select-a-room empty state
-///   when no room is open, and the web's `.panel-room-context` room label
-///   when one is;
-/// - fetch honesty survives the mobile surface: hash_mismatch is TERMINAL
-///   (no Retry), a self-shared file reads 'Serving to peers', never a fault;
-/// - panel actions meet the 44dp touch floor (web `.btn` min-height parity);
+/// - deep links keep their intent: the room app bar's ⋮ sheet Share file / Open
+///   pipe and a timeline pipe tile each land on a VISIBLE room tool (Files or
+///   Pipes) — an action lands on a visible surface, never a hidden pane (#54);
+/// - the route, the room-nav aria-selected tab, and the visible inspector pane
+///   agree — the invariant that replaced the pinned-Files-bottom-tab agreement,
+///   now structurally impossible (Files and Pipes are room tools, not bottom
+///   destinations);
+/// - fetch honesty survives the mobile surface: hash_mismatch is TERMINAL (no
+///   Retry), a self-shared file reads 'Serving to peers', never a fault;
+/// - room-tool actions meet the 44dp touch floor (web `.btn` min-height parity);
 /// - zero recorded overflows at 360x800 AND 360x640, in English AND French
-///   (the #14 lesson), across Files, Pipes, and every room-detail tab.
+///   (the #14 lesson), across every room tool.
 ///
 /// Copy is asserted via the shared en/fr catalog instances (docs/i18n.md
 /// rule 6); room/file/pipe names are mock fixture data and stay literal.
@@ -18,7 +20,6 @@ library;
 
 import 'package:flutter/material.dart' hide ConnectionState;
 import 'package:flutter_test/flutter_test.dart';
-import 'package:jeliya_app/src/screens/mobile_shell.dart';
 import 'package:jeliya_app/src/routes.dart';
 import 'package:jeliya_app/src/screens/right_panel.dart';
 import 'package:jeliya_app/src/screens/timeline.dart';
@@ -31,21 +32,56 @@ import 'helpers.dart';
 // i18n-exempt: fixture room name (coincides with modalRoomNamePlaceholder)
 const String _fixtureRoom = 'Build Iroh Rooms MVP';
 
-Finder _bottomTab(String label) => find.descendant(
-    of: find.byType(MobileTabBar),
-    matching: find.widgetWithText(InkWell, label));
-
-/// The one on-screen panel (IndexedStack keeps the offstage twin built).
+/// The one on-screen inspector (IndexedStack keeps the offstage twin built, but
+/// finders skip it, so the hit-testable RightPanel is the visible tool).
 Finder _visiblePanel() => find.byType(RightPanel).hitTestable();
 
-/// A tab button inside the visible panel's strip.
+/// A room-nav tab button inside the visible inspector's strip.
 Finder _panelTab(String label) => find.descendant(
     of: _visiblePanel(), matching: find.widgetWithText(InkWell, label));
 
-/// Taps a room row to push the chat route over the rooms list.
+/// Reach a room tool from wherever the room-nav strip is on screen (the room's
+/// Activity pane or another tool's inspector — both carry the strip). The strip
+/// scrolls horizontally: five labels overflow a phone, so some tabs sit off an
+/// edge at 360dp (in French the wide "Agents et exécutions" pushes Files and
+/// Pipes further out still), and its scroll offset persists across tab switches
+/// — so the target may be off the LEFT edge as easily as the right. mobileGoToDest
+/// taps blind and cannot reach an off-screen tab, so rewind the strip to the
+/// start, then advance until the target is on screen, and tap it.
+Future<void> _goToTool(WidgetTester tester, String label) async {
+  final tab = find.text(label);
+  final strip = find.byWidgetPredicate(
+      (w) => w is Scrollable && w.axisDirection == AxisDirection.right);
+  for (var i = 0; i < 6; i++) {
+    await tester.drag(strip.first, const Offset(240, 0));
+    await tester.pump();
+  }
+  for (var i = 0; i < 8 && tab.hitTestable().evaluate().isEmpty; i++) {
+    await tester.drag(strip.first, const Offset(-160, 0));
+    await tester.pump();
+  }
+  await tester.tap(tab.hitTestable().first);
+  await pumpSteps(tester, steps: 4);
+}
+
+/// Boot lands inside the fixture room's Activity; reach the rooms list and
+/// re-open the room the way a user would, so the deep-link tests drive the
+/// room-row → Activity selection rather than depending on the boot pane.
 Future<void> _openChat(WidgetTester tester) async {
-  await tester.tap(find.text(_fixtureRoom).hitTestable());
+  final back = find.bySemanticsLabel(en.roomBackToRooms);
+  if (back.evaluate().isNotEmpty) {
+    await tester.tap(back.first);
+    await pumpSteps(tester, steps: 4);
+  }
+  await tester.tap(find.text(_fixtureRoom).hitTestable().first);
   await pumpSteps(tester, steps: 6);
+}
+
+/// Opens the room app bar's ⋮ information sheet, where the two room tools the
+/// compact bar has no width for (Share file / Open pipe) now live.
+Future<void> _openRoomInfo(WidgetTester tester) async {
+  await tester.tap(find.bySemanticsLabel(en.roomInformation));
+  await pumpSteps(tester, steps: 3);
 }
 
 /// Scrolls the chat timeline (a lazy ListView) upward until [finder] is
@@ -82,38 +118,43 @@ class _HashMismatchClient extends DelegatingClient {
 }
 
 void main() {
-  testWidgets("deep link: chat header 'Share file' lands on the room-detail "
-      'Files tab', (tester) async {
+  testWidgets("deep link: chat header 'Share file' opens the visible Files "
+      'tool', (tester) async {
     await pumpReadyMobileApp(tester, newMockClient());
     await _openChat(tester);
 
+    // Share file moved into the app bar's ⋮ sheet (the compact bar is one
+    // non-wrapping row). Tapping it must still land on a VISIBLE Files surface,
+    // never a hidden pane (issue #54).
+    await _openRoomInfo(tester);
     await tester
         .tap(find.textContaining(en.roomHeaderShareFile).hitTestable());
     await pumpSteps(tester, steps: 6);
 
     expect(tester.widget<RightPanel>(_visiblePanel()).tab, RoomDest.files,
-        reason: "Share file must land on the detail route's Files tab");
+        reason: 'Share file navigates to the room Files tool');
     expect(find.text(en.panelShareCardTitle).hitTestable(), findsOneWidget,
-        reason: 'the share form must be immediately in reach');
+        reason: 'the share form is immediately in reach on a visible pane');
   });
 
-  testWidgets("deep link: chat header 'Open pipe' lands on the room-detail "
-      'Pipes tab', (tester) async {
+  testWidgets("deep link: chat header 'Open pipe' opens the visible Pipes "
+      'tool', (tester) async {
     await pumpReadyMobileApp(tester, newMockClient());
     await _openChat(tester);
 
+    await _openRoomInfo(tester);
     await tester
         .tap(find.textContaining(en.roomHeaderOpenPipe).hitTestable());
     await pumpSteps(tester, steps: 6);
 
     expect(tester.widget<RightPanel>(_visiblePanel()).tab, RoomDest.pipes,
-        reason: "Open pipe must land on the detail route's Pipes tab");
+        reason: 'Open pipe navigates to the room Pipes tool');
     // The fixture's open pipes render as rows (fixture targets are literal).
     expect(find.text('127.0.0.1:3000').hitTestable(), findsOneWidget);
   });
 
-  testWidgets("deep link: a timeline pipe tile's 'Open in Pipes' lands on "
-      'the room-detail Pipes tab', (tester) async {
+  testWidgets("deep link: a timeline pipe tile's 'Open in Pipes' opens the "
+      'visible Pipes tool', (tester) async {
     await pumpReadyMobileApp(tester, newMockClient());
     await _openChat(tester);
 
@@ -123,41 +164,47 @@ void main() {
     await pumpSteps(tester, steps: 6);
 
     expect(tester.widget<RightPanel>(_visiblePanel()).tab, RoomDest.pipes,
-        reason: 'the pipe tile must land on the Pipes tab');
+        reason: 'the pipe tile lands on the Pipes tool');
     expect(find.text('127.0.0.1:3000').hitTestable(), findsOneWidget);
   });
 
   testWidgets(
-      'pinned Pipes/Files tabs: honest select-a-room empty state when no '
-      'room is open, room-context label when one is', (tester) async {
-    final ready = await pumpReadyMobileApp(tester, newMockClient());
+      'route, room-nav aria-selected, and the visible pane agree — the '
+      'invariant that replaced the (now impossible) pinned-Files-tab agreement',
+      (tester) async {
+    // Files and Pipes are no longer bottom destinations, so 'the panel tab
+    // strip keeps the bottom navigation truthful' cannot be violated — there is
+    // nothing left to disagree with. What CAN still drift is the route, the
+    // room-nav selection, and the pane; the workbench keeps the three one thing,
+    // so prove they agree: open Files from the strip and read all three back.
+    await pumpReadyMobileApp(tester, newMockClient());
+    await _goToTool(tester, en.roomDestFiles);
 
-    // A room is open (bootstrap auto-opens the fixture room): the pinned
-    // surface shows the panel under the web's `.panel-room-context` label —
-    // the only room label these standalone panes get.
-    await tester.tap(_bottomTab(en.sidebarNavFiles));
-    await pumpSteps(tester, steps: 3);
-    expect(find.text(_fixtureRoom).hitTestable(), findsOneWidget);
-    expect(_visiblePanel(), findsOneWidget);
-
-    // No room open: an honest prompt, not an empty panel.
-    ready.session.leaveCurrentRoom();
-    await pumpSteps(tester, steps: 3);
-    expect(find.text(en.shellSelectRoom).hitTestable(), findsOneWidget);
-    expect(_visiblePanel(), findsNothing);
-
-    await tester.tap(_bottomTab(en.sidebarNavPipes));
-    await pumpSteps(tester, steps: 3);
-    expect(find.text(en.shellSelectRoom).hitTestable(), findsOneWidget);
-    expect(_visiblePanel(), findsNothing);
+    final panel = _visiblePanel();
+    // The pane (and the route it is derived from): the visible inspector is
+    // Files, and its Files body is the one on screen.
+    expect(tester.widget<RightPanel>(panel).tab, RoomDest.files);
+    expect(find.text(en.panelShareCardTitle).hitTestable(), findsOneWidget,
+        reason: 'the Files tool body is the one on screen');
+    // The strip: the Files tab is the selected one (aria-selected), so the tab
+    // strip and the pane cannot say different things — both are the route. The
+    // active RoomNav tab wraps its button in Semantics(selected: true).
+    expect(
+      find.ancestor(
+        of: _panelTab(en.roomDestFiles),
+        matching: find.byWidgetPredicate(
+            (w) => w is Semantics && w.properties.selected == true),
+      ),
+      findsOneWidget,
+      reason: 'the room-nav Files tab is aria-selected',
+    );
   });
 
   testWidgets(
-      'fetch honesty on the mobile Files tab: a self-shared file reads '
+      'fetch honesty on the Files tool: a self-shared file reads '
       "'Serving to peers', never a fault", (tester) async {
     await pumpReadyMobileApp(tester, newMockClient());
-    await tester.tap(_bottomTab(en.sidebarNavFiles));
-    await pumpSteps(tester, steps: 3);
+    await _goToTool(tester, en.roomDestFiles);
 
     // Exactly the one self-shared fixture file (room-protocol.md) serves.
     final serving = find.textContaining(en.panelHealthServingToPeers);
@@ -176,12 +223,11 @@ void main() {
   });
 
   testWidgets(
-      'fetch honesty on the mobile Files tab: hash_mismatch is terminal — '
-      'no Retry', (tester) async {
+      'fetch honesty on the Files tool: hash_mismatch is terminal — no Retry',
+      (tester) async {
     await pumpReadyMobileApp(
         tester, _HashMismatchClient(newMockClient()));
-    await tester.tap(_bottomTab(en.sidebarNavFiles));
-    await pumpSteps(tester, steps: 3);
+    await _goToTool(tester, en.roomDestFiles);
 
     final fetch = find.widgetWithText(TextButton, en.commonFetch);
     await tester.ensureVisible(fetch.first);
@@ -198,16 +244,16 @@ void main() {
         reason: 'the other fetchable rows keep their controls');
   });
 
-  testWidgets('mobile panel actions meet the 44dp touch floor',
-      (tester) async {
+  testWidgets('room-tool actions meet the 44dp touch floor', (tester) async {
     await pumpReadyMobileApp(tester, newMockClient());
 
-    await tester.tap(_bottomTab(en.sidebarNavFiles));
-    await pumpSteps(tester, steps: 3);
+    await _goToTool(tester, en.roomDestFiles);
+    // The room-nav tabs clear the floor even off the strip's visible edge
+    // (getSize measures the render box regardless of scroll position).
     for (final label in [en.roomDestPeople, en.roomDestPipes]) {
       expect(tester.getSize(_panelTab(label)).height,
           greaterThanOrEqualTo(44),
-          reason: "panel tab '$label' is under the 44dp floor");
+          reason: "room-nav tab '$label' is under the 44dp floor");
     }
     final chooseFile = find.widgetWithText(TextButton, en.panelChooseFile);
     expect(tester.getSize(chooseFile).height, greaterThanOrEqualTo(44));
@@ -220,8 +266,7 @@ void main() {
     await tester.pump();
     expect(tester.getSize(fetch.first).height, greaterThanOrEqualTo(44));
 
-    await tester.tap(_bottomTab(en.sidebarNavPipes));
-    await pumpSteps(tester, steps: 3);
+    await _goToTool(tester, en.roomDestPipes);
     final connect = find.widgetWithText(TextButton, en.panelConnect);
     await tester.ensureVisible(connect.first);
     await tester.pump();
@@ -230,16 +275,13 @@ void main() {
     expect(tester.getSize(close.first).height, greaterThanOrEqualTo(44));
   });
 
-  // The #14 lesson at the mobile widths: the full-width panel content must
-  // hold at 360dp under BOTH catalogs with zero recorded overflows — the
-  // pinned surfaces AND every tab of the room-detail route.
+  // The #14 lesson at the mobile widths: every room tool's full-width, full-body
+  // layout must hold at 360dp under BOTH catalogs with zero recorded overflows.
   for (final size in const [Size(360, 800), Size(360, 640)]) {
     for (final french in const [false, true]) {
       final label =
           '${size.width.toInt()}x${size.height.toInt()}, ${french ? 'fr' : 'en'}';
-      testWidgets(
-          'panel surfaces + room detail: zero overflows at $label',
-          (tester) async {
+      testWidgets('room tools: zero overflows at $label', (tester) async {
         final ready =
             await pumpReadyMobileApp(tester, newMockClient(), size: size);
         if (french) {
@@ -249,34 +291,24 @@ void main() {
         }
         final s = french ? fr : en;
 
-        // Pinned Pipes, then Files (SingleChildScrollView lays out the
-        // entire tab body, so every row participates in overflow checks).
-        await tester.tap(_bottomTab(s.sidebarNavPipes).hitTestable());
-        await pumpSteps(tester, steps: 3);
-        expect(find.text(_fixtureRoom).hitTestable(), findsOneWidget,
-            reason: 'the room-context label must top the pinned surface');
+        // Boot lands in the fixture room's Activity. Walk every room tool via
+        // the nav strip — on compact each tool takes the whole pane and its
+        // SingleChildScrollView lays out its entire body, so every row
+        // participates in the overflow check.
+        await _goToTool(tester, s.roomDestPipes);
+        expect(find.text(_fixtureRoom), findsOneWidget,
+            reason: 'the inspector head carries the room name on compact');
 
-        await tester.tap(_bottomTab(s.sidebarNavFiles).hitTestable());
-        await pumpSteps(tester, steps: 3);
+        await _goToTool(tester, s.roomDestFiles);
         expect(find.text(s.panelShareCardTitle), findsOneWidget);
 
-        // Members on the pinned strip → the shell pushes the room-detail
-        // route; walk its remaining tabs (locally-owned state).
-        await tester.tap(_panelTab(s.roomDestPeople).hitTestable());
-        await pumpSteps(tester, steps: 6);
-        expect(find.byType(BackButton).hitTestable(), findsOneWidget,
-            reason: 'members must land on the room-detail route');
-        for (final tab in [
-          s.roomDestAgents,
-          s.roomDestFiles,
-          s.roomDestPipes,
-        ]) {
-          final target = _panelTab(tab);
-          await tester.ensureVisible(target);
-          await tester.pump();
-          await tester.tap(target);
-          await pumpSteps(tester, steps: 3);
-        }
+        await _goToTool(tester, s.roomDestPeople);
+        // A room tool covers the pane (there is no pushed detail route now); the
+        // visible inspector IS People.
+        expect(tester.widget<RightPanel>(_visiblePanel()).tab, RoomDest.people,
+            reason: 'the People tool is the pane on screen');
+
+        await _goToTool(tester, s.roomDestAgents);
 
         expect(ready.overflows, isEmpty,
             reason: 'zero overflows expected at $label:\n'
