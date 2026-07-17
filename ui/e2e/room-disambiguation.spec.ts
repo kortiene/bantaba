@@ -59,10 +59,11 @@ test('the leave dialog always shows the room short id, even for a unique name', 
 test('leaving one homonym shows that exact room’s short id', async ({ app, page }) => {
   await app.gotoRoomsList();
 
-  // The first "Bug Triage" row is the one this identity is a plain member of
-  // (mock insertion order), so its roster offers Leave. Read its short id off
-  // the row before opening it.
-  const memberRow = app.roomItem(HOMONYM_ROOM).first();
+  // This identity is a plain member of the 4-member "Bug Triage" (it can leave)
+  // and owner of the 3-member one (it cannot). Select by that stable fact rather
+  // than list order — the room list now orders deterministically, so "first" is
+  // no longer the member room. Read its short id off the row before opening it.
+  const memberRow = app.roomItem(HOMONYM_ROOM).filter({ hasText: '4 member' });
   const rowId = (await memberRow.locator('.room-disambig').innerText()).trim();
   expect(rowId).toMatch(SHORT_ID);
 

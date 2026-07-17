@@ -204,6 +204,9 @@ test('leave: a pending leave is contained, then applies once', async ({ app, pag
   // stay open over a room this identity is no longer in.
   await expect(modal(page)).toHaveCount(0, { timeout: 10_000 });
   await expect(page).toHaveURL(/\/rooms(\?|$)/);
+  // A room you left is not lost — it moves into the collapsed "Left & removed"
+  // disclosure (issue #64). Expand it to reach the row it now lives in.
+  await app.showDeparted();
   await expect(app.roomItem(MOCK_ROOMS.review)).toBeDisabled();
   await expect(app.roomItem(MOCK_ROOMS.review)).toContainText('Left');
   await expect(app.sidebar).toBeVisible();
