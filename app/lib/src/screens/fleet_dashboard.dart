@@ -300,17 +300,19 @@ class _FleetDashboardState extends State<FleetDashboard> {
           a.identityId.toLowerCase().contains(q);
     }).toList();
 
-    // Homonyms across every room the fleet references (not just the visible
-    // agents — stable as filters change). A fleet chip DISPLAYS `name ??
-    // shortId(room_id)`, so that resolved string is what we group on: two
-    // rooms named the same collide and get the disambiguator, while untitled
-    // rooms already show their own short id and never do (docs/room-workbench.md,
-    // decision 6). Same grouping rule as the rooms list, its own display name.
+    // Homonyms across EVERY local room, not just the ones the fleet
+    // references. A name is ambiguous when two of the user's rooms share it —
+    // whether or not both have agents — so a fleet chip whose twin has no
+    // agents yet must still be disambiguated (it would otherwise read as
+    // unique here while the rooms rail shows it is not). A fleet chip DISPLAYS
+    // `name ?? shortId(room_id)`, so that resolved string is what we group on:
+    // two rooms named the same collide and get the disambiguator, while
+    // untitled rooms already show their own short id and never do
+    // (docs/room-workbench.md, decision 6).
     final roomHomonyms = homonymousRoomIds(
       [
-        for (final a in (fleet?.agents ?? const <FleetAgent>[]))
-          for (final r in a.rooms)
-            (roomId: r.roomId, name: r.name ?? shortId(r.roomId)),
+        for (final r in session.rooms)
+          (roomId: r.roomId, name: r.name ?? shortId(r.roomId)),
       ],
       untitledLabel: '',
     );
