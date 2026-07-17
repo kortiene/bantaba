@@ -9,11 +9,16 @@ export function InviteModal({
   client,
   roomId,
   endpointAddr,
+  connected,
   onClose,
 }: {
   client: Client;
   roomId: string;
   endpointAddr: string | null;
+  /** Ticket generation is gated on a live daemon connection: a request
+   *  queued while disconnected would keep the dialog busy — and
+   *  undismissable — for as long as the reconnect takes. */
+  connected: boolean;
   onClose(): void;
 }) {
   const [identityId, setIdentityId] = useState('');
@@ -25,7 +30,7 @@ export function InviteModal({
 
   const generate = async () => {
     const invitee = identityId.trim();
-    if (!invitee || busy) return;
+    if (!invitee || busy || !connected) return;
     setBusy(true);
     setError(null);
     setTicket(null);
@@ -106,8 +111,8 @@ export function InviteModal({
               />
             </label>
           </div>
-          <button type="submit" className="btn btn-primary" disabled={busy || !identityId.trim()}>
-            {busy ? 'Generating…' : 'Generate ticket'}
+          <button type="submit" className="btn btn-primary" disabled={busy || !identityId.trim() || !connected}>
+            {busy ? 'Generating…' : connected ? 'Generate ticket' : 'Reconnecting…'}
           </button>
           <ErrorNote error={error} />
         </form>

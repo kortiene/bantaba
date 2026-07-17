@@ -172,6 +172,11 @@ const fid = (seed: string) => `file_${hex(seed, 32)}`;
 const pid = (seed: string) => hex(seed, 32);
 
 const MAIN_ID = `blake3:${hex('room-build-iroh-rooms-mvp', 64)}`;
+// The room a `?mock_ticket=` preset ticket admits into. Deliberately NOT
+// seeded into the room map: you cannot list a room you have not joined, so
+// redeeming the ticket materializes it — the way a real join bootstraps a
+// room this daemon has never seen — and the join is a real state transition.
+const INVITED_ID = `blake3:${hex('room-invited-workspace', 64)}`;
 
 const F_RELEASE = fid('release-notes.txt');
 const F_PROTOCOL = fid('room-protocol.md');
@@ -496,11 +501,12 @@ class MockClient implements Client {
       );
       for (const room of [workspace, review, design, research]) this.rooms.set(room.room_id, room);
       // Regression-suite hook (`?mock_ticket=<suffix>`): a pre-minted,
-      // redeemable ticket for the main room, so a join success path can be
-      // driven end-to-end without first walking the invite flow.
+      // redeemable ticket into a room this identity has NOT joined yet (see
+      // INVITED_ID), so a join success path exercises a real membership and
+      // navigation transition instead of landing in an already-open room.
       if (presetTicket) {
         this.tickets.set(`roomtkt1${presetTicket}`, {
-          room_id: MAIN_ID,
+          room_id: INVITED_ID,
           identity_id: ALEX.id,
           role: 'member',
           expiresAt: null,
@@ -920,13 +926,37 @@ class MockClient implements Client {
           this.tickets.delete(ticket);
           this.err('ticket_expired', 'this ticket has expired', 'ask the inviter to generate a fresh one');
         }
-        const room = this.rooms.get(entry.room_id);
+        let room = this.rooms.get(entry.room_id);
+        if (!room && entry.room_id === INVITED_ID) {
+          // First redemption of the preset regression-suite ticket:
+          // materialize the room locally, like a real join bootstrapping a
+          // room this daemon has never seen.
+          room = buildSideRoom(
+            'invited-workspace',
+            'Invited Workspace',
+            [MAYA, SAM],
+            'member',
+            'Welcome — this room reached you as a ticket.',
+          );
+          this.rooms.set(room.room_id, room);
+        }
         if (!room) this.err('room_unknown', 'the invited room no longer exists on this daemon', 'ask the inviter for a fresh ticket');
         // Single-use: redeeming the same ticket twice should fail like a real
         // spent one, not silently succeed again.
         this.tickets.delete(ticket);
-        if (!room.members.some((m) => m.identity_id === identity.identity_id)) {
+        const existing = room.members.find((m) => m.identity_id === identity.identity_id);
+        if (!existing) {
           room.members.push({ identity_id: identity.identity_id, role: entry.role, status: 'active' });
+          this.ingest(room, ev(room.room_id, Date.now(), { ...ALEX, id: identity.identity_id, dev: identity.device_id, role: entry.role }, 'member_joined', {
+            member: { identity_id: identity.identity_id, role: entry.role },
+          }));
+        } else if (existing.status !== 'active') {
+          // A fresh ticket re-admits an identity that left or was removed;
+          // keeping status 'left' after a successful join would strand the
+          // UI in a departed room (the real daemon publishes a new
+          // member_joined on re-admission).
+          existing.status = 'active';
+          existing.role = entry.role;
           this.ingest(room, ev(room.room_id, Date.now(), { ...ALEX, id: identity.identity_id, dev: identity.device_id, role: entry.role }, 'member_joined', {
             member: { identity_id: identity.identity_id, role: entry.role },
           }));

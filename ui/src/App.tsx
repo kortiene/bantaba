@@ -900,12 +900,19 @@ export default function App({ client }: { client: Client }) {
         <MobileTabBar active={activeNav} onNav={navigate} />
 
         {inviteOpen && roomId ? (
-          <InviteModal client={client} roomId={roomId} endpointAddr={endpointAddr} onClose={() => setInviteOpen(false)} />
+          <InviteModal
+            client={client}
+            roomId={roomId}
+            endpointAddr={endpointAddr}
+            connected={conn === 'connected'}
+            onClose={() => setInviteOpen(false)}
+          />
         ) : null}
 
         {createOpen ? (
           <CreateRoomModal
             client={client}
+            connected={conn === 'connected'}
             onDiagnosticError={rememberError}
             onClose={() => setCreateOpen(false)}
             onCreated={(rid) => {
@@ -919,6 +926,7 @@ export default function App({ client }: { client: Client }) {
         {joinOpen ? (
           <JoinRoomModal
             client={client}
+            connected={conn === 'connected'}
             onDiagnosticError={rememberError}
             onClose={() => setJoinOpen(false)}
             onJoined={(rid) => {
@@ -932,6 +940,7 @@ export default function App({ client }: { client: Client }) {
         {leaveOpen && roomId && currentRoom ? (
           <LeaveRoomModal
             client={client}
+            connected={conn === 'connected'}
             roomId={roomId}
             roomName={currentRoom.name ?? 'Untitled room'}
             onDiagnosticError={rememberError}
@@ -960,11 +969,17 @@ export default function App({ client }: { client: Client }) {
 
 function JoinRoomModal({
   client,
+  connected,
   onDiagnosticError,
   onClose,
   onJoined,
 }: {
   client: Client;
+  /** Submits are gated on a live daemon connection: a request queued while
+   *  disconnected would keep the dialog busy — and undismissable — for as
+   *  long as the reconnect takes. In-flight requests are safe either way
+   *  (the client rejects them with connection_lost when the socket drops). */
+  connected: boolean;
   onDiagnosticError: DiagnosticErrorRecorder;
   onClose(): void;
   onJoined(roomId: string): void;
@@ -976,7 +991,7 @@ function JoinRoomModal({
   const [progress, setProgress] = useState<JoinProgress | null>(null);
 
   const join = async () => {
-    if (!ticket.trim() || busy) return;
+    if (!ticket.trim() || busy || !connected) return;
     setBusy(true);
     setError(null);
     setProgress(null);
@@ -1028,8 +1043,8 @@ function JoinRoomModal({
             spellCheck={false}
           />
         </label>
-        <button type="submit" className="btn btn-primary" disabled={busy || !ticket.trim()}>
-          {busy ? 'Joining…' : 'Join room'}
+        <button type="submit" className="btn btn-primary" disabled={busy || !ticket.trim() || !connected}>
+          {busy ? 'Joining…' : connected ? 'Join room' : 'Reconnecting…'}
         </button>
         {progress ? (
           <div className="join-progress" role="status">
@@ -1048,11 +1063,14 @@ function JoinRoomModal({
 
 function CreateRoomModal({
   client,
+  connected,
   onDiagnosticError,
   onClose,
   onCreated,
 }: {
   client: Client;
+  /** See JoinRoomModal.connected. */
+  connected: boolean;
   onDiagnosticError: DiagnosticErrorRecorder;
   onClose(): void;
   onCreated(roomId: string): void;
@@ -1062,7 +1080,7 @@ function CreateRoomModal({
   const [error, setError] = useState<DaemonErrorShape | null>(null);
 
   const create = async () => {
-    if (!name.trim() || busy) return;
+    if (!name.trim() || busy || !connected) return;
     setBusy(true);
     setError(null);
     try {
@@ -1086,8 +1104,8 @@ function CreateRoomModal({
           <span>Room name</span>
           <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Build Iroh Rooms MVP" autoFocus />
         </label>
-        <button type="submit" className="btn btn-primary" disabled={busy || !name.trim()}>
-          {busy ? 'Creating…' : 'Create room'}
+        <button type="submit" className="btn btn-primary" disabled={busy || !name.trim() || !connected}>
+          {busy ? 'Creating…' : connected ? 'Create room' : 'Reconnecting…'}
         </button>
         <ErrorNote error={error} />
       </form>
@@ -1097,6 +1115,7 @@ function CreateRoomModal({
 
 function LeaveRoomModal({
   client,
+  connected,
   roomId,
   roomName,
   onDiagnosticError,
@@ -1104,6 +1123,8 @@ function LeaveRoomModal({
   onLeft,
 }: {
   client: Client;
+  /** See JoinRoomModal.connected. */
+  connected: boolean;
   roomId: string;
   roomName: string;
   onDiagnosticError: DiagnosticErrorRecorder;
@@ -1114,7 +1135,7 @@ function LeaveRoomModal({
   const [error, setError] = useState<DaemonErrorShape | null>(null);
 
   const leave = async () => {
-    if (busy) return;
+    if (busy || !connected) return;
     setBusy(true);
     setError(null);
     try {
@@ -1139,8 +1160,8 @@ function LeaveRoomModal({
           the local session; you’ll need a new invite to join again.
         </p>
         <div className="field-row">
-          <button type="submit" className="btn btn-danger" disabled={busy}>
-            {busy ? 'Leaving…' : 'Leave room'}
+          <button type="submit" className="btn btn-danger" disabled={busy || !connected}>
+            {busy ? 'Leaving…' : connected ? 'Leave room' : 'Reconnecting…'}
           </button>
           {/* Initial focus lands on Cancel, never the destructive action —
               Enter right after opening must not publish a departure. */}

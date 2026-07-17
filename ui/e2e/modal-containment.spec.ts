@@ -100,13 +100,58 @@ test('join: a pending join is contained, then applies its transition once', asyn
   await expect(modal(page)).toBeVisible();
   await expect(modal(page).getByRole('button', { name: 'Close' })).toBeDisabled();
 
-  // Success: the dialog closes and the joined room opens, exactly once.
+  // Success: the dialog closes and the join lands exactly once — a room this
+  // identity had never joined appears and opens (a real state transition,
+  // not a re-open of something already there).
   await expect(modal(page)).toHaveCount(0, { timeout: 10_000 });
+  await expect(app.roomItem('Invited Workspace')).toHaveCount(1);
+  await expect(app.roomItem('Invited Workspace')).toContainText('Active');
   if (app.compact) {
-    await app.roomItem(MOCK_ROOMS.main).click();
+    await app.roomItem('Invited Workspace').click();
   }
-  await expect(page.getByRole('heading', { level: 1, name: MOCK_ROOMS.main })).toBeVisible();
-  await expect(app.timeline).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: 'Invited Workspace' })).toBeVisible();
+  await expect(app.timeline.getByText('You joined as member', { exact: false })).toBeVisible();
+});
+
+test('create: a keyboard double-submit fires exactly one request', async ({ app, page }) => {
+  await app.gotoPopulated({ mock_delay: 'room.create:800' });
+  if (app.compact) await app.mobileTab('Rooms').click();
+  await page.getByRole('button', { name: 'Create Room', exact: true }).click();
+
+  const name = modal(page).getByLabel('Room name');
+  await name.fill('Double Submit Room');
+  // Enter submits the form; the second Enter lands inside the busy window
+  // (the mock holds room.create for 800ms) and must be swallowed.
+  await name.press('Enter');
+  await name.press('Enter');
+
+  await expect(modal(page)).toHaveCount(0, { timeout: 10_000 });
+  if (app.compact) await app.mobileTab('Rooms').click();
+  // Wait for the full success transition (open flag applied), then count:
+  // a duplicated request would have produced a second same-named room.
+  await expect(app.roomItem('Double Submit Room')).toContainText('Active');
+  await expect(app.roomItem('Double Submit Room')).toHaveCount(1);
+});
+
+test('join: a keyboard double-submit consumes the single-use ticket once', async ({
+  app,
+  page,
+}) => {
+  await app.gotoPopulated({ mock_ticket: TICKET_SUFFIX, mock_delay: 'room.join:800' });
+  if (app.compact) await app.mobileTab('Rooms').click();
+  await page.getByRole('button', { name: 'Join with a ticket' }).click();
+
+  await modal(page).getByLabel('Ticket').fill(`roomtkt1${TICKET_SUFFIX}`);
+  // Enter in the peer-address input submits the form; tickets are single-use
+  // in the mock, so a duplicated request would fail loudly with bad_ticket.
+  const peerAddr = modal(page).getByLabel('Peer address', { exact: false });
+  await peerAddr.press('Enter');
+  await peerAddr.press('Enter');
+
+  await expect(modal(page)).toHaveCount(0, { timeout: 10_000 });
+  await expect(app.roomItem('Invited Workspace')).toHaveCount(1);
+  // No stray failure from a second redemption anywhere.
+  await expect(page.locator('.error-note')).toHaveCount(0);
 });
 
 test('join: failure restores interaction with a real error', async ({ app, page }) => {

@@ -76,6 +76,25 @@ test('timeline Open in Pipes opens Pipes and identifies the pipe', async ({
   await expect(row).toBeInViewport();
 });
 
+test('Open in Pipes identifies the pipe even while pipe.list is still loading', async ({
+  app,
+  page,
+}) => {
+  // Hold every pipe.list response so the action fires into an empty list —
+  // the focus request must survive until the list arrives, not be dropped.
+  await app.gotoPopulated({ mock_delay: 'pipe.list:1200' });
+  await app.openRoom(MOCK_ROOMS.main);
+  await app.timeline.getByRole('button', { name: 'Open in Pipes' }).first().click();
+
+  await expect(page.getByRole('tab', { name: 'Pipes', exact: false })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+  const row = app.rightPanel.locator('.pipe-row', { hasText: '127.0.0.1:4000' });
+  await expect(row).toBeFocused({ timeout: 10_000 });
+  await expect(row).toBeInViewport();
+});
+
 test('mobile: the panel tab strip keeps the bottom navigation truthful', async ({
   app,
   page,
