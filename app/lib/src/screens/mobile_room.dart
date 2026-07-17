@@ -17,6 +17,7 @@ import '../l10n/strings_context.dart';
 import '../routes.dart';
 import '../session/daemon_session.dart';
 import '../theme.dart';
+import '../widgets/buttons.dart';
 import '../widgets/error_note.dart';
 import 'composer.dart';
 import 'room_header.dart';
@@ -52,6 +53,66 @@ RoomSummary? roomSummaryOf(DaemonSession session, String? roomId) {
   return null;
 }
 
+/// The compact room pane when the route names a room this device has no live
+/// session for — a joined-then-left archive a reconnect closed, or a row no
+/// longer in `room.list`. Inside a room route the bottom bar is gone
+/// (MobileShell hides it whenever `route.roomId != null`), so a bare empty
+/// state here would strand the user with no visible way out. State the fact —
+/// the signed departure when the roster proves one, otherwise the plain "no
+/// room here" — and always offer Back to Rooms, the one destination that is
+/// always a way back (docs/room-workbench.md, decision 2: an unreachable room
+/// resolves to a recoverable state, and Rooms is the recovery).
+class RoomPaneUnavailable extends StatelessWidget {
+  const RoomPaneUnavailable({
+    super.key,
+    required this.roomId,
+    required this.onBack,
+  });
+
+  final String? roomId;
+  final VoidCallback onBack;
+
+  @override
+  Widget build(BuildContext context) {
+    final s = context.strings;
+    final tokens = JeliyaTokens.of(context);
+    final session = SessionScope.of(context);
+    final summary = roomSummaryOf(session, roomId);
+    final title = switch (summary?.status) {
+      'left' => s.sidebarLeftRoomTitle,
+      'removed' => s.sidebarRemovedRoomTitle,
+      _ => s.shellSelectRoom,
+    };
+    return ColoredBox(
+      color: tokens.bg,
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(JeliyaSpacing.page),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                title,
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 13.5, color: tokens.textDim),
+              ),
+              const SizedBox(height: JeliyaSpacing.x12),
+              ConstrainedBox(
+                constraints: const BoxConstraints(minHeight: 44),
+                child: JeliyaButton(
+                  label: s.roomBackToRooms,
+                  semanticLabel: s.roomBackToRooms,
+                  onPressed: onBack,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class MobileRoomScreen extends StatelessWidget {
   const MobileRoomScreen({
     super.key,
@@ -77,7 +138,9 @@ class MobileRoomScreen extends StatelessWidget {
     final tokens = JeliyaTokens.of(context);
     final room = session.room;
     if (roomId == null || room == null || room.roomId != roomId) {
-      return const RoomPaneEmpty();
+      // The bottom bar is hidden on this route, so the empty pane must carry
+      // its own way back (finding: an empty room pane on compact had none).
+      return RoomPaneUnavailable(roomId: roomId, onBack: onBack);
     }
     final summary = roomSummaryOf(session, room.roomId);
     return ColoredBox(

@@ -126,8 +126,26 @@ class _ShellScreenState extends State<ShellScreen> {
   }
 
   /// Room-row and fleet-card clicks. A room's canonical landing surface is its
-  /// timeline, so selecting one is navigating to its Activity.
-  void _selectRoom(String roomId) => _navigate(RoomRoute(roomId));
+  /// timeline, so selecting one is navigating to its Activity — unless it is a
+  /// room this identity cannot open, in which case the only honest destination
+  /// is Rooms.
+  ///
+  /// A fleet card can name a joined-then-left archive (`agents.fleet` aggregates
+  /// over left/removed archives too — docs/PROTOCOL.md), and a stale row can
+  /// name one the roster has since departed. `selectRoom` refuses to open those,
+  /// so routing INTO one would leave the workspace empty behind a hidden bottom
+  /// bar — a dead end with no way out. Mirror the web's `selectRoom`: land on
+  /// Rooms, which is always a way back.
+  void _selectRoom(String roomId) {
+    final summary = _summaryOf(SessionScope.of(context), roomId);
+    if (summary == null ||
+        summary.status == 'left' ||
+        summary.status == 'removed') {
+      _navigate(kRoomsRoute);
+      return;
+    }
+    _navigate(RoomRoute(roomId));
+  }
 
   void _navigateGlobal(GlobalDest dest) => _navigate(GlobalRoute(dest));
 
@@ -400,12 +418,17 @@ class _ShellScreenState extends State<ShellScreen> {
   Widget _buildWorkspace(BuildContext context, Shell shell,
       DaemonSession session, AppStrings s, JeliyaTokens tokens) {
     final room = session.room;
-    final summary = _summaryOf(session, _route.roomId);
-    // The workspace renders the room the ROUTE names. A store whose id has
-    // moved on belongs to a different room, and drawing it under this route's
-    // name is exactly the disagreement the route model exists to make
-    // impossible.
-    if (room == null || room.roomId != _route.roomId) {
+    final routeRoomId = _route.roomId;
+    // Render the session's open room whenever the route names NO room — a
+    // Fleet/Settings overlay (or Rooms) sits OVER this workspace, which stays
+    // mounted behind it (Visibility maintainState) so the timeline's scroll and
+    // the composer's draft survive the round trip. Clearing on a null route id
+    // would unmount the TimelineView the moment the overlay opens, and the
+    // maintained state would be gone before the user came back. Only clear when
+    // there is genuinely no open room, or the route names a DIFFERENT room than
+    // the session holds — drawing that store under this route's name is the
+    // disagreement the route model exists to make impossible.
+    if (room == null || (routeRoomId != null && room.roomId != routeRoomId)) {
       return ColoredBox(
         color: tokens.bg,
         child: Center(
@@ -414,6 +437,7 @@ class _ShellScreenState extends State<ShellScreen> {
         ),
       );
     }
+    final summary = _summaryOf(session, room.roomId);
     return ColoredBox(
       color: tokens.bg,
       child: ListenableBuilder(

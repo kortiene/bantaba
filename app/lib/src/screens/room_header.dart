@@ -406,7 +406,7 @@ class _RoomInfo extends StatelessWidget {
     final s = context.strings;
     final tokens = JeliyaTokens.of(context);
     final summary = this.summary;
-    return Padding(
+    final content = Padding(
       padding: const EdgeInsets.fromLTRB(
           JeliyaSpacing.x8, JeliyaSpacing.x8, 0, JeliyaSpacing.x4),
       child: Column(
@@ -470,6 +470,19 @@ class _RoomInfo extends StatelessWidget {
           ),
         ],
       ),
+    );
+    // The disclosure opens directly above the Expanded timeline in a
+    // fixed-height room column. Left unbounded, a long peer-chip list — or a
+    // keyboard-shrunk viewport — grows the app bar until the timeline and
+    // composer are pushed off-screen (it was the chip strip that first drove
+    // the timeline under its floor). Cap it at a fraction of the space left
+    // after the keyboard inset and scroll the facts, chips, and actions within
+    // that cap, so opening ⋮ never costs the timeline its room.
+    final mq = MediaQuery.of(context);
+    return ConstrainedBox(
+      constraints: BoxConstraints(
+          maxHeight: (mq.size.height - mq.viewInsets.bottom) * 0.5),
+      child: SingleChildScrollView(child: content),
     );
   }
 }
@@ -540,6 +553,11 @@ class _IconButton extends StatelessWidget {
       button: true,
       label: tooltip,
       expanded: expanded,
+      // The InkWell below is excluded, so its tap action never reaches the
+      // semantics tree — without this the node announces a labelled button a
+      // screen reader can name but cannot activate. Carry the action on the
+      // labelled node itself; the excluded glyph stays decorative.
+      onTap: onPressed,
       child: ExcludeSemantics(
         child: Tooltip(
           message: tooltip,
