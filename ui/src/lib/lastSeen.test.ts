@@ -1,0 +1,124 @@
+// @vitest-environment jsdom
+//
+// jsdom gives this file a real `localStorage` for the load/save round-trip; the
+// pure seed/mark/unread helpers need no DOM. The Dart mirror of the shared-
+// fixture block lives in dart/jeliya_protocol/test/conventions_test.dart — both
+// read ./conformance/room-attention.fixtures.json, so the two clients decide
+// unread from ONE source (docs/room-attention.md; issue #63, AC7).
+
+import { beforeEach, describe, expect, it } from 'vitest';
+import {
+  isRoomUnread,
+  loadLastSeen,
+  markRoomSeen,
+  saveLastSeen,
+  seedRoomSeen,
+  type LastSeen,
+} from './lastSeen';
+import fixtures from './conformance/room-attention.fixtures.json';
+
+const R1 = 'blake3:1111111111111111111111111111111111111111111111111111111111111111';
+const R2 = 'blake3:2222222222222222222222222222222222222222222222222222222222222222';
+
+describe('loadLastSeen / saveLastSeen', () => {
+  beforeEach(() => localStorage.clear());
+
+  it('round-trips a mark map through localStorage', () => {
+    saveLastSeen({ [R1]: 1700, [R2]: 42 });
+    expect(loadLastSeen()).toEqual({ [R1]: 1700, [R2]: 42 });
+  });
+
+  it('returns an empty map when nothing is stored', () => {
+    expect(loadLastSeen()).toEqual({});
+  });
+
+  it('drops non-number marks, like names.ts drops non-string aliases', () => {
+    localStorage.setItem(
+      'jeliya.lastSeen',
+      JSON.stringify({ [R1]: 1700, aString: 'nope', aNull: null }),
+    );
+    expect(loadLastSeen()).toEqual({ [R1]: 1700 });
+  });
+
+  it('survives malformed JSON without throwing', () => {
+    localStorage.setItem('jeliya.lastSeen', '{ not json');
+    expect(loadLastSeen()).toEqual({});
+  });
+});
+
+describe('seedRoomSeen', () => {
+  it('writes a baseline only when the room has no mark yet', () => {
+    const empty: LastSeen = {};
+    const seeded = seedRoomSeen(empty, R1, 100);
+    expect(seeded).toEqual({ [R1]: 100 });
+    expect(seeded).not.toBe(empty);
+  });
+
+  it('never overwrites an existing mark (a seeded room keeps its acknowledged ts)', () => {
+    const map: LastSeen = { [R1]: 500 };
+    const after = seedRoomSeen(map, R1, 100);
+    expect(after).toBe(map); // same reference — no redundant save
+    expect(after[R1]).toBe(500);
+  });
+});
+
+describe('markRoomSeen', () => {
+  it('advances the mark to a newer ts (clears unread)', () => {
+    expect(markRoomSeen({ [R1]: 100 }, R1, 300)).toEqual({ [R1]: 300 });
+  });
+
+  it('never moves the mark backwards, so out-of-order replay cannot re-raise a cleared dot', () => {
+    const map: LastSeen = { [R1]: 300 };
+    expect(markRoomSeen(map, R1, 100)).toBe(map);
+  });
+
+  it('affects only the named room', () => {
+    expect(markRoomSeen({ [R1]: 100, [R2]: 100 }, R1, 300)).toEqual({ [R1]: 300, [R2]: 100 });
+  });
+});
+
+describe('isRoomUnread', () => {
+  it('is unread when the newest event is past the last-seen mark', () => {
+    expect(isRoomUnread({ room_id: R1, last_event_ts: 300 }, { [R1]: 100 })).toBe(true);
+  });
+
+  it('is not unread when the mark is at or past the newest event', () => {
+    expect(isRoomUnread({ room_id: R1, last_event_ts: 100 }, { [R1]: 100 })).toBe(false);
+    expect(isRoomUnread({ room_id: R1, last_event_ts: 100 }, { [R1]: 300 })).toBe(false);
+  });
+
+  it('is not unread with no recency evidence (null last_event_ts) — a dot is a claim', () => {
+    expect(isRoomUnread({ room_id: R1, last_event_ts: null }, { [R1]: 100 })).toBe(false);
+    expect(isRoomUnread({ room_id: R1 }, { [R1]: 100 })).toBe(false);
+  });
+
+  it('is not unread with no baseline (unseeded room) — no evidence for a dot', () => {
+    expect(isRoomUnread({ room_id: R1, last_event_ts: 300 }, {})).toBe(false);
+  });
+});
+
+// The shared five-case fixture, replayed here and (identically) in the Dart
+// conventions test — the parity guard docs/room-attention.md relies on.
+describe('shared room-attention fixtures (parity with Dart)', () => {
+  interface FixtureCase {
+    name: string;
+    room: { room_id: string; last_event_ts: number | null; last_event_kind: string | null };
+    last_seen: number | null;
+    connected: boolean;
+    expect: { unread: boolean };
+  }
+  const cases = fixtures.cases as FixtureCase[];
+
+  it('covers the five truthful states exactly once', () => {
+    expect(cases.map((c) => c.name).sort()).toEqual(
+      ['attention', 'no-data', 'offline', 'stale', 'unread'],
+    );
+  });
+
+  for (const c of cases) {
+    it(`case "${c.name}" → unread ${c.expect.unread}`, () => {
+      const lastSeen: LastSeen = c.last_seen == null ? {} : { [c.room.room_id]: c.last_seen };
+      expect(isRoomUnread(c.room, lastSeen)).toBe(c.expect.unread);
+    });
+  }
+});

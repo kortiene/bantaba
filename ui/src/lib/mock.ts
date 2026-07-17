@@ -376,6 +376,15 @@ function deriveLiveness(connected: boolean, latest: TimelineEvent | null, now: n
   return 'online-idle';
 }
 
+/** The room's newest signed event by ts — the recency source of
+ *  docs/room-attention.md, decision 2 — or null for an empty timeline.
+ *  A signed event timestamp, never "now". */
+function newestEvent(timeline: TimelineEvent[]): TimelineEvent | null {
+  let newest: TimelineEvent | null = null;
+  for (const e of timeline) if (!newest || e.ts > newest.ts) newest = e;
+  return newest;
+}
+
 // -- the client --------------------------------------------------------------
 
 /** Deterministic failure injection for the browser regression suite:
@@ -647,6 +656,11 @@ class MockClient implements Client {
   private summary(room: MockRoom): RoomSummary {
     const identity = this.identity;
     const mine = identity ? room.members.find((m) => m.identity_id === identity.identity_id) : null;
+    // Recency is the newest signed event's ts — a daemon projection
+    // (docs/room-attention.md, decision 2). The real daemon does not emit this
+    // yet (the identified, deferrable follow-up); the mock derives it so the
+    // room-list recency slice of #64 can build against the real shape now.
+    const newest = newestEvent(room.timeline);
     return {
       room_id: room.room_id,
       name: room.name,
@@ -654,6 +668,8 @@ class MockClient implements Client {
       status: mine?.status ?? null,
       member_count: room.members.length,
       open: room.open,
+      last_event_ts: newest?.ts ?? null,
+      last_event_kind: newest?.kind ?? null,
     };
   }
 

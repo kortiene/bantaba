@@ -28,6 +28,7 @@ class PrefsStore extends ChangeNotifier {
   String? _formattingLocale;
   final Map<String, String> _drafts = {};
   final Map<String, String> _aliases = {};
+  final Map<String, int> _lastSeen = {};
 
   /// UI language as a BCP-47 tag ('textLocale'); null follows the system
   /// language (MaterialApp resolves against supportedLocales).
@@ -104,6 +105,32 @@ class PrefsStore extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Device-local unread marks ('jeliya.lastSeen'): room id → the newest
+  /// signed-event ts this device has acknowledged (docs/room-attention.md,
+  /// decision 3). Local only — never wire data, never a delivery/read receipt.
+  int? lastSeenFor(String roomId) => _lastSeen[roomId];
+
+  /// Establish the baseline the first time a room appears on this device, so a
+  /// backlog that synced before it was ever opened does not read as unread
+  /// (decision 3). Writes only when no mark exists.
+  void seedRoomSeen(String roomId, int ts) {
+    if (_lastSeen.containsKey(roomId)) return;
+    _lastSeen[roomId] = ts;
+    _save();
+    notifyListeners();
+  }
+
+  /// Clear unread for one room by advancing its mark to [ts] (never backwards,
+  /// so an out-of-order replay cannot re-raise a cleared dot). Affects only
+  /// [roomId] (decision 3).
+  void markRoomSeen(String roomId, int ts) {
+    final current = _lastSeen[roomId];
+    if (current != null && current >= ts) return;
+    _lastSeen[roomId] = ts;
+    _save();
+    notifyListeners();
+  }
+
   /// Read the JSON file; malformed content and non-string values are dropped
   /// (the reference drops non-string alias values on load). Never throws.
   Future<void> load() async {
@@ -124,6 +151,9 @@ class PrefsStore extends ChangeNotifier {
       _aliases
         ..clear()
         ..addAll(_stringMap(map['aliases']));
+      _lastSeen
+        ..clear()
+        ..addAll(_intMap(map['lastSeen']));
       notifyListeners();
     } catch (_) {
       // Missing or corrupt prefs file — start fresh, like localStorage misses.
@@ -142,6 +172,15 @@ class PrefsStore extends ChangeNotifier {
     };
   }
 
+  static Map<String, int> _intMap(dynamic v) {
+    if (v is! Map) return const {};
+    return {
+      for (final entry in v.entries)
+        if (entry.key is String && entry.value is int)
+          entry.key as String: entry.value as int,
+    };
+  }
+
   void _save() {
     final p = path;
     if (p == null) return;
@@ -157,6 +196,7 @@ class PrefsStore extends ChangeNotifier {
         if (_formattingLocale != null) 'formattingLocale': _formattingLocale,
         'drafts': _drafts,
         'aliases': _aliases,
+        'lastSeen': _lastSeen,
       }));
       tmp.renameSync(p);
     } catch (_) {

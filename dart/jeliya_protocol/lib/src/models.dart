@@ -297,6 +297,8 @@ class RoomSummary {
     this.status,
     required this.memberCount,
     required this.open,
+    this.lastEventTs,
+    this.lastEventKind,
   });
 
   factory RoomSummary.fromJson(Map<String, dynamic> json) => RoomSummary(
@@ -306,6 +308,8 @@ class RoomSummary {
         status: _stringOrNull(json['status']),
         memberCount: _int(json['member_count']),
         open: _bool(json['open']),
+        lastEventTs: _intOrNull(json['last_event_ts']),
+        lastEventKind: _stringOrNull(json['last_event_kind']),
       );
 
   final String roomId;
@@ -323,6 +327,17 @@ class RoomSummary {
   final int memberCount;
   final bool open;
 
+  /// The `created_at` of this room's newest signed event, Unix ms — a daemon
+  /// projection of recency (docs/room-attention.md, decision 2). Read-only and
+  /// compatibility-nullable: an older daemon omits it, and the client renders
+  /// no recency rather than a fabricated one. Labelled Stale when the room's
+  /// data cannot be vouched for; never the wall clock.
+  final int? lastEventTs;
+
+  /// The `kind` of that newest event, so a surface can say WHAT last happened
+  /// without opening the room. Same read-only, nullable, no-inference rule.
+  final String? lastEventKind;
+
   Map<String, dynamic> toJson() => {
         'room_id': roomId,
         'name': name,
@@ -330,6 +345,8 @@ class RoomSummary {
         'status': status,
         'member_count': memberCount,
         'open': open,
+        'last_event_ts': lastEventTs,
+        'last_event_kind': lastEventKind,
       };
 }
 

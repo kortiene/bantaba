@@ -808,6 +808,11 @@ class MockClient implements Client {
         }
       }
     }
+    // Recency is the newest signed event's ts — a daemon projection
+    // (docs/room-attention.md, decision 2). The real daemon does not emit this
+    // yet (the identified, deferrable follow-up); the mock derives it so the
+    // room-list recency slice of #64 can build against the real shape now.
+    final newest = _newestEvent(room.timeline);
     return RoomSummary(
       roomId: room.roomId,
       name: room.name,
@@ -815,7 +820,19 @@ class MockClient implements Client {
       status: mine?.status,
       memberCount: room.members.length,
       open: room.open,
+      lastEventTs: newest?.ts,
+      lastEventKind: newest?.kind,
     ).toJson();
+  }
+
+  /// The room's newest event by ts (the recency source of
+  /// docs/room-attention.md, decision 2), or null for an empty timeline.
+  static TimelineEvent? _newestEvent(List<TimelineEvent> timeline) {
+    TimelineEvent? newest;
+    for (final e in timeline) {
+      if (newest == null || e.ts > newest.ts) newest = e;
+    }
+    return newest;
   }
 
   String get _selfEndpointId => _hex('self-endpoint', 64);
