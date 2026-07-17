@@ -4,9 +4,10 @@
 /// busy or blank, ErrorNote. Submit → `client.roomCreate(name.trim())`; on
 /// success pops with the new room id (the shell refreshes rooms and opens
 /// it); failures are recorded to diagnostics as context 'room.create'.
+/// While the create is in flight the modal is CONTAINED (#55, ModalScaffold
+/// busy): no dismissal path can pop it, so the result applies exactly once,
+/// while the modal is still up.
 library;
-
-import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:jeliya_protocol/jeliya_protocol.dart' show JeliyaMethods, RequestError;
@@ -54,22 +55,23 @@ class _CreateRoomModalState extends State<CreateRoomModal> {
     });
     try {
       final roomId = await client.roomCreate(name);
-      if (mounted) {
-        Navigator.of(context).pop(roomId);
-        // Stays busy until the pop lands (web keeps the button disabled too).
-      } else {
-        // Dismissed mid-flight: the create still happened — apply the
-        // success effects the shell's pop-consumer would have (web parity).
-        unawaited(session.refreshRooms());
-        unawaited(session.openRoom(roomId));
-      }
+      // Containment (ModalScaffold busy → PopScope) holds the route up
+      // while the create is in flight, so this state is still mounted.
+      // Defensively, if it somehow isn't: apply NOTHING — a result must
+      // never mutate navigation or room state after the user believes the
+      // action was abandoned.
+      if (!mounted) return;
+      Navigator.of(context).pop(roomId);
+      // Stays busy until the pop lands (web keeps the button disabled too).
     } catch (e) {
-      if (mounted) {
-        setState(() {
-          _error = session.recordError('room.create', e);
-          _busy = false;
-        });
-      }
+      // Record BEFORE the mounted check: a failure must reach diagnostics
+      // even if the modal was somehow dismissed mid-flight.
+      final err = session.recordError('room.create', e);
+      if (!mounted) return;
+      setState(() {
+        _error = err;
+        _busy = false;
+      });
     }
   }
 
@@ -80,6 +82,7 @@ class _CreateRoomModalState extends State<CreateRoomModal> {
     final canSubmit = !_busy && _name.text.trim().isNotEmpty;
     return ModalScaffold(
       title: s.modalCreateRoomTitle,
+      busy: _busy,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [

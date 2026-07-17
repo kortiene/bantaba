@@ -36,8 +36,8 @@ class JeliyaButton extends StatelessWidget {
   /// Shows a small spinner before the label (Sending…/Joining…/etc).
   final bool busy;
 
-  /// Initial focus (the reference autofocuses e.g. the Leave-room danger
-  /// submit so Enter confirms).
+  /// Initial focus (e.g. the Leave-room modal focuses its Cancel button so
+  /// an immediate Enter can never confirm the destructive action, #55).
   final bool autofocus;
 
   final String? semanticLabel;

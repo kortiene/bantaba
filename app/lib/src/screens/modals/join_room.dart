@@ -5,10 +5,10 @@
 /// `splitInvite` + `joinRoomWithRetry` (5 attempts, retries ONLY
 /// peer_unreachable); on success pops with the joined room id (the shell then
 /// refreshes rooms and opens it); failures are recorded to diagnostics as
-/// context 'room.join'.
+/// context 'room.join'. While the join is in flight the modal is CONTAINED
+/// (#55, ModalScaffold busy): no dismissal path can pop it, so the result
+/// applies exactly once, while the modal is still up.
 library;
-
-import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:jeliya_protocol/jeliya_protocol.dart'
@@ -71,23 +71,24 @@ class _JoinRoomModalState extends State<JoinRoomModal> {
           if (mounted) setState(() => _progress = progress);
         },
       );
-      if (mounted) {
-        Navigator.of(context).pop(roomId);
-        // Stays busy until the pop lands (web keeps the button disabled too).
-      } else {
-        // Dismissed mid-retry: the join still happened — apply the success
-        // effects the shell's pop-consumer would have (web parity).
-        unawaited(session.refreshRooms());
-        unawaited(session.openRoom(roomId));
-      }
+      // Containment (ModalScaffold busy → PopScope) holds the route up
+      // while the join is in flight, so this state is still mounted.
+      // Defensively, if it somehow isn't: apply NOTHING — a result must
+      // never mutate navigation or room state after the user believes the
+      // action was abandoned.
+      if (!mounted) return;
+      Navigator.of(context).pop(roomId);
+      // Stays busy until the pop lands (web keeps the button disabled too).
     } catch (e) {
-      if (mounted) {
-        setState(() {
-          _error = session.recordError('room.join', e);
-          _progress = null;
-          _busy = false;
-        });
-      }
+      // Record BEFORE the mounted check: a failure must reach diagnostics
+      // even if the modal was somehow dismissed mid-retry.
+      final err = session.recordError('room.join', e);
+      if (!mounted) return;
+      setState(() {
+        _error = err;
+        _progress = null;
+        _busy = false;
+      });
     }
   }
 
@@ -99,6 +100,7 @@ class _JoinRoomModalState extends State<JoinRoomModal> {
     final progress = _progress;
     return ModalScaffold(
       title: s.modalJoinRoomTitle,
+      busy: _busy,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [

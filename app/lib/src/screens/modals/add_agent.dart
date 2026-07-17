@@ -6,7 +6,8 @@
 ///
 /// Generate: `room.open` first (solely to obtain the room session's dialable
 /// `endpoint.addr`, docs §5 step 2), then `invite.create` with role 'agent'.
-/// Pops void — the ✕ / Escape / backdrop close it.
+/// Pops void — the ✕ / Escape / backdrop close it, except while minting is
+/// in flight (#55, ModalScaffold busy contains the route).
 library;
 
 import 'package:flutter/material.dart';
@@ -128,6 +129,7 @@ class _AddAgentModalState extends State<AddAgentModal> {
     return ModalScaffold(
       title: s.addAgentTitle,
       wide: true,
+      busy: _busy,
       child: ownedRooms.isEmpty
           ? _NoOwnedRooms()
           : _result == null

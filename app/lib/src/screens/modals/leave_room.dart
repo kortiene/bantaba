@@ -1,11 +1,13 @@
-/// Leave Room modal — exact port of ui/src/App.tsx `LeaveRoomModal` per
+/// Leave Room modal — port of ui/src/App.tsx `LeaveRoomModal` per
 /// phase3-features.json: copy 'Leaving {roomName} publishes a signed
 /// membership departure…' (room name bold), danger submit 'Leave room'/
-/// 'Leaving…' (autofocus), ghost Cancel (disabled while busy), ErrorNote.
-/// Submit → `client.roomLeave(roomId)`; on success pops with true — the shell
-/// then runs `session.leaveCurrentRoom()` (full room-state reset, pref
-/// cleared, rooms + daemon.status refreshed). Failures are recorded to
-/// diagnostics as context 'room.leave'.
+/// 'Leaving…', ghost Cancel (autofocus — safe initial focus, so an
+/// immediate Enter can never confirm the destructive action; disabled while
+/// busy), ErrorNote. Submit → `client.roomLeave(roomId)`; on success pops
+/// with true — the shell then runs `session.leaveCurrentRoom()` (full
+/// room-state reset, pref cleared, rooms + daemon.status refreshed).
+/// Failures are recorded to diagnostics as context 'room.leave'. While the
+/// leave is in flight the modal is CONTAINED (#55, ModalScaffold busy).
 library;
 
 import 'package:flutter/material.dart';
@@ -48,21 +50,22 @@ class _LeaveRoomModalState extends State<LeaveRoomModal> {
     });
     try {
       await client.roomLeave(widget.roomId);
-      if (mounted) {
-        Navigator.of(context).pop(true);
-        // Stays busy until the pop lands (web keeps the button disabled too).
-      } else {
-        // Dismissed mid-flight: the leave still happened — run the cleanup
-        // the shell's pop-consumer would have (web parity).
-        session.leaveCurrentRoom();
-      }
+      // Containment (ModalScaffold busy → PopScope) holds the route up
+      // while the leave is in flight, so this state is still mounted.
+      // Defensively, if it somehow isn't: apply NOTHING — never run the
+      // room-state reset after the user believes the action was abandoned.
+      if (!mounted) return;
+      Navigator.of(context).pop(true);
+      // Stays busy until the pop lands (web keeps the button disabled too).
     } catch (e) {
-      if (mounted) {
-        setState(() {
-          _error = session.recordError('room.leave', e);
-          _busy = false;
-        });
-      }
+      // Record BEFORE the mounted check: a failure must reach diagnostics
+      // even if the modal was somehow dismissed mid-flight.
+      final err = session.recordError('room.leave', e);
+      if (!mounted) return;
+      setState(() {
+        _error = err;
+        _busy = false;
+      });
     }
   }
 
@@ -72,6 +75,7 @@ class _LeaveRoomModalState extends State<LeaveRoomModal> {
     final tokens = JeliyaTokens.of(context);
     return ModalScaffold(
       title: s.modalLeaveRoomTitle,
+      busy: _busy,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -103,9 +107,6 @@ class _LeaveRoomModalState extends State<LeaveRoomModal> {
                   label: _busy ? s.modalLeavingRoom : s.modalLeaveRoom,
                   variant: JeliyaButtonVariant.danger,
                   busy: _busy,
-                  // The reference autofocuses the danger submit so Enter
-                  // confirms.
-                  autofocus: true,
                   onPressed: _busy ? null : _leave,
                 ),
               ),
@@ -114,6 +115,11 @@ class _LeaveRoomModalState extends State<LeaveRoomModal> {
                 child: JeliyaButton(
                   label: s.modalCancel,
                   variant: JeliyaButtonVariant.ghost,
+                  // Safe initial focus (#55): Cancel takes focus, never the
+                  // danger submit, so an immediate Enter abandons instead of
+                  // confirming. The web reference adopted the same contract
+                  // in #56.
+                  autofocus: true,
                   onPressed:
                       _busy ? null : () => Navigator.of(context).maybePop(),
                 ),
