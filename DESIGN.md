@@ -302,8 +302,12 @@ Three shells, one information architecture. Only the mechanics change.
 | Shell | Width | Layout |
 |---|---|---|
 | **Compact** | `< 900px` | One pane; global destinations in the bottom bar, room destinations via nested navigation |
-| **Medium** | `900–1279px` | Room rail + workspace; the inspector is a dismissible drawer |
-| **Wide** | `>= 1280px` | Room rail + workspace + persistent inspector |
+| **Medium** | `900–1279px` | Room rail + workspace; the inspector is a dismissible drawer over the workspace |
+| **Wide** | `>= 1280px` | Room rail + workspace + inspector, the inspector in flow as a third column |
+
+The workspace is always the room's Activity; the inspector is where its
+tools (People, Agents & Runs, Files, Pipes) render, and the route decides
+whether it is open — collapsing it *is* navigating to Activity.
 
 - **The workspace is what the width is for.** A third column is only paid
   for when one fits: at 901px a three-column grid leaves the workspace

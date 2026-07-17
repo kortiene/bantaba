@@ -155,8 +155,21 @@ mechanics change.
 | Shell | Width | Layout |
 |---|---|---|
 | **Compact** | `< 900px` | One pane at a time. Global destinations in a bottom bar; room destinations via nested navigation inside Rooms. |
-| **Medium** | `900px – 1279px` | Room rail + workspace. The inspector opens as a dismissible drawer. |
-| **Wide** | `>= 1280px` | Room rail + workspace + persistent inspector. |
+| **Medium** | `900px – 1279px` | Room rail + workspace. The inspector opens as a dismissible drawer over the workspace. |
+| **Wide** | `>= 1280px` | Room rail + workspace + inspector, the inspector in flow as a third column. |
+
+**The workspace is always Activity**; the inspector is where a room's tools
+render. So the route decides the inspector, at every width:
+
+| Route | Compact | Medium | Wide |
+|---|---|---|---|
+| `/rooms/:id/activity` | The room pane | Inspector closed | Inspector closed |
+| `/rooms/:id/people` (and `agents`, `files`, `pipes`) | A pane pushed over the room | Inspector open as a drawer | Inspector open as a column |
+
+Collapsing the inspector *is* navigating to `activity`, and opening it *is*
+navigating to a tool. That is what makes one destination mean one thing on
+all three shells, and it is why `activity` is a real destination rather
+than a synonym for "a room is selected".
 
 Why 1280 and not the current 901: at 901px the shipped three-column grid
 (`232px` rail + `1fr` + `300px` inspector) leaves the workspace **369px** —
@@ -204,14 +217,17 @@ daemon proves.** These five are distinct and may never share a word.
 | **Signed membership** — this identity's roster status | `room.list.status` (`active\|left\|removed`) | **Member** / **Left** / **Removed** |
 | **Roster** — a member's signed status and role | `room.members[].status`, `.role` | **Member** / **Invited**; roles **Owner** / **Member** / **Agent** |
 | **Peer reachability** — an observed transport path | `PeerStatus.state` (`connected\|connecting\|offline`) + `.path` (`direct\|relay\|null`) | **Direct** / **Relay** / **Connecting** / **Offline**; in aggregate **No peers connected** |
-| **Agent liveness** — a fold over signed status events plus live peer state | `FleetAgent.liveness` (`online-idle\|working\|offline\|stale`) | **Idle** / **Working** / **Offline** / **Stale** |
-| **Pipe connection** — a local forwarding session | `pipe.list` state, `pipe.connect` result | **Connected** / **Closed** |
+| **Agent liveness** — a fold over signed status events plus live peer state | `FleetAgent.liveness` (`online-idle\|working\|offline\|stale`) | **Working** / **Online** / **Stale** / **Offline**; the fleet filter spanning the first two is **Live** |
+| **Pipe connection** — a local forwarding session | `pipe.list` `state` + `connected` | **Connected** (exposed, forwarding) / **Open** (exposed, nothing connected) / **Closed** |
 
 ### Retired words
 
-- **"Active" is retired as a display label.** It described a live local
-  session on one surface and signed membership on another. Room session
-  state reads **Open**/**Closed**; membership reads **Member**.
+- **"Active" is retired as a display label**, on every surface that used it.
+  It described a live local session in the room rail, signed membership in
+  the roster (which title-cased the wire value straight onto the screen), a
+  live forwarding session on a pipe chip, and reachable agents in the fleet
+  filter. Room session state reads **Open**/**Closed**; roster status reads
+  **Member**; a pipe reads **Connected**; the fleet filter reads **Live**.
 - **"Alone in this room" is retired.** It rendered whenever zero peer
   connections were observed — including a five-member room whose peers are
   merely offline. Absence of an observed connection is not evidence of
