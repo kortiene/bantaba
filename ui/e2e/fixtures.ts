@@ -43,6 +43,15 @@ export class AppDriver {
   private async goto(params: Record<string, string>): Promise<void> {
     const search = new URLSearchParams(params).toString();
     await this.page.goto(search ? `/?${search}` : '/');
+    // Refuse to drive anything but the VITE_MOCK=1 fixture build. With
+    // reuseExistingServer enabled locally, attaching to a stray non-mock
+    // server would at best fail every spec confusingly and at worst drive a
+    // REAL daemon (the onboarding spec creates a real, irreversible
+    // identity). main.tsx stamps the transport on <html> for exactly this.
+    await expect(
+      this.page.locator('html'),
+      'the server on the harness port is not the VITE_MOCK=1 build — refusing to run against a non-mock transport',
+    ).toHaveAttribute('data-jeliya-transport', /mock fixtures \(VITE_MOCK=1\)/);
   }
 
   roomItem(name: string) {

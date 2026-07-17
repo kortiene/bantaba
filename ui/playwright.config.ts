@@ -6,9 +6,16 @@ import { defineConfig, devices } from '@playwright/test';
 // the two desktop grids (wide + narrowed columns) and the two compact
 // (max-width: 900px) phone layouts the mockups target.
 //
-// Run with `npm run test:e2e` (boots its own dev server on 4173).
+// Run with `npm run test:e2e` (boots its own dev server).
+//
+// The port is deliberately NOT a default of any other tool (vite dev's 5173,
+// vite preview's 4173): with reuseExistingServer enabled locally, a colliding
+// port would let the suite silently attach to a non-mock server — worst case
+// driving a real daemon, where the onboarding spec would create a real,
+// irreversible identity. Belt and braces: every spec also refuses to run
+// unless the app under test reports the mock transport (see e2e/fixtures.ts).
 
-const PORT = 4173;
+const PORT = 43117;
 
 export default defineConfig({
   testDir: './e2e',

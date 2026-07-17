@@ -10,10 +10,22 @@ test('shows the agent fleet with honest liveness', async ({ app, page }) => {
   await expect(fleet).toBeVisible();
   await expect(fleet.getByRole('heading', { level: 1, name: 'Agents' })).toBeVisible();
 
-  // Fixture agents are aggregated across rooms.
-  await expect(fleet.getByText('Backend Agent').first()).toBeVisible();
-  await expect(fleet.getByText('QA Agent').first()).toBeVisible();
-  await expect(fleet.getByText('Research Agent').first()).toBeVisible();
+  // Each fixture agent gets exactly one aggregated card, not one per room.
+  const card = (name: string) => fleet.locator('.fleet-card', { hasText: name });
+  for (const name of ['Backend Agent', 'QA Agent', 'Research Agent']) {
+    await expect(card(name)).toHaveCount(1);
+  }
+
+  // The honesty rule this dashboard exists for (§1.2): a crashed runner whose
+  // latest label is working-class but whose peer is gone must read Stale,
+  // never Working — the mock builds exactly that fixture for Research Agent.
+  // Backend has a connected peer and a fresh working status: really Working.
+  await expect(card('Research Agent').locator('.live-pill')).toHaveText(/Stale/);
+  // Working needs the auto-opened main room's live peer; the dashboard polls
+  // agents.fleet every 4s, so allow one full cycle beyond the default.
+  await expect(card('Backend Agent').locator('.live-pill')).toHaveText(/Working/, {
+    timeout: 10_000,
+  });
 });
 
 test('searching filters the fleet list', async ({ app, page }) => {
