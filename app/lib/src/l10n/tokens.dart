@@ -134,6 +134,24 @@ abstract final class Tokens {
   /// Arrow-into-bar glyph on the 'Join with a ticket' entry-point row; decorative (label is modalJoinRoomTitle via alias).
   static const String sidebarJoinRoomGlyph = '⇥';
 
+  /// Filled star glyph on a room row's PIN toggle when the room is pinned; decorative (the accessible label is sidebarUnpinRoom).
+  static const String sidebarPinOnGlyph = '★';
+
+  /// Hollow star glyph on a room row's pin toggle when the room is not pinned; decorative (the accessible label is sidebarPinRoom).
+  static const String sidebarPinOffGlyph = '☆';
+
+  /// Downward-arrow-to-bar glyph on a room row's ARCHIVE toggle; decorative (the accessible label is sidebarArchiveRoom).
+  static const String sidebarArchiveGlyph = '⇩';
+
+  /// Upward-arrow-to-bar glyph on a room row's toggle when the room is archived (restore); decorative (the accessible label is sidebarRestoreRoom).
+  static const String sidebarRestoreGlyph = '⇧';
+
+  /// Down-pointing triangle on an EXPANDED room-list disclosure (Left & removed / Archived); decorative — the toggle carries the section label + count.
+  static const String sidebarDisclosureExpandedGlyph = '▾';
+
+  /// Right-pointing triangle on a COLLAPSED room-list disclosure; decorative.
+  static const String sidebarDisclosureCollapsedGlyph = '▸';
+
   /// Em dash shown in place of the identity id before onboarding; punctuation-only.
   static const String sidebarNoIdentity = '—';
 

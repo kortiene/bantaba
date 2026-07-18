@@ -1825,6 +1825,100 @@
   "@sidebarRemovedRoomTitle": {
     "description": "Tooltip on a dimmed room row after the user was removed from that room by another member — passive voice: someone else removed them."
   },
+  "sidebarSearchRooms": "Search rooms…",
+  "@sidebarSearchRooms": {
+    "description": "Placeholder inside the rooms search field in the sidebar; hints that typing filters the room list. Trailing ellipsis (…) is one character (U+2026)."
+  },
+  "sidebarSearchLabel": "Search rooms by name or short id",
+  "@sidebarSearchLabel": {
+    "description": "Screen-reader label (not visible on screen) for the rooms search field in the sidebar; states what the field matches against."
+  },
+  "sidebarFilterLabel": "Filter rooms by lifecycle",
+  "@sidebarFilterLabel": {
+    "description": "Screen-reader label for the group of lifecycle filter chips (All / Active / Left & removed) above the rooms list."
+  },
+  "sidebarFilterAll": "All",
+  "@sidebarFilterAll": {
+    "description": "Lifecycle filter chip: show every room regardless of membership state. Keep short — the three chips share one row."
+  },
+  "sidebarFilterActive": "Active",
+  "@sidebarFilterActive": {
+    "description": "Lifecycle filter chip: show only rooms the user is still a member of (not left or removed). This is a FILTER control, not a room-state label — it never appears inside a room row. Keep short."
+  },
+  "sidebarLifecycleDeparted": "Left & removed",
+  "@sidebarLifecycleDeparted": {
+    "description": "The departed lifecycle, used BOTH as the third filter chip AND as the header of the collapsible section of rooms the user has left or was removed from. '&' joins the two departure kinds (Left, Removed); use the locale's convention."
+  },
+  "sidebarSectionPinned": "Pinned",
+  "@sidebarSectionPinned": {
+    "description": "Header of the Pinned section of the rooms list — rooms the user floated to the top (device-local). Past participle of the verb 'to pin'."
+  },
+  "sidebarSectionArchived": "Archived",
+  "@sidebarSectionArchived": {
+    "description": "Header of the collapsible Archived section of the rooms list — rooms the user put away (device-local). Past participle of the verb 'to archive'."
+  },
+  "sidebarPinRoom": "Pin {roomName}",
+  "@sidebarPinRoom": {
+    "description": "Accessible label and tooltip for the per-row button that pins a room to the top of the list. Imperative verb 'pin'; {roomName} is the room's display name.",
+    "placeholders": {
+      "roomName": {
+        "type": "String",
+        "example": "Product Review"
+      }
+    }
+  },
+  "sidebarUnpinRoom": "Unpin {roomName}",
+  "@sidebarUnpinRoom": {
+    "description": "Accessible label and tooltip for the per-row button that removes a room's pin. Imperative verb 'unpin'; {roomName} is the room's display name.",
+    "placeholders": {
+      "roomName": {
+        "type": "String",
+        "example": "Product Review"
+      }
+    }
+  },
+  "sidebarArchiveRoom": "Archive {roomName}",
+  "@sidebarArchiveRoom": {
+    "description": "Accessible label and tooltip for the per-row button that archives (puts away) a room. Imperative verb 'archive'; {roomName} is the room's display name.",
+    "placeholders": {
+      "roomName": {
+        "type": "String",
+        "example": "Product Review"
+      }
+    }
+  },
+  "sidebarRestoreRoom": "Restore {roomName}",
+  "@sidebarRestoreRoom": {
+    "description": "Accessible label and tooltip for the per-row button that restores a room from the archive. Imperative verb 'restore'; {roomName} is the room's display name.",
+    "placeholders": {
+      "roomName": {
+        "type": "String",
+        "example": "Product Review"
+      }
+    }
+  },
+  "sidebarUnread": "Unread",
+  "@sidebarUnread": {
+    "description": "Screen-reader label on a room row's unread indicator (a dot, never a count). States only that this device has not yet viewed the newest activity — it NEVER implies delivery or that anyone else read anything."
+  },
+  "sidebarNoRoomsMatch": "No rooms match “{query}”.",
+  "@sidebarNoRoomsMatch": {
+    "description": "Empty-state message when a search query matches no room. {query} is the user's search text, shown in typographic quotes. Ends with a period; a 'Clear' button (sidebarClearSearch) follows.",
+    "placeholders": {
+      "query": {
+        "type": "String",
+        "example": "design"
+      }
+    }
+  },
+  "sidebarNoRoomsInFilter": "No rooms in this filter.",
+  "@sidebarNoRoomsInFilter": {
+    "description": "Empty-state message when the active lifecycle filter matches no room (but rooms exist under another filter). A 'Clear' button (sidebarClearSearch) follows."
+  },
+  "sidebarClearSearch": "Clear",
+  "@sidebarClearSearch": {
+    "description": "Button that resets the rooms search query and lifecycle filter back to showing all rooms. Imperative verb."
+  },
   "sidebarP2pIdentity": "P2P Identity",
   "@sidebarP2pIdentity": {
     "description": "Heading of the identity footer at the bottom of the sidebar, above the user's identity id. 'P2P' abbreviates peer-to-peer — keep the abbreviation or use the locale's standard equivalent."

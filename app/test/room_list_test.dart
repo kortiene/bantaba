@@ -12,6 +12,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:jeliya_app/src/session/room_list.dart';
 import 'package:jeliya_protocol/jeliya_protocol.dart' show RoomSummary;
 
+// The untitled-room placeholder injected into the pure projection under test;
+// coincides with shellUntitledRoom, but this unit test has no catalog.
+// i18n-exempt: fixture placeholder for a pure function, not asserted copy.
 const _untitled = 'Untitled room';
 
 RoomSummary _room(
@@ -153,6 +156,7 @@ void main() {
           return _room(
             r['room_id'] as String,
             name: r['name'] as String?,
+            // i18n-exempt: 'status' is a wire/JSON field key, not user copy.
             status: r['status'] as String?,
             lastEventTs: r['last_event_ts'] as int?,
           );

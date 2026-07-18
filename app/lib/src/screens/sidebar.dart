@@ -13,17 +13,17 @@ library;
 
 import 'package:flutter/material.dart' hide ConnectionState;
 import 'package:jeliya_protocol/jeliya_protocol.dart'
-    show ConnectionState, RoomSummary, shortId;
+    show ConnectionState, shortId;
 
 import '../l10n/strings_context.dart';
 import '../l10n/tokens.dart';
 import '../routes.dart';
 import '../session/daemon_session.dart';
-import '../session/room_homonyms.dart';
+import '../session/room_list.dart';
 import '../theme.dart';
 import '../widgets/copy_button.dart';
-import '../widgets/room_short_id.dart';
 import '../widgets/tree_mark.dart';
+import 'room_list_widgets.dart';
 
 /// One primary-nav entry (Sidebar.tsx `NAV`).
 class _NavEntry {
@@ -114,10 +114,27 @@ class Sidebar extends StatelessWidget {
                 SliverToBoxAdapter(
                   child: _RoomsHead(onCreateRoom: onCreateRoom),
                 ),
-                _RoomsList(
-                  rooms: session.rooms,
-                  currentRoomId: currentRoomId,
-                  onSelectRoom: onSelectRoom,
+                // Search + lifecycle filter live ABOVE the rooms-list Semantics
+                // region (RoomListBody wraps its own), so the filter's "Active"
+                // chip never lands in a room row's accessible name.
+                SliverToBoxAdapter(
+                  child: RoomListControls(session: session),
+                ),
+                SliverToBoxAdapter(
+                  child: RoomListBody(
+                    session: session,
+                    view: projectRoomList(
+                      rooms: session.rooms,
+                      query: session.roomQuery,
+                      filter: session.roomFilter,
+                      pinned: session.prefs.pinnedRooms,
+                      archived: session.prefs.archivedRooms,
+                      untitledLabel: s.shellUntitledRoom,
+                    ),
+                    currentRoomId: currentRoomId,
+                    onSelectRoom: onSelectRoom,
+                    compact: false,
+                  ),
                 ),
               ],
             ),
@@ -448,186 +465,6 @@ class _RoomsHead extends StatelessWidget {
   }
 }
 
-/// Builds a SLIVER — it lives inside the sidebar's shared CustomScrollView so
-/// the nav above it and the rooms scroll as one region on short viewports.
-class _RoomsList extends StatelessWidget {
-  const _RoomsList({
-    required this.rooms,
-    required this.currentRoomId,
-    required this.onSelectRoom,
-  });
-
-  final List<RoomSummary> rooms;
-  final String? currentRoomId;
-  final ValueChanged<String> onSelectRoom;
-
-  @override
-  Widget build(BuildContext context) {
-    final s = context.strings;
-    final tokens = JeliyaTokens.of(context);
-    if (rooms.isEmpty) {
-      return SliverToBoxAdapter(
-        child: Padding(
-          padding: const EdgeInsets.all(JeliyaSpacing.x14),
-          child: Align(
-            alignment: Alignment.topLeft,
-            child: Text(s.sidebarNoRoomsYet,
-                style: TextStyle(fontSize: 13, color: tokens.textDim)),
-          ),
-        ),
-      );
-    }
-    // Computed once for the whole list (not per row): the short id disambiguates
-    // rooms that DISPLAY the same name, including two untitled rooms
-    // (docs/room-workbench.md, decision 6). TODO(#49): a future room-search
-    // surface accepting name and short id lives here (the rooms list).
-    final homonyms = homonymousRoomIds(
-      [for (final r in rooms) (roomId: r.roomId, name: r.name)],
-      untitledLabel: s.shellUntitledRoom,
-    );
-    return SliverSemantics(
-      container: true,
-      label: s.sidebarRoomsListLabel,
-      sliver: SliverPadding(
-        padding: const EdgeInsets.symmetric(horizontal: JeliyaSpacing.x10),
-        sliver: SliverList.separated(
-          itemCount: rooms.length,
-          separatorBuilder: (_, _) => const SizedBox(height: JeliyaSpacing.x4),
-          itemBuilder: (context, index) => _RoomItem(
-            room: rooms[index],
-            selected: rooms[index].roomId == currentRoomId,
-            homonym: homonyms.contains(rooms[index].roomId),
-            onSelectRoom: onSelectRoom,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _RoomItem extends StatelessWidget {
-  const _RoomItem({
-    required this.room,
-    required this.selected,
-    required this.homonym,
-    required this.onSelectRoom,
-  });
-
-  final RoomSummary room;
-  final bool selected;
-
-  /// True when another room in the list DISPLAYS the same name — then the row
-  /// carries the short id (decision 6). Unique names get no disambiguator:
-  /// it is noise when the name already identifies the room.
-  final bool homonym;
-
-  final ValueChanged<String> onSelectRoom;
-
-  @override
-  Widget build(BuildContext context) {
-    final s = context.strings;
-    final tokens = JeliyaTokens.of(context);
-    final tint = tokens.colorForId(room.roomId);
-    final departed = room.status == 'left' || room.status == 'removed';
-    // One label, one fact (docs/room-workbench.md, decision 4). `status` is
-    // signed membership; `open` is whether this daemon holds a live session.
-    // "Active" used to mean the latter here while meaning the former on the
-    // wire — so it is gone.
-    final stateLabel = departed
-        ? (room.status == 'left'
-            ? s.sidebarStateLeft
-            : s.sidebarStateRemoved)
-        : room.open
-            ? s.sidebarStateOpen
-            : s.sidebarStateClosed;
-
-    Widget row = TextButton(
-      onPressed: departed ? null : () => onSelectRoom(room.roomId),
-      style: ButtonStyle(
-        padding: const WidgetStatePropertyAll(EdgeInsets.symmetric(
-            horizontal: JeliyaSpacing.x10, vertical: 9)),
-        backgroundColor: WidgetStateProperty.resolveWith((states) {
-          if (selected) return tokens.accentDim;
-          if (states.contains(WidgetState.hovered)) return tokens.bgCard;
-          return Colors.transparent;
-        }),
-        overlayColor: const WidgetStatePropertyAll(Colors.transparent),
-        minimumSize: const WidgetStatePropertyAll(Size.zero),
-        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-        shape: WidgetStatePropertyAll(RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(JeliyaRadii.row),
-          side:
-              BorderSide(color: selected ? tokens.accentLine : Colors.transparent),
-        )),
-      ),
-      child: Row(
-        children: [
-          ExcludeSemantics(
-            child: Container(
-              width: 34,
-              height: 34,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: tokens.tileBg(room.roomId),
-                borderRadius: BorderRadius.circular(JeliyaRadii.btn),
-              ),
-              child: Text(Tokens.sidebarRoomHexGlyph,
-                  style: TextStyle(fontSize: 18, color: tint)),
-            ),
-          ),
-          const SizedBox(width: JeliyaSpacing.x10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Flexible(
-                      child: Text(room.name ?? s.shellUntitledRoom,
-                          style: JeliyaText.name,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis),
-                    ),
-                    // The name yields first; the short id is the disambiguator
-                    // and must stay readable at any width.
-                    if (homonym) ...[
-                      const SizedBox(width: JeliyaSpacing.x6),
-                      RoomShortId(roomId: room.roomId),
-                    ],
-                  ],
-                ),
-                Text(s.sidebarRoomMeta(room.memberCount, stateLabel),
-                    style: JeliyaText.meta,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis),
-              ],
-            ),
-          ),
-          if (room.open) ...[
-            const SizedBox(width: JeliyaSpacing.x6),
-            Tooltip(
-              message: s.sidebarSessionOpen,
-              child: _Dot(color: tokens.accent, glow: true),
-            ),
-          ],
-        ],
-      ),
-    );
-
-    if (departed) {
-      // The reference recedes departed rows with blanket 0.62 opacity and a
-      // title explaining why the row is disabled.
-      row = Tooltip(
-        message: room.status == 'left'
-            ? s.sidebarLeftRoomTitle
-            : s.sidebarRemovedRoomTitle,
-        child: Opacity(opacity: 0.62, child: row),
-      );
-    }
-    return Semantics(selected: selected, child: row);
-  }
-}
-
 // -- create/join affordance rows -----------------------------------------------------------------
 
 /// Dashed 'Create Room' / quieter solid 'Join with a ticket' rows
@@ -886,28 +723,20 @@ class _ConnBadge extends StatelessWidget {
   }
 }
 
-/// A 7px status dot; [glow] only for live states (glow must be earned).
+/// A 7px status dot — the connection badge's plain currentColor dot (no glow;
+/// glow is reserved for the earned room-row session-open signal, which lives in
+/// screens/room_list_widgets.dart).
 class _Dot extends StatelessWidget {
-  const _Dot({required this.color, this.glow = false});
+  const _Dot({required this.color});
 
   final Color color;
-  final bool glow;
 
   @override
   Widget build(BuildContext context) {
     return Container(
       width: 7,
       height: 7,
-      decoration: BoxDecoration(
-        color: color,
-        shape: BoxShape.circle,
-        boxShadow: glow
-            ? [
-                BoxShadow(
-                    color: color.withValues(alpha: 0.7), blurRadius: 6),
-              ]
-            : null,
-      ),
+      decoration: BoxDecoration(color: color, shape: BoxShape.circle),
     );
   }
 }
