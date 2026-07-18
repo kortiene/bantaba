@@ -27,6 +27,7 @@ import '../session/daemon_session.dart';
 import '../theme.dart';
 import '../widgets/buttons.dart';
 import '../widgets/copy_button.dart';
+import '../widgets/self_label_field.dart';
 
 class SettingsPanel extends StatefulWidget {
   const SettingsPanel({super.key, required this.onCreateRoom});
@@ -135,6 +136,23 @@ class _SettingsPanelState extends State<SettingsPanel> {
                   ),
                 ),
                 const SizedBox(height: JeliyaSpacing.x12),
+                // The device-local self label (docs/self-label.md): a friendly
+                // name for yourself, stored only on this device — never shared,
+                // never signed, and it never touches the identity id below.
+                _SettingsCard(
+                  children: [
+                    SelfLabelField(
+                      value: session.selfLabel,
+                      onChanged: session.setSelfLabel,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: JeliyaSpacing.x8),
+                Text(
+                  s.settingsSelfLabelNote,
+                  style: TextStyle(fontSize: 12.5, color: tokens.textMute),
+                ),
+                const SizedBox(height: JeliyaSpacing.x14),
                 _SettingsCard(
                   children: [
                     _CardLabel(s.settingsIdentityLabel),

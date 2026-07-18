@@ -2126,6 +2126,30 @@ abstract class AppStrings {
   /// **'Unrecoverable if this device or its data folder is lost.'**
   String get settingsIdentityNote;
 
+  /// Label for the optional device-local self-name field, shown in onboarding and in Settings. This friendly name is stored only on this device and is never shared or signed (docs/self-label.md).
+  ///
+  /// In en, this message translates to:
+  /// **'Your name on this device'**
+  String get selfLabelTitle;
+
+  /// Helper text under the self-name field: the name is device-local — never sent to peers and never part of a signed event. Keep the spaced em dash (—) and the trailing period.
+  ///
+  /// In en, this message translates to:
+  /// **'Only visible to you — never shared or signed.'**
+  String get selfLabelHint;
+
+  /// Placeholder/example for the self-name field, showing that any short given name works. Localize the 'e.g.' lead-in; 'Alex' is a stand-in example name that may be localized.
+  ///
+  /// In en, this message translates to:
+  /// **'e.g. Alex'**
+  String get selfLabelPlaceholder;
+
+  /// Note in Settings tying the friendly local name to the unrecoverable P2P identity: renaming yourself never touches the cryptographic identity, which cannot be restored if the device or its data folder is lost. Keep the spaced em dash (—) and the trailing period.
+  ///
+  /// In en, this message translates to:
+  /// **'Your name is a local label — it never changes your cryptographic identity, which is unrecoverable if this device or its data folder is lost.'**
+  String get settingsSelfLabelNote;
+
   /// Row label in the Settings endpoint card for the network endpoint ID (the node's network address identity).
   ///
   /// In en, this message translates to:

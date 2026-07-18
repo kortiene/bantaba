@@ -1728,7 +1728,6 @@ class _PipesTabState extends State<_PipesTab> {
           _PipeRow(
               pipe: pipe,
               room: widget.room,
-              session: widget.session,
               touchTargets: widget.touchTargets),
           const SizedBox(height: JeliyaSpacing.x10),
         ],
@@ -1875,13 +1874,11 @@ class _PipeRow extends StatelessWidget {
   const _PipeRow({
     required this.pipe,
     required this.room,
-    required this.session,
     this.touchTargets = false,
   });
 
   final PipeEntry pipe;
   final RoomStore? room;
-  final DaemonSession session;
   final bool touchTargets;
 
   @override
@@ -1971,22 +1968,19 @@ class _PipeRow extends StatelessWidget {
                     fontWeight: FontWeight.w500,
                     color: tokens.textDim),
               )),
+              // Self routes through SenderName too, so it shows the device-local
+              // label (or 'You') like everyone else (docs/self-label.md).
               'authorized': authorizedPeer == null
                   ? TextSpan(
                       text: Tokens.emDash,
                       style: TextStyle(fontSize: 12, color: tokens.textMute))
-                  : session.isSelf(authorizedPeer)
-                      ? TextSpan(
-                          text: s.commonYou,
-                          style:
-                              TextStyle(fontSize: 12, color: tokens.textDim))
-                      : widgetSlot(SenderName(
-                          id: authorizedPeer,
-                          style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w500,
-                              color: tokens.textDim),
-                        )),
+                  : widgetSlot(SenderName(
+                      id: authorizedPeer,
+                      style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                          color: tokens.textDim),
+                    )),
             },
           ),
           if (!closed) ...[

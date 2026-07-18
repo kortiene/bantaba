@@ -201,10 +201,11 @@ class _ProfileCard extends StatelessWidget {
     final s = context.strings;
     final tokens = JeliyaTokens.of(context);
     final identityId = session.selfId;
-    // Identity-derived (alias → short id), NOT displayName()'s 'You' — the
-    // web profile card shows names.display(self); 'You'/'YO' is wrong here.
+    // The web profile card shows names.display(self) = the device-local label,
+    // falling back to 'You' (docs/self-label.md). The shortId stays as the
+    // secondary handle below, so identity is never lost.
     final selfName = identityId != null
-        ? (session.prefs.aliasFor(identityId) ?? shortId(identityId))
+        ? session.displayName(s, identityId)
         : s.commonYou;
     final handle = identityId != null
         ? s.sidebarProfileHandle(shortId(identityId).replaceAll('…', ''))

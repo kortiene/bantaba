@@ -30,7 +30,7 @@ class Avatar extends StatelessWidget {
   final double size;
 
   /// The display label to take initials from; when null, resolved via the
-  /// session names api ('You' for self, alias, else shortId).
+  /// session names api (self label or 'You' for self, alias, else shortId).
   final String? label;
 
   @override

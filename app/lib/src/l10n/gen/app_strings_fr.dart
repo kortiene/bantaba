@@ -1270,6 +1270,20 @@ class AppStringsFr extends AppStrings {
       'Irrécupérable si cet appareil ou son dossier de données est perdu.';
 
   @override
+  String get selfLabelTitle => 'Votre nom sur cet appareil';
+
+  @override
+  String get selfLabelHint =>
+      'Visible par vous seul — jamais partagé ni signé.';
+
+  @override
+  String get selfLabelPlaceholder => 'p. ex. Alex';
+
+  @override
+  String get settingsSelfLabelNote =>
+      'Votre nom est une étiquette locale — il ne change jamais votre identité cryptographique, irrécupérable si cet appareil ou son dossier de données est perdu.';
+
+  @override
   String get settingsEndpointLabel => 'Point de terminaison';
 
   @override

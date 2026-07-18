@@ -1246,6 +1246,19 @@ class AppStringsEn extends AppStrings {
       'Unrecoverable if this device or its data folder is lost.';
 
   @override
+  String get selfLabelTitle => 'Your name on this device';
+
+  @override
+  String get selfLabelHint => 'Only visible to you — never shared or signed.';
+
+  @override
+  String get selfLabelPlaceholder => 'e.g. Alex';
+
+  @override
+  String get settingsSelfLabelNote =>
+      'Your name is a local label — it never changes your cryptographic identity, which is unrecoverable if this device or its data folder is lost.';
+
+  @override
   String get settingsEndpointLabel => 'Endpoint';
 
   @override

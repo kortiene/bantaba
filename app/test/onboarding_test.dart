@@ -11,6 +11,7 @@ import 'package:jeliya_app/src/screens/room_header.dart';
 import 'package:jeliya_app/src/screens/shell.dart';
 import 'package:jeliya_app/src/session/daemon_session.dart';
 import 'package:jeliya_app/src/widgets/buttons.dart';
+import 'package:jeliya_app/src/widgets/self_label_field.dart';
 import 'package:jeliya_protocol/testing.dart';
 
 import 'helpers.dart';
@@ -81,6 +82,26 @@ void main() {
     // i18n-exempt: raw daemon wire error message (mock_client), not catalog copy
     expect(find.text('an identity already exists on this daemon'),
         findsNothing);
+  });
+
+  testWidgets(
+      'rooms step: the optional device-local self label appears and live-saves',
+      (tester) async {
+    final session = await pumpToRoomsStep(tester);
+
+    // The self-label field sits with the created-identity handoff, empty.
+    final field = find.descendant(
+        of: find.byType(SelfLabelField), matching: find.byType(TextField));
+    expect(field, findsOneWidget);
+    expect(tester.widget<TextField>(field).controller!.text, '');
+
+    // Naming yourself here live-saves to the local alias store keyed by the
+    // self identity id (docs/self-label.md) — no wire call, no advance.
+    await tester.enterText(field, 'Ada');
+    await tester.pump();
+    expect(session.selfLabel, 'Ada');
+    expect(session.displayName(en, session.selfId!), 'Ada');
+    expect(session.phase, BootstrapPhase.noRooms); // still on the rooms step
   });
 
   testWidgets('rooms step: create validates a blank name, then opens the room',

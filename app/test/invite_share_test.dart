@@ -128,6 +128,27 @@ void main() {
   });
 
   testWidgets(
+      'the invite identity input starts empty — never pre-seeded with the '
+      "self id (docs/self-label.md, AC5)", (tester) async {
+    await pumpReadyApp(tester, newMockClient()); // 1440x900 desktop surface
+    await tester.tap(find.text('Product Review').hitTestable());
+    await pumpSteps(tester, steps: 6);
+
+    final invite = find
+        .text('${Tokens.roomHeaderInviteGlyph} ${en.roomHeaderInvite}');
+    await tester.tap(invite.hitTestable().first);
+    await pumpSteps(tester, steps: 3);
+    expect(find.byType(InviteModal), findsOneWidget);
+
+    // The invitee field opens EMPTY with only its example placeholder — there
+    // is nothing to invite yourself to, so the self id is never pre-filled.
+    final identityField =
+        find.widgetWithText(TextField, en.inviteInviteePlaceholder);
+    expect(identityField, findsOneWidget);
+    expect(tester.widget<TextField>(identityField).controller!.text, isEmpty);
+  });
+
+  testWidgets(
       'at desktop width the invite result stays copy-only — no share '
       'affordance above the breakpoint', (tester) async {
     mockShareChannel(tester);

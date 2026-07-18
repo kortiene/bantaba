@@ -1626,6 +1626,22 @@
   "@settingsIdentityNote": {
     "description": "Warning note under the identity card: the P2P identity cannot be restored if the device or its data folder is lost. Sentence fragment referring to the identity above it; keep the trailing period."
   },
+  "selfLabelTitle": "Your name on this device",
+  "@selfLabelTitle": {
+    "description": "Label for the optional device-local self-name field, shown in onboarding and in Settings. This friendly name is stored only on this device and is never shared or signed (docs/self-label.md)."
+  },
+  "selfLabelHint": "Only visible to you — never shared or signed.",
+  "@selfLabelHint": {
+    "description": "Helper text under the self-name field: the name is device-local — never sent to peers and never part of a signed event. Keep the spaced em dash (—) and the trailing period."
+  },
+  "selfLabelPlaceholder": "e.g. Alex",
+  "@selfLabelPlaceholder": {
+    "description": "Placeholder/example for the self-name field, showing that any short given name works. Localize the 'e.g.' lead-in; 'Alex' is a stand-in example name that may be localized."
+  },
+  "settingsSelfLabelNote": "Your name is a local label — it never changes your cryptographic identity, which is unrecoverable if this device or its data folder is lost.",
+  "@settingsSelfLabelNote": {
+    "description": "Note in Settings tying the friendly local name to the unrecoverable P2P identity: renaming yourself never touches the cryptographic identity, which cannot be restored if the device or its data folder is lost. Keep the spaced em dash (—) and the trailing period."
+  },
   "settingsEndpointLabel": "Endpoint",
   "@settingsEndpointLabel": {
     "description": "Row label in the Settings endpoint card for the network endpoint ID (the node's network address identity)."

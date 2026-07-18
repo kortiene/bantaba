@@ -932,15 +932,32 @@ class DaemonSession extends ChangeNotifier {
 
   // -- names (local aliases; NEVER wire data) --------------------------------------------
 
-  /// Display-name resolution order: localized 'You' → local alias → shortId
-  /// (against a real daemon there are no seeded suggestions). Takes the
-  /// ambient catalog so the self-name follows the text locale.
+  /// Display-name resolution order: for self the device-local label falls back
+  /// to the localized 'You' (never the raw hex id — docs/self-label.md); for
+  /// peers it is local alias → shortId (against a real daemon there are no
+  /// seeded suggestions). Takes the ambient catalog so the self-name follows
+  /// the text locale.
   String displayName(AppStrings s, String identityId) {
-    if (isSelf(identityId)) return s.commonYou;
+    if (isSelf(identityId)) return prefs.aliasFor(identityId) ?? s.commonYou;
     return prefs.aliasFor(identityId) ?? shortId(identityId);
   }
 
   bool isSelf(String identityId) => selfId != null && identityId == selfId;
+
+  /// The device-local self label: just the self identity's own alias, '' when
+  /// unset (docs/self-label.md). Editing it from onboarding/settings reuses the
+  /// same local-alias write — no new store, no wire call.
+  String get selfLabel {
+    final id = selfId;
+    return id == null ? '' : (prefs.aliasFor(id) ?? '');
+  }
+
+  /// Set/clear the self label (empty ⇒ falls back to 'You'); a no-op before the
+  /// identity is known. Reuses [setAlias], which trims and clears.
+  void setSelfLabel(String label) {
+    final id = selfId;
+    if (id != null) setAlias(id, label);
+  }
 
   /// Store/clear a local alias (Rename modal Save / Clear alias).
   void setAlias(String identityId, String? name) {

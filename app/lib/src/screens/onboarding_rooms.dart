@@ -15,6 +15,7 @@ import '../theme.dart';
 import '../widgets/buttons.dart';
 import '../widgets/copy_button.dart';
 import '../widgets/error_note.dart';
+import '../widgets/self_label_field.dart';
 import '../widgets/template_text.dart';
 import 'onboarding_identity.dart' show OnboardingBrand, OnboardingCard;
 
@@ -278,6 +279,7 @@ class _IdentityCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final s = context.strings;
     final tokens = JeliyaTokens.of(context);
+    final session = SessionScope.of(context);
     return OnboardingCard(
       width: double.infinity,
       child: Column(
@@ -307,6 +309,13 @@ class _IdentityCard extends StatelessWidget {
           const SizedBox(height: JeliyaSpacing.x4),
           Text(s.onboardingIdentityCardCopy2,
               style: TextStyle(fontSize: 12.5, color: tokens.textDim)),
+          // Name yourself right here, alongside the created-identity handoff
+          // (docs/self-label.md) — optional, device-local, live-saved.
+          const SizedBox(height: JeliyaSpacing.x12),
+          SelfLabelField(
+            value: session.selfLabel,
+            onChanged: session.setSelfLabel,
+          ),
         ],
       ),
     );

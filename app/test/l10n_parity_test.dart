@@ -308,6 +308,10 @@ void main() {
     expect(en.settingsDeviceLabel, "Device");
     expect(en.settingsCopyDeviceId, "Copy device ID");
     expect(en.settingsIdentityNote, "Unrecoverable if this device or its data folder is lost.");
+    expect(en.selfLabelTitle, "Your name on this device");
+    expect(en.selfLabelHint, "Only visible to you — never shared or signed.");
+    expect(en.selfLabelPlaceholder, "e.g. Alex");
+    expect(en.settingsSelfLabelNote, "Your name is a local label — it never changes your cryptographic identity, which is unrecoverable if this device or its data folder is lost.");
     expect(en.settingsEndpointLabel, "Endpoint");
     expect(en.settingsRelayLabel, "Relay");
     expect(en.settingsCopyEndpointId, "Copy endpoint ID");

@@ -132,4 +132,37 @@ void main() {
     expect(store.pinnedRooms, {_roomA});
     expect(store.archivedRooms, isEmpty);
   });
+
+  // Device-local self label (issue #70, docs/self-label.md) — reuses the alias
+  // store keyed by the self identity id; no new store, no new key, no wire.
+  const selfId =
+      'blake3:3333333333333333333333333333333333333333333333333333333333333333';
+
+  test('self label round-trips through the alias store; empty clears it', () {
+    final store = PrefsStore.inMemory();
+
+    // Unset: no alias for self (the display seam falls back to 'You').
+    expect(store.aliasFor(selfId), isNull);
+
+    // Setting it stores the trimmed value; internal spaces are preserved.
+    store.setAlias(selfId, '  Alex K  ');
+    expect(store.aliasFor(selfId), 'Alex K');
+
+    // A whitespace-only value clears it — self falls back to 'You' again.
+    store.setAlias(selfId, '   ');
+    expect(store.aliasFor(selfId), isNull);
+  });
+
+  test('the self label persists across a reload like any local alias', () async {
+    final dir = await Directory.systemTemp.createTemp('jeliya_prefs');
+    addTearDown(() => dir.delete(recursive: true));
+    final path = '${dir.path}/app_prefs.json';
+
+    final store = PrefsStore(path);
+    store.setAlias(selfId, 'Captain');
+
+    final reloaded = PrefsStore(path);
+    await reloaded.load();
+    expect(reloaded.aliasFor(selfId), 'Captain');
+  });
 }
