@@ -1,5 +1,24 @@
 import { expect, test as base } from '@playwright/test';
 import type { Page } from '@playwright/test';
+import { en } from '../src/l10n/en';
+
+/** COPY versus DATA — the distinction the whole file turns on (`docs/i18n.md`,
+ *  rule 6).
+ *
+ *  COPY is what the interface says: destination labels, filter chips, button
+ *  names. It is translated, so a spec must never contain it as a literal —
+ *  every occurrence resolves through the shared `en` catalog, and the same
+ *  spec then runs unchanged under a French text locale by swapping the catalog
+ *  the helpers read.
+ *
+ *  DATA is what the fixture contains: the room names in `MOCK_ROOMS`, message
+ *  bodies, file names. It is NOT translated — `mock.ts` serves the same bytes
+ *  in every locale — so pinning it as a literal is exactly right, and routing
+ *  it through a catalog would be a category error (a translator would be handed
+ *  "Build Iroh Rooms MVP" to localize).
+ *
+ *  The rule of thumb: if a French user would read something different there, it
+ *  is copy and belongs in the catalog. */
 
 /** The shell boundaries (docs/room-workbench.md, decision 3; ui/src/lib/shell.ts).
  *  Compact stops just below 900 — 900 itself is the first medium width, which
@@ -14,11 +33,100 @@ export function shellForWidth(width: number): Shell {
   return width >= WIDE_MIN_WIDTH ? 'wide' : 'medium';
 }
 
-/** The global destinations — the only three (docs/room-workbench.md). */
-export type GlobalDest = 'Rooms' | 'Agent Fleet' | 'Settings';
+/* -- destinations, as KEYS rather than English labels ------------------------
+ *
+ *  These used to be string-literal unions of the English labels:
+ *
+ *      export type GlobalDest = 'Rooms' | 'Agent Fleet' | 'Settings';
+ *
+ *  which made every spec depend on English at the TYPE level, not merely at
+ *  runtime: no spec could be parameterized by locale while `'Agent Fleet'` was
+ *  the only value the compiler would accept. A destination is now named by its
+ *  CATALOG KEY, and the label is resolved from `en` at use — so pointing the
+ *  helpers at `fr` is a one-line change here rather than an edit in 20 specs.
+ *
+ *  MIGRATION PATH. The ~20 existing specs pass the label (`navigate('Agent
+ *  Fleet')`, `roomTab('Files')`), and they are not edited in this change, so
+ *  the English label stays accepted as a DEPRECATED ALIAS that maps to the key.
+ *  Both forms resolve through the same catalog lookup — the alias only decides
+ *  which key you meant, it never becomes the selector text. To finish:
+ *
+ *   1. Per spec, replace each label argument with its key
+ *      (`'Agent Fleet'` → `'destFleet'`, `'Files'` → `'roomDestFiles'`).
+ *   2. Delete the three `*_ALIAS` maps and the alias arm of each `Dest` union;
+ *      the compiler then lists every remaining label call site for you.
+ *   3. Add the locale dimension to the Playwright projects and have `destKey`
+ *      read the catalog for the project's locale instead of `en`.
+ *
+ *  Step 3 is the point of the exercise; steps 1 and 2 are mechanical. */
 
-/** The room destinations, as they are labelled. */
-export type RoomDestLabel = 'Activity' | 'People' | 'Agents & Runs' | 'Files' | 'Pipes';
+/** The global destinations — the only three (docs/room-workbench.md). */
+export type GlobalDestKey = 'destRooms' | 'destFleet' | 'destSettings';
+
+/** The room destinations. */
+export type RoomDestKey =
+  | 'roomDestActivity'
+  | 'roomDestPeople'
+  | 'roomDestAgents'
+  | 'roomDestFiles'
+  | 'roomDestPipes';
+
+/** The rooms-list lifecycle filter chips. */
+export type RoomFilterKey = 'roomsFilterAll' | 'roomsFilterActive' | 'roomsFilterDeparted';
+
+/** @deprecated Pass the key instead. Kept so the unmigrated specs compile. */
+const GLOBAL_DEST_ALIAS = {
+  Rooms: 'destRooms',
+  'Agent Fleet': 'destFleet',
+  Settings: 'destSettings',
+} as const satisfies Record<string, GlobalDestKey>;
+
+/** @deprecated Pass the key instead. Kept so the unmigrated specs compile. */
+const ROOM_DEST_ALIAS = {
+  Activity: 'roomDestActivity',
+  People: 'roomDestPeople',
+  'Agents & Runs': 'roomDestAgents',
+  Files: 'roomDestFiles',
+  Pipes: 'roomDestPipes',
+} as const satisfies Record<string, RoomDestKey>;
+
+/** @deprecated Pass the key instead. Kept so the unmigrated specs compile. */
+const ROOM_FILTER_ALIAS = {
+  All: 'roomsFilterAll',
+  Active: 'roomsFilterActive',
+  'Left & removed': 'roomsFilterDeparted',
+} as const satisfies Record<string, RoomFilterKey>;
+
+/** A destination, named by catalog key or — deprecated — by English label. */
+export type GlobalDest = GlobalDestKey | keyof typeof GLOBAL_DEST_ALIAS;
+export type RoomDest = RoomDestKey | keyof typeof ROOM_DEST_ALIAS;
+export type RoomFilter = RoomFilterKey | keyof typeof ROOM_FILTER_ALIAS;
+
+/** @deprecated The old name for {@link RoomDest}. */
+export type RoomDestLabel = RoomDest;
+
+/** Normalize either spelling to the catalog key. A key passes through; a label
+ *  is looked up. The two sets are disjoint by construction (keys are
+ *  lowerCamelCase, labels are the displayed words), so this can never be
+ *  ambiguous. */
+function destKey<K extends string>(alias: Record<string, K>, dest: string): K {
+  return (alias as Record<string, K | undefined>)[dest] ?? (dest as K);
+}
+
+/** The displayed label for a global destination, from the shared catalog. */
+export function globalDestLabel(dest: GlobalDest): string {
+  return en[destKey(GLOBAL_DEST_ALIAS, dest)];
+}
+
+/** The displayed label for a room destination, from the shared catalog. */
+export function roomDestLabel(dest: RoomDest): string {
+  return en[destKey(ROOM_DEST_ALIAS, dest)];
+}
+
+/** The displayed label for a lifecycle filter chip, from the shared catalog. */
+export function roomFilterLabel(filter: RoomFilter): string {
+  return en[destKey(ROOM_FILTER_ALIAS, filter)];
+}
 
 /** Room names from the populated mock fixture (ui/src/lib/mock.ts). Each is
  *  UNIQUE, so `roomItem(name)` matches exactly one row — the homonym pair below
@@ -87,7 +195,7 @@ export class AppDriver {
    *  wide the rail is always visible, so this is already true there. */
   async showRoomsList(): Promise<void> {
     if (this.currentShell() === 'compact' && !(await this.sidebar.isVisible())) {
-      await this.navigate('Rooms');
+      await this.navigate('destRooms');
     }
     await expect(this.roomItem(MOCK_ROOMS.main)).toBeVisible();
   }
@@ -95,6 +203,7 @@ export class AppDriver {
   /** Load the app with the fresh-onboarding fixture (`?mock=fresh`). */
   async gotoFresh(): Promise<void> {
     await this.goto({ mock: 'fresh' });
+    // TODO(#74 migration): literal — onboarding copy has no catalog key yet.
     await expect(this.page.getByRole('heading', { name: 'Create your identity' })).toBeVisible();
   }
 
@@ -121,8 +230,11 @@ export class AppDriver {
    *  buttons whose accessible names contain the room name, so a bare name match
    *  would resolve to three buttons per row. */
   roomItem(name: string, disambig?: string) {
+    // `name` is fixture DATA (a mock room name), so it is a literal by design.
+    // The landmark's accessible name is COPY — it is the Rooms destination
+    // word, so it resolves through the catalog like every other label.
     const byName = this.page
-      .getByRole('navigation', { name: 'Rooms' })
+      .getByRole('navigation', { name: en.destRooms })
       .getByRole('button', { name, exact: false })
       .and(this.page.locator('.room-select'));
     return disambig ? byName.filter({ hasText: disambig }) : byName;
@@ -131,10 +243,10 @@ export class AppDriver {
   /** A lifecycle filter chip ("All" / "Active" / "Left & removed"). Scoped to
    *  the filter group so it never collides with the same-named departed
    *  disclosure inside the room list. */
-  filterChip(label: 'All' | 'Active' | 'Left & removed') {
+  filterChip(filter: RoomFilter) {
     return this.page
-      .getByRole('group', { name: 'Filter rooms by lifecycle' })
-      .getByRole('button', { name: label, exact: true });
+      .getByRole('group', { name: en.roomsFilterLegend })
+      .getByRole('button', { name: roomFilterLabel(filter), exact: true });
   }
 
   /** Expand the collapsed "Left & removed" disclosure so a departed room's row
@@ -142,9 +254,12 @@ export class AppDriver {
    *  disclosure lives inside the Rooms navigation — scoped so it is not confused
    *  with the identically-labelled filter chip. */
   async showDeparted(): Promise<void> {
+    // Substring match rather than a regex: the label is catalog copy, and
+    // building a RegExp from translated text would need escaping in every
+    // locale (French copy carries « » and narrow no-break spaces).
     const toggle = this.page
-      .getByRole('navigation', { name: 'Rooms' })
-      .getByRole('button', { name: /Left & removed/ });
+      .getByRole('navigation', { name: en.destRooms })
+      .getByRole('button', { name: en.roomsFilterDeparted, exact: false });
     if ((await toggle.count()) > 0 && (await toggle.getAttribute('aria-expanded')) === 'false') {
       await toggle.click();
     }
@@ -173,14 +288,14 @@ export class AppDriver {
   /** The room's nested navigation — visible under the room header, and inside
    *  the inspector on compact. Exactly one of the two is on screen at a time,
    *  so this stays unambiguous on every shell. */
-  roomTab(label: RoomDestLabel) {
+  roomTab(dest: RoomDest) {
     // Not exact: a tab's accessible name absorbs its count badge ("Files5").
     // The five labels share no prefix, so a substring match stays unambiguous.
-    return this.page.getByRole('tab', { name: label, exact: false });
+    return this.page.getByRole('tab', { name: roomDestLabel(dest), exact: false });
   }
 
-  mobileTab(label: GlobalDest) {
-    return this.tabBar.getByRole('button', { name: label, exact: true });
+  mobileTab(dest: GlobalDest) {
+    return this.tabBar.getByRole('button', { name: globalDestLabel(dest), exact: true });
   }
 
   /** Open a room so its Activity is visible, whatever the shell. */
@@ -196,8 +311,10 @@ export class AppDriver {
    *  explicit send. Specs that are about scroll/filter behavior, not the send
    *  gesture itself, use this so they run unchanged on every viewport. */
   async sendMessage(body: string): Promise<void> {
+    // `body` is fixture DATA — a literal on purpose.
     await this.composerTextarea.fill(body);
     if (this.currentShell() === 'compact') {
+      // TODO(#74 migration): literal — the composer has no catalog key yet.
       await this.page.getByRole('button', { name: 'Send message' }).click();
     } else {
       await this.composerTextarea.press('Enter');
@@ -207,9 +324,11 @@ export class AppDriver {
   /** Go to a room destination. Activity closes the inspector; a tool opens it —
    *  a column on wide, a drawer on medium, the whole pane on compact, and one
    *  navigation on all three. */
-  async goToRoomDest(label: RoomDestLabel): Promise<void> {
-    await this.roomTab(label).click();
-    if (label === 'Activity') {
+  async goToRoomDest(dest: RoomDest): Promise<void> {
+    await this.roomTab(dest).click();
+    // Compared as a KEY, never as the visible label — the branch is about which
+    // destination this is, which must not change when the words do.
+    if (destKey(ROOM_DEST_ALIAS, dest) === 'roomDestActivity') {
       await expect(this.timeline).toBeVisible();
     } else {
       await expect(this.rightPanel).toBeVisible();
@@ -217,18 +336,21 @@ export class AppDriver {
   }
 
   /** Navigate to a global destination (room rail / compact tab bar). */
-  async navigate(label: GlobalDest): Promise<void> {
+  async navigate(dest: GlobalDest): Promise<void> {
     if (this.currentShell() === 'compact') {
       // Inside a room the bar gives way to the room's app bar; Back returns to
       // it, exactly as a user would have to.
       if (!(await this.tabBar.isVisible())) {
+        // TODO(#74 migration): still a literal — the back button's accessible
+        // name has no catalog key yet. It gets one when the room app bar is
+        // migrated, and this line becomes `en.roomBackToRooms`.
         await this.page.getByRole('button', { name: 'Back to Rooms' }).click();
       }
-      await this.mobileTab(label).click();
+      await this.mobileTab(dest).click();
     } else {
       await this.page
         .getByRole('navigation', { name: 'Primary', exact: true })
-        .getByRole('button', { name: label, exact: true })
+        .getByRole('button', { name: globalDestLabel(dest), exact: true })
         .click();
     }
   }

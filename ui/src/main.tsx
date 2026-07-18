@@ -1,6 +1,7 @@
 import { createRoot } from 'react-dom/client';
 import App from './App';
 import { createClient } from './lib/client';
+import { L10nProvider } from './l10n/strings';
 import './styles.css';
 
 // One client for the whole app lifetime (WebSocket or VITE_MOCK=1 fixtures).
@@ -12,4 +13,12 @@ const client = createClient();
 // attaching to a dev server that talks to a real daemon.
 document.documentElement.dataset.jeliyaTransport = client.describe();
 
-createRoot(document.getElementById('root')!).render(<App client={client} />);
+// The provider sits ABOVE the app so every consumer — including the dialogs
+// that render through portals — resolves copy from the same locale, and so a
+// language switch reaches all of them on the next render (docs/i18n.md, rule 1:
+// copy is resolved at render time, never captured into state).
+createRoot(document.getElementById('root')!).render(
+  <L10nProvider>
+    <App client={client} />
+  </L10nProvider>,
+);

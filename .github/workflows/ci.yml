@@ -71,6 +71,16 @@ jobs:
       - name: Verify design-system conformance
         run: node scripts/check-design-tokens.mjs
 
+      # Catalog completeness, French typography, and the never-translate
+      # boundary for the web client (issue #74). The Flutter half is
+      # `scripts/i18n-gate.mjs`, which runs in the flutter job and scans only
+      # app/ — nothing had ever checked ui/.
+      - name: Verify web localization catalogs
+        run: |
+          set -euo pipefail
+          node --test scripts/check-ui-i18n.test.mjs
+          node scripts/check-ui-i18n.mjs
+
       # The whole vitest suite EXCEPT the live-daemon oracle. Only the
       # mock-conformance file used to run here, so twelve other test files —
       # routing, the room list, attention, QR, landmarks, motion — had never
