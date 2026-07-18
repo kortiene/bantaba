@@ -111,6 +111,34 @@ void main() {
       expect(r.role, isNull);
       expect(r.status, isNull);
     });
+
+    test('last_event_ts/kind parse when present (the recency projection)', () {
+      final r = RoomSummary.fromJson({
+        'room_id': _roomId,
+        'name': 'Build Iroh Rooms MVP',
+        'role': 'owner',
+        'status': 'active',
+        'member_count': 7,
+        'open': true,
+        'last_event_ts': 1783190000000,
+        'last_event_kind': 'agent_status',
+      });
+      expect(r.lastEventTs, 1783190000000);
+      expect(r.lastEventKind, 'agent_status');
+    });
+
+    test('last_event_ts/kind are compatibility-null when an older daemon omits them', () {
+      final r = RoomSummary.fromJson({
+        'room_id': _roomId,
+        'name': 'Build Iroh Rooms MVP',
+        'role': 'owner',
+        'status': 'active',
+        'member_count': 7,
+        'open': true,
+      });
+      expect(r.lastEventTs, isNull);
+      expect(r.lastEventKind, isNull);
+    });
   });
 
   group('TimelineEvent', () {

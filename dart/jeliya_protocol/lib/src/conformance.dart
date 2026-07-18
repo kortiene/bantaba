@@ -25,7 +25,7 @@ dynamic normalize(dynamic value, [String? key]) {
     return out;
   }
   if (value is num) {
-    if (key == 'ts' || key == 'last_seen_ts' || key == 'fetched_at_ms' || key == 'started_at_ms') return '<ts>';
+    if (key == 'ts' || key == 'last_seen_ts' || key == 'last_event_ts' || key == 'fetched_at_ms' || key == 'started_at_ms') return '<ts>';
     if (key == 'pid' || key == 'port') return '<number>';
     if (key == 'size' || key == 'member_count' || key == 'providers' || key == 'bytes' || key == 'local_bytes') return '<number>';
     return value;

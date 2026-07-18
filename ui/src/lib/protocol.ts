@@ -113,6 +113,15 @@ export interface RoomSummary {
   status: string | null;
   member_count: number;
   open: boolean;
+  /** The `created_at` of this room's newest signed event, Unix ms — a daemon
+   *  projection of recency (docs/room-attention.md, decision 2). Read-only and
+   *  compatibility-nullable: an older daemon omits it, and the client renders no
+   *  recency rather than a fabricated one. Labelled Stale when the room's data
+   *  cannot be vouched for; never the wall clock. */
+  last_event_ts?: number | null;
+  /** The `kind` of that newest event, so a surface can say WHAT last happened
+   *  without opening the room. Same read-only, nullable, no-inference rule. */
+  last_event_kind?: TimelineKind | null;
 }
 
 export interface Member {

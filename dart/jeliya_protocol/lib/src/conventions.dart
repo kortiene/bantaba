@@ -11,6 +11,7 @@
 /// - agent-status label tone — `format.dart`;
 /// - file-fetch state fold (never downgrade, `hash_mismatch` hard stop) —
 ///   `fetch_state.dart`;
+/// - device-local unread projection — `room_attention.dart`;
 /// - redacted support diagnostics — `diagnostics.dart`.
 library;
 
@@ -20,4 +21,5 @@ export 'conventions/format.dart';
 export 'conventions/invite.dart';
 export 'conventions/join.dart';
 export 'conventions/pending_messages.dart';
+export 'conventions/room_attention.dart';
 export 'conventions/timeline_fold.dart';

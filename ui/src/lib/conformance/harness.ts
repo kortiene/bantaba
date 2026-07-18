@@ -26,7 +26,7 @@ export function normalize(value: unknown, key?: string): unknown {
     return out;
   }
   if (typeof value === 'number') {
-    if (key === 'ts' || key === 'last_seen_ts' || key === 'fetched_at_ms' || key === 'started_at_ms') return '<ts>';
+    if (key === 'ts' || key === 'last_seen_ts' || key === 'last_event_ts' || key === 'fetched_at_ms' || key === 'started_at_ms') return '<ts>';
     if (key === 'pid' || key === 'port') return '<number>';
     if (key === 'size' || key === 'member_count' || key === 'providers' || key === 'bytes' || key === 'local_bytes') return '<number>';
     return value; // stable numbers (protocol:1, progress:60) compare literally

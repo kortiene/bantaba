@@ -1,0 +1,40 @@
+{
+  "note": "Shared room-attention fixture cases for docs/room-attention.md — the five truthful states (unread, attention, offline, stale, no-data) and the device-local unread projection of decision 3. Consumed by BOTH the TypeScript (ui/src/lib/lastSeen.test.ts) and Dart (dart/jeliya_protocol/test/conventions_test.dart) unread tests, so React and Flutter render identical decisions from one source (issue #63, AC7). Timestamps are Unix ms. `last_seen` is this device's acknowledged mark for the room, or null when the room has never been seeded. `connected` and `last_event_kind` carry the evidence the attention/offline/stale classifiers of #69 and #64 will consume; only `expect.unread` — the isRoomUnread / roomUnread verdict — is asserted today.",
+  "cases": [
+    {
+      "name": "unread",
+      "room": { "room_id": "blake3:1111111111111111111111111111111111111111111111111111111111111111", "last_event_ts": 3000, "last_event_kind": "message" },
+      "last_seen": 2000,
+      "connected": true,
+      "expect": { "unread": true }
+    },
+    {
+      "name": "attention",
+      "room": { "room_id": "blake3:2222222222222222222222222222222222222222222222222222222222222222", "last_event_ts": 3000, "last_event_kind": "agent_status" },
+      "last_seen": 2000,
+      "connected": true,
+      "expect": { "unread": true }
+    },
+    {
+      "name": "offline",
+      "room": { "room_id": "blake3:3333333333333333333333333333333333333333333333333333333333333333", "last_event_ts": 2000, "last_event_kind": "message" },
+      "last_seen": 2000,
+      "connected": false,
+      "expect": { "unread": false }
+    },
+    {
+      "name": "stale",
+      "room": { "room_id": "blake3:4444444444444444444444444444444444444444444444444444444444444444", "last_event_ts": 2000, "last_event_kind": "agent_status" },
+      "last_seen": null,
+      "connected": false,
+      "expect": { "unread": false }
+    },
+    {
+      "name": "no-data",
+      "room": { "room_id": "blake3:5555555555555555555555555555555555555555555555555555555555555555", "last_event_ts": null, "last_event_kind": null },
+      "last_seen": null,
+      "connected": true,
+      "expect": { "unread": false }
+    }
+  ]
+}
