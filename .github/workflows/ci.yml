@@ -64,11 +64,21 @@ jobs:
         working-directory: ui
         run: npm ci
 
-      # The live-daemon corpus runs below after the binary is built. Running
-      # only the mock oracle here keeps this job honest rather than skipping.
-      - name: TypeScript mock conformance
+      # Verify the shared design-token fixture BEFORE anything renders against
+      # it: assets/design-tokens.json is the one source both clients answer to,
+      # and this half also enforces the shadow, side-stripe and gradient rules
+      # DESIGN.md states as absolutes (issue #75).
+      - name: Verify design-system conformance
+        run: node scripts/check-design-tokens.mjs
+
+      # The WHOLE vitest suite, not one file of it. Only the mock-conformance
+      # oracle used to run here, so eleven other test files — routing, the room
+      # list, attention, QR, landmarks, motion — had never once run in CI and
+      # could not have failed a pull request (issue #76). The live-daemon corpus
+      # still runs below after the binary is built.
+      - name: TypeScript unit and conformance suite
         working-directory: ui
-        run: npm exec -- vitest run src/lib/conformance/conformance.mock.test.ts
+        run: npm run test
 
       - name: TypeScript build
         working-directory: ui
@@ -106,6 +116,10 @@ jobs:
         working-directory: ui
         run: npm run test:e2e
 
+      # A failure has to carry the exact combination it failed under —
+      # viewport, locale and text scale — or reproducing it means guessing.
+      # e2e/fixtures.ts attaches those to every failing test, and the
+      # accessibility specs attach the axe violation list alongside them.
       - name: Preserve failure evidence (screenshots, traces, console logs)
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

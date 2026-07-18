@@ -3,7 +3,7 @@ type: "Status Report"
 title: "Capability status"
 description: "Evidence-aware capability matrix for the v0.5.0 technical-preview candidate and the latest public release."
 tags: ["capabilities", "release", "status", "verification"]
-timestamp: "2026-07-16T15:30:00Z"
+timestamp: "2026-07-18T13:30:00Z"
 status: "canonical"
 implementation_status: "partial"
 verification_status: "partial"
@@ -62,7 +62,7 @@ together.
 | Unix installer integrity | implemented | behavioral checks pass | released in `v0.5.0` | Unix installers fetch and verify the matching sidecar before extraction; `v0.5.0` installs via the version-pinned installer path. |
 | Windows installer integrity | implemented | hosted `windows-latest` job passes on `main` | released in `v0.5.0` | The Windows job executes checksum/tamper behavior, simulates reparse-point rejection, and runs native `jeliyad.exe --version`; a `v0.5.0` Windows zip and sidecar are published. |
 | Complete asset-set visibility and version consistency | implemented | executed for `v0.5.0` | released in `v0.5.0` | The publication workflow validated, sealed, smoked, and receipt-verified the complete five-archive set; the evidence key is provisioned and the signed evidence passed the release gate before publication. |
-| WCAG 2.1 AA | partial | targeted checks only | partial | WCAG is a design target, not an enforced or certified conformance claim across React and Flutter. |
+| WCAG 2.1 AA | partial | automated gate on every pull request; manual checklist per release | partial | Enforced, not certified. CI rejects any critical or serious axe violation across every destination at 1440x900, 920x800, 390x844 and 320x568, and fails on clipped layout at 100/200/320% text in English and French; `docs/accessibility-checklist.md` covers the screen-reader and keyboard behaviours automation cannot decide. Not a conformance claim: the web client is English-only until localization lands, and `ui-e2e` is not yet a required status check, so the gate runs on every pull request without blocking merge. |
 | OKF-compatible documentation | implemented | locally checked; reconciled to the released `v0.5.0` and the rc.3 candidate | released posture documented | The profile separates lifecycle, implementation, verification, and release status. |
 
 ## Preview publication rule
