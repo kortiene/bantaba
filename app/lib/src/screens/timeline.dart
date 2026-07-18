@@ -898,26 +898,29 @@ class _TimelineViewState extends State<TimelineView> {
     );
   }
 
-  /// Sender name + optional AGENT chip + time (msg-meta, 12px). The name is
-  /// the flexible segment: at phone widths (long aliases, wide French copy)
-  /// it truncates before the chip/time ever overflow.
+  /// Sender name + optional AGENT chip + time (msg-meta, 12px).
+  ///
+  /// A `Wrap`, not a `Row`. The name was the flexible segment and truncated
+  /// first, which is right at phone widths — but at 320% text the FIXED
+  /// segments alone (the AGENT chip, the timestamp and their gaps) are wider
+  /// than a 360dp phone, so the row overflowed by 73px with the name already
+  /// collapsed to nothing. There was no width left to take.
+  ///
+  /// Wrapping is the honest degradation the criterion asks for: at every normal
+  /// scale this lays out identically on one line, and at large text the
+  /// timestamp drops to a second run instead of being clipped away.
   Widget _metaRow(BuildContext context, TimelineEvent event, {required bool own}) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      mainAxisAlignment:
-          own ? MainAxisAlignment.end : MainAxisAlignment.start,
+    return Wrap(
+      spacing: JeliyaSpacing.x8,
+      runSpacing: JeliyaSpacing.x4,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      alignment: own ? WrapAlignment.end : WrapAlignment.start,
       children: [
-        Flexible(
-          child: SenderName(
-            id: event.sender.identityId,
-            style: JeliyaText.name.copyWith(fontSize: 12),
-          ),
+        SenderName(
+          id: event.sender.identityId,
+          style: JeliyaText.name.copyWith(fontSize: 12),
         ),
-        if (event.sender.role == Roles.agent) ...[
-          const SizedBox(width: JeliyaSpacing.x8),
-          const _AgentChip(),
-        ],
-        const SizedBox(width: JeliyaSpacing.x8),
+        if (event.sender.role == Roles.agent) const _AgentChip(),
         _time(context, event.ts),
       ],
     );

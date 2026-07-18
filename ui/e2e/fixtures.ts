@@ -266,8 +266,25 @@ export const test = base.extend<AppFixtures>({
 
     if (testInfo.status !== testInfo.expectedStatus) {
       const viewport = page.viewportSize();
+      // The EXACT combination the failure happened under. A viewport alone is
+      // not reproducible once the matrix has a locale and a text-scale
+      // dimension — the reader would have to guess which cell failed
+      // (issue #76). Read from the live page rather than the project config so
+      // a test that overrides either one still reports the truth.
+      const runtime = await page
+        .evaluate(() => ({
+          lang: document.documentElement.lang || '(unset)',
+          textScale: getComputedStyle(document.documentElement).fontSize,
+          reducedMotion: window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+        }))
+        .catch(() => null);
       await testInfo.attach('failing-viewport', {
-        body: `${testInfo.project.name} (${viewport?.width}x${viewport?.height})`,
+        body: [
+          `${testInfo.project.name} (${viewport?.width}x${viewport?.height})`,
+          `locale: ${runtime?.lang ?? '(page unavailable)'}`,
+          `root font-size: ${runtime?.textScale ?? '(page unavailable)'}`,
+          `prefers-reduced-motion: ${runtime?.reducedMotion ?? '(page unavailable)'}`,
+        ].join('\n'),
         contentType: 'text/plain',
       });
       await testInfo.attach('console-errors', {

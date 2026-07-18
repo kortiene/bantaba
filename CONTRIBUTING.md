@@ -34,13 +34,19 @@ declined kindly.
   the contract.
 - **Prove it runs.** `node scripts/agent-e2e.mjs` proves the agent flow
   end-to-end with no network and no AI; `scripts/demo.sh` runs the full
-  two-daemon demo. Say in the PR what you ran. CI runs eight required jobs on
-  every PR and push to main: `docs-ui`, `ui-e2e`, `flutter`, `linux-flutter`,
+  two-daemon demo. Say in the PR what you ran. CI runs eight jobs on every PR
+  and push to main: `docs-ui`, `ui-e2e`, `flutter`, `linux-flutter`,
   `rust-runtime`, `msrv`, `windows-installer`, and `dependency-security`.
-  Together they cover docs, UI, browser-level responsive UX regressions,
-  Flutter/i18n, the native Linux bundle and its supervised sidecar, Rust and
-  Dart, smoke/E2E/protocol conformance, the 1.91.0 MSRV, Windows installer
-  integrity, and Cargo/npm security audits.
+  Together they cover docs, UI, browser-level responsive and accessibility
+  regressions, Flutter/i18n, the native Linux bundle and its supervised
+  sidecar, Rust and Dart, smoke/E2E/protocol conformance, the 1.91.0 MSRV,
+  Windows installer integrity, and Cargo/npm security audits.
+  **Six of the eight are branch-protection REQUIRED checks** — `ui-e2e` and
+  `linux-flutter` run on every PR but do not block a merge. That gap matters
+  for the accessibility gate in particular: the axe sweep lives in `ui-e2e`,
+  so a critical violation currently fails the run without stopping the merge.
+  Adding those two contexts to branch protection is a repository-settings
+  change, not something a pull request can carry.
   The same complete matrix can be dispatched manually without publishing a release.
 - **UI regressions are browser-tested.** `cd ui && npm run test:e2e` runs the
   Playwright suite (`ui/e2e/`) against the `VITE_MOCK=1` fixture client — no
