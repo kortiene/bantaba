@@ -24,14 +24,23 @@ export type InspectorDest = Exclude<RoomDest, 'activity'>;
 
 export type Route =
   | { kind: 'rooms' }
-  | { kind: 'room'; roomId: string; dest: RoomDest }
+  | { kind: 'room'; roomId: string; dest: RoomDest; item?: string }
   | { kind: 'fleet' }
   | { kind: 'settings' };
 
 export const ROOMS_ROUTE: Route = { kind: 'rooms' };
 
+/** The room tools that select an individual item (a file id / pipe id) — the
+ *  only destinations where a 4th path segment is navigation state (#67). A
+ *  selected item deep-links to the workspace AND the item it opens. */
+export const ITEM_DESTS: readonly RoomDest[] = ['files', 'pipes'];
+
 function isRoomDest(value: string | undefined): value is RoomDest {
   return value !== undefined && (ROOM_DESTS as readonly string[]).includes(value);
+}
+
+function destTakesItem(dest: RoomDest): boolean {
+  return ITEM_DESTS.includes(dest);
 }
 
 /** Parse a pathname into a route. Total by construction: an unknown path is
@@ -53,7 +62,14 @@ export function parseRoute(pathname: string): Route {
   if (segments[0] === 'rooms') {
     const roomId = segments[1];
     if (!roomId) return ROOMS_ROUTE;
-    return { kind: 'room', roomId, dest: isRoomDest(segments[2]) ? segments[2] : 'activity' };
+    const dest = isRoomDest(segments[2]) ? segments[2] : 'activity';
+    // A 4th segment is the selected item, but ONLY under a dest that has items
+    // (files/pipes). `/rooms/:id/people/:x` ignores the stray segment rather
+    // than inventing a selection people cannot have.
+    const item = destTakesItem(dest) && segments[3] ? segments[3] : undefined;
+    return item !== undefined
+      ? { kind: 'room', roomId, dest, item }
+      : { kind: 'room', roomId, dest };
   }
   return ROOMS_ROUTE;
 }
@@ -67,8 +83,12 @@ export function routePath(route: Route): string {
       return '/fleet';
     case 'settings':
       return '/settings';
-    case 'room':
-      return `/rooms/${encodeURIComponent(route.roomId)}/${route.dest}`;
+    case 'room': {
+      const base = `/rooms/${encodeURIComponent(route.roomId)}/${route.dest}`;
+      return route.item !== undefined && destTakesItem(route.dest)
+        ? `${base}/${encodeURIComponent(route.item)}`
+        : base;
+    }
   }
 }
 
@@ -79,6 +99,12 @@ export function sameRoute(a: Route, b: Route): boolean {
 /** The room a route selects, or null. */
 export function routeRoomId(route: Route): string | null {
   return route.kind === 'room' ? route.roomId : null;
+}
+
+/** The selected file/pipe id the route deep-links to, or null (#67). Only
+ *  files/pipes carry one; other destinations always return null. */
+export function routeItem(route: Route): string | null {
+  return route.kind === 'room' && route.item !== undefined ? route.item : null;
 }
 
 /** The tool the inspector shows, or null when it is closed. Closed is the
