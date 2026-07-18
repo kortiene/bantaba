@@ -3409,6 +3409,96 @@ select {
   margin-top: 10px;
 }
 
+/* Inline identity validation: the hint turns red only once the field is dirty
+   and invalid — the empty/help state stays quiet. */
+.field-hint.field-error {
+  color: var(--red);
+}
+
+/* Role choice (member vs agent) — a radio card each, with the selected one
+   picking up the accent tint. */
+.invite-roles {
+  border: 0;
+  padding: 0;
+  margin: 12px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.invite-roles legend {
+  font-size: 12.5px;
+  color: var(--text-dim);
+  padding: 0;
+  margin-bottom: 2px;
+}
+
+.role-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 9px 11px;
+  border-radius: 9px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-card);
+  font-size: 12.5px;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.role-option input {
+  margin-top: 2px;
+  flex: none;
+}
+
+.role-option strong {
+  color: var(--text);
+}
+
+.role-option:has(input:checked) {
+  border-color: var(--accent-line);
+  background: var(--accent-dim);
+}
+
+/* Expiry presets — a segmented row of chips; the active one is tinted like a
+   selected control. */
+.expiry-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 4px 0 2px;
+}
+
+.expiry-presets .btn.is-selected {
+  border-color: var(--accent-line);
+  background: var(--accent-dim);
+  color: var(--accent);
+}
+
+/* Lifecycle chip row — the minted invite's state (Waiting / Expired / Joined)
+   with its one-line explanation. role="status" announces live transitions. */
+.invite-lifecycle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 12px 0 14px;
+}
+
+.invite-lifecycle .muted {
+  font-size: 12.5px;
+}
+
+.invite-share-row {
+  display: flex;
+  gap: 8px;
+  margin: 4px 0 10px;
+}
+
+.invite-again {
+  margin-bottom: 10px;
+}
+
 /* ---------- fleet dashboard (mockups/mobile-agents.png) ----------
    Top-level view shown when nav='agents'. On desktop it covers the center +
    right columns (grid-column 2 / -1) so it reads as a distinct page, not a

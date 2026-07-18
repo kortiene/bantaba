@@ -210,7 +210,7 @@ void main() {
   });
 
   testWidgets(
-      'invite presents full screen: role/expiry stack and the combined '
+      'invite presents full screen: the guided form renders and the combined '
       'invite follows the LIVE endpointAddr', (tester) async {
     final client = _ReboundAddrClient(newMockClient());
     final ready = await pumpReadyMobileApp(tester, client);
@@ -226,20 +226,24 @@ void main() {
     expect(find.byType(InviteModal), findsOneWidget);
     expect(find.byType(Dialog), findsNothing); // full screen, not a dialog
 
-    // Stacked, not the desktop two-column Row: role and expiry share the
-    // left edge, expiry below role.
-    final role = find.byType(DropdownButtonFormField<String>);
-    final expiry = find.byWidgetPredicate(
-        (w) => w is TextField && w.keyboardType == TextInputType.number);
-    expect(tester.getTopLeft(role).dx, tester.getTopLeft(expiry).dx);
-    expect(tester.getBottomLeft(role).dy,
-        lessThanOrEqualTo(tester.getTopLeft(expiry).dy));
+    // The guided flow: both role options and the expiry presets render (the
+    // full identity → role → expiry → sharing order), not the old dropdown.
+    expect(find.text(en.panelRoleMember), findsOneWidget);
+    expect(find.text(en.panelRoleAgent), findsOneWidget);
+    expect(find.text(en.inviteExpiry24h), findsOneWidget);
 
     await tester.enterText(
         find.widgetWithText(TextField, en.inviteInviteePlaceholder), 'c' * 64);
     await tester.pump();
-    await tester.tap(
-        find.widgetWithText(JeliyaButton, en.inviteGenerateTicket).hitTestable());
+    // The guided form is taller than a phone fold — bring the submit on screen.
+    final generate =
+        find.widgetWithText(JeliyaButton, en.inviteGenerateTicket);
+    await tester.scrollUntilVisible(generate, 120,
+        scrollable: find
+            .descendant(
+                of: find.byType(InviteModal), matching: find.byType(Scrollable))
+            .first);
+    await tester.tap(generate.hitTestable());
     await pumpSteps(tester, steps: 3);
 
     // Combined result: the 4-row read-only box holds 'ticket#address'.

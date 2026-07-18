@@ -115,17 +115,20 @@ void main() {
             find.widgetWithText(TextField, s.inviteInviteePlaceholder),
             'c' * 64);
         await tester.pump();
-        // The stacked fr form outgrows short viewports — bring the submit
-        // into view before tapping.
-        final generate =
-            find.widgetWithText(JeliyaButton, s.inviteGenerateTicket);
-        await tester.scrollUntilVisible(generate, 120,
+        // The guided form outgrows short viewports — bring the submit into
+        // view before tapping. A fresh open reads "Generate ticket"; a reopen
+        // over a still-pending invite (from a prior mint this session, e.g. the
+        // en pass) reads "Send a fresh invite" — either mints.
+        final submit = find.byWidgetPredicate((w) =>
+            w is JeliyaButton &&
+            (w.label == s.inviteGenerateTicket || w.label == s.inviteSendFresh));
+        await tester.scrollUntilVisible(submit.first, 120,
             scrollable: find
                 .descendant(
                     of: find.byType(InviteModal),
                     matching: find.byType(Scrollable))
                 .first);
-        await tester.tap(generate.hitTestable());
+        await tester.tap(submit.first.hitTestable());
         await pumpSteps(tester, steps: 3);
         expect(find.text(s.inviteReadyToSend), findsOneWidget);
         expect(_newOverflows(ready.overflows, mark), isEmpty);

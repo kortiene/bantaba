@@ -1132,6 +1132,81 @@ class AppStringsFr extends AppStrings {
       'Ce daemon n’a pas signalé d’adresse joignable — la personne qui rejoint peut se connecter via relay ou discovery.';
 
   @override
+  String get inviteIdentityHint =>
+      'Collez l’identifiant d’identité de 64 caractères hexadécimaux de la personne invitée, affiché sur son écran d’accueil et au bas de sa barre latérale.';
+
+  @override
+  String get inviteIdentityInvalid =>
+      'Ce n’est pas un identifiant d’identité valide — il doit comporter exactement 64 caractères hexadécimaux.';
+
+  @override
+  String get inviteRoleMemberConsequence =>
+      'Une personne dans le salon qui lit et publie et partage des fichiers. Aucune exécution de commande.';
+
+  @override
+  String get inviteRoleAgentConsequence =>
+      'Un participant automatisé qui peut agir sur les messages autorisés de ce salon.';
+
+  @override
+  String get inviteAgentWarning =>
+      'AVERTISSEMENT — une invitation d’agent autorise un participant automatisé. Générer le ticket ne démarre rien : un humain doit exécuter l’agent sur sa propre machine, où il peut exécuter les commandes autorisées de ce salon — exécution de code arbitraire et modification de fichiers sur cette machine. N’invitez un agent que pour un salon et des expéditeurs auxquels vous faites confiance.';
+
+  @override
+  String get inviteTicketExpiryLabel => 'Expiration du ticket';
+
+  @override
+  String get inviteExpiry1h => '1 heure';
+
+  @override
+  String get inviteExpiry24h => '24 heures';
+
+  @override
+  String get inviteExpiry7d => '7 jours';
+
+  @override
+  String get inviteExpiryNever => 'Sans expiration';
+
+  @override
+  String get inviteAdvancedExpiry => 'Avancé / expiration personnalisée';
+
+  @override
+  String get inviteCustomExpiryLabel => 'Expiration personnalisée en secondes';
+
+  @override
+  String get inviteCustomExpiryOverride => '(remplace le préréglage ci-dessus)';
+
+  @override
+  String get inviteLifecycleWaiting => 'En attente';
+
+  @override
+  String get inviteLifecycleExpired => 'Expiré';
+
+  @override
+  String get inviteLifecycleJoined => 'A rejoint';
+
+  @override
+  String get inviteLifecycleWaitingCopy =>
+      'En attente qu’elle rejoigne le salon. Cela se met à jour tout seul quand la liste des membres change.';
+
+  @override
+  String get inviteLifecycleExpiredCopy =>
+      'Ce ticket a expiré avant qu’elle ne rejoigne le salon. Envoyez-en un nouveau ci-dessous.';
+
+  @override
+  String get inviteLifecycleJoinedCopy =>
+      'Elle a rejoint le salon — la liste des membres confirme une adhésion active.';
+
+  @override
+  String get inviteAgain => 'Inviter à nouveau';
+
+  @override
+  String get inviteAlreadyInvited =>
+      'Vous avez déjà invité cette identité et elle n’a pas encore rejoint le salon. Envoyez une nouvelle invitation ci-dessous.';
+
+  @override
+  String get inviteSendFresh => 'Envoyer une nouvelle invitation';
+
+  @override
   String get renamePeerTitle => 'Nommer ce pair';
 
   @override

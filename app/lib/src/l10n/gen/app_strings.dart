@@ -1934,6 +1934,138 @@ abstract class AppStrings {
   /// **'This daemon has not reported a dialable address — the joiner may connect via relay or discovery.'**
   String get inviteNoDialableAddressNote;
 
+  /// Helper text under the invitee identity ID field, describing where to find the value. Shown while the field is empty or valid; the error message replaces it on an invalid entry.
+  ///
+  /// In en, this message translates to:
+  /// **'Paste the invitee\'s 64-hex identity ID, shown on their onboarding screen and sidebar footer.'**
+  String get inviteIdentityHint;
+
+  /// Inline validation error under the invitee identity ID field when the entry is not a bare 64-hex string. '64 hexadecimal characters' describes the required format.
+  ///
+  /// In en, this message translates to:
+  /// **'That is not a valid identity ID — it must be exactly 64 hexadecimal characters.'**
+  String get inviteIdentityInvalid;
+
+  /// One-line consequence shown under the Member role option: what a member can and cannot do.
+  ///
+  /// In en, this message translates to:
+  /// **'A person in the room: reads and posts, shares files. No command execution.'**
+  String get inviteRoleMemberConsequence;
+
+  /// One-line consequence shown under the Agent role option: an agent is an automated participant. 'allowlisted' means messages the room explicitly permits the agent to act on.
+  ///
+  /// In en, this message translates to:
+  /// **'An automated participant that can act on this room\'s allowlisted messages.'**
+  String get inviteRoleAgentConsequence;
+
+  /// Security warning revealed when the Agent role is selected in the invite form. Tone mirrors addAgentClaudeWarning: minting only authorizes; a human runs the agent, which then executes allowlisted commands (arbitrary code / file execution) on that host. Keep 'WARNING' emphatic.
+  ///
+  /// In en, this message translates to:
+  /// **'WARNING — an agent invite authorizes an automated participant. Minting the ticket does not start anything: a human must run the agent on its own machine, where it can execute this room\'s allowlisted commands — arbitrary code / file execution on that host. Only invite an agent for a room and senders you trust.'**
+  String get inviteAgentWarning;
+
+  /// Label above the expiry preset chooser in the invite form.
+  ///
+  /// In en, this message translates to:
+  /// **'Ticket expiry'**
+  String get inviteTicketExpiryLabel;
+
+  /// Expiry preset label: the ticket expires one hour after it is minted.
+  ///
+  /// In en, this message translates to:
+  /// **'1 hour'**
+  String get inviteExpiry1h;
+
+  /// Expiry preset label: the ticket expires twenty-four hours after it is minted (the default).
+  ///
+  /// In en, this message translates to:
+  /// **'24 hours'**
+  String get inviteExpiry24h;
+
+  /// Expiry preset label: the ticket expires seven days after it is minted.
+  ///
+  /// In en, this message translates to:
+  /// **'7 days'**
+  String get inviteExpiry7d;
+
+  /// Expiry preset label: the ticket does not expire (single-use, not time-boxed).
+  ///
+  /// In en, this message translates to:
+  /// **'No expiry'**
+  String get inviteExpiryNever;
+
+  /// Disclosure summary that reveals the custom expiry-seconds field, an override for the presets above.
+  ///
+  /// In en, this message translates to:
+  /// **'Advanced / custom expiry'**
+  String get inviteAdvancedExpiry;
+
+  /// Label of the custom expiry field (lifetime in seconds), composed with the override marker via the shared '{label} {optional}' template.
+  ///
+  /// In en, this message translates to:
+  /// **'Custom expiry seconds'**
+  String get inviteCustomExpiryLabel;
+
+  /// Marker rendered next to the 'Custom expiry seconds' label via the shared '{label} {optional}' template, noting the field overrides the selected preset. Keep the parentheses.
+  ///
+  /// In en, this message translates to:
+  /// **'(overrides the preset above)'**
+  String get inviteCustomExpiryOverride;
+
+  /// Lifecycle chip label for a minted invite whose invitee has not joined yet and whose ticket has not expired.
+  ///
+  /// In en, this message translates to:
+  /// **'Waiting'**
+  String get inviteLifecycleWaiting;
+
+  /// Lifecycle chip label for a minted invite whose ticket expired before the invitee joined.
+  ///
+  /// In en, this message translates to:
+  /// **'Expired'**
+  String get inviteLifecycleExpired;
+
+  /// Lifecycle chip label shown ONLY when the room roster confirms the invitee as an active member.
+  ///
+  /// In en, this message translates to:
+  /// **'Joined'**
+  String get inviteLifecycleJoined;
+
+  /// Explanatory copy next to the Waiting lifecycle chip: the state updates live from the roster.
+  ///
+  /// In en, this message translates to:
+  /// **'Waiting for them to join. This updates on its own when the roster changes.'**
+  String get inviteLifecycleWaitingCopy;
+
+  /// Explanatory copy next to the Expired lifecycle chip, pointing at the Invite-again action below.
+  ///
+  /// In en, this message translates to:
+  /// **'This ticket has expired before they joined. Send a fresh one below.'**
+  String get inviteLifecycleExpiredCopy;
+
+  /// Explanatory copy next to the Joined lifecycle chip: the claim comes from a signed active roster row.
+  ///
+  /// In en, this message translates to:
+  /// **'They have joined the room — the roster confirms an active membership.'**
+  String get inviteLifecycleJoinedCopy;
+
+  /// Button in the sharing view, shown when the tracked invite has expired, that re-mints a fresh ticket for the same invitee.
+  ///
+  /// In en, this message translates to:
+  /// **'Invite again'**
+  String get inviteAgain;
+
+  /// Copy shown when the invite form is reopened over a still-pending invitation restored from the roster, instead of the usual intro.
+  ///
+  /// In en, this message translates to:
+  /// **'You have already invited this identity and they have not joined yet. Send a fresh invite below.'**
+  String get inviteAlreadyInvited;
+
+  /// Submit button label when the invite form was restored over a still-pending invitation (mints a new ticket for the same invitee).
+  ///
+  /// In en, this message translates to:
+  /// **'Send a fresh invite'**
+  String get inviteSendFresh;
+
   /// Title of the rename-peer modal, which assigns a local nickname (alias) to a peer.
   ///
   /// In en, this message translates to:

@@ -1109,6 +1109,81 @@ class AppStringsEn extends AppStrings {
       'This daemon has not reported a dialable address — the joiner may connect via relay or discovery.';
 
   @override
+  String get inviteIdentityHint =>
+      'Paste the invitee\'s 64-hex identity ID, shown on their onboarding screen and sidebar footer.';
+
+  @override
+  String get inviteIdentityInvalid =>
+      'That is not a valid identity ID — it must be exactly 64 hexadecimal characters.';
+
+  @override
+  String get inviteRoleMemberConsequence =>
+      'A person in the room: reads and posts, shares files. No command execution.';
+
+  @override
+  String get inviteRoleAgentConsequence =>
+      'An automated participant that can act on this room\'s allowlisted messages.';
+
+  @override
+  String get inviteAgentWarning =>
+      'WARNING — an agent invite authorizes an automated participant. Minting the ticket does not start anything: a human must run the agent on its own machine, where it can execute this room\'s allowlisted commands — arbitrary code / file execution on that host. Only invite an agent for a room and senders you trust.';
+
+  @override
+  String get inviteTicketExpiryLabel => 'Ticket expiry';
+
+  @override
+  String get inviteExpiry1h => '1 hour';
+
+  @override
+  String get inviteExpiry24h => '24 hours';
+
+  @override
+  String get inviteExpiry7d => '7 days';
+
+  @override
+  String get inviteExpiryNever => 'No expiry';
+
+  @override
+  String get inviteAdvancedExpiry => 'Advanced / custom expiry';
+
+  @override
+  String get inviteCustomExpiryLabel => 'Custom expiry seconds';
+
+  @override
+  String get inviteCustomExpiryOverride => '(overrides the preset above)';
+
+  @override
+  String get inviteLifecycleWaiting => 'Waiting';
+
+  @override
+  String get inviteLifecycleExpired => 'Expired';
+
+  @override
+  String get inviteLifecycleJoined => 'Joined';
+
+  @override
+  String get inviteLifecycleWaitingCopy =>
+      'Waiting for them to join. This updates on its own when the roster changes.';
+
+  @override
+  String get inviteLifecycleExpiredCopy =>
+      'This ticket has expired before they joined. Send a fresh one below.';
+
+  @override
+  String get inviteLifecycleJoinedCopy =>
+      'They have joined the room — the roster confirms an active membership.';
+
+  @override
+  String get inviteAgain => 'Invite again';
+
+  @override
+  String get inviteAlreadyInvited =>
+      'You have already invited this identity and they have not joined yet. Send a fresh invite below.';
+
+  @override
+  String get inviteSendFresh => 'Send a fresh invite';
+
+  @override
   String get renamePeerTitle => 'Name this peer';
 
   @override
