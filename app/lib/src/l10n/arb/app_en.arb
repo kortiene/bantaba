@@ -2290,6 +2290,10 @@
   "@timelinePendingFailed": {
     "description": "Status under an outgoing message that failed to send; shown alongside the Retry action (commonRetry)."
   },
+  "timelineRetryMessage": "Retry sending message",
+  "@timelineRetryMessage": {
+    "description": "Accessible name for the Retry action under a message that failed to send. The visible label is the single word Retry (commonRetry); several failed sends can be stacked in one timeline, so screen readers get this fuller name instead of hearing \"Retry\" repeated with nothing to tell the copies apart."
+  },
   "timelineNewMessages": "{n, plural, one{{n} new message} other{{n} new messages}}",
   "@timelineNewMessages": {
     "description": "Unseen-messages pill at the bottom of the chat timeline.",

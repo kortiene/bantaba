@@ -22,6 +22,7 @@ import '../session/daemon_session.dart';
 import '../session/room_list.dart';
 import '../theme.dart';
 import '../widgets/copy_button.dart';
+import '../widgets/focus_ring.dart';
 import '../widgets/tree_mark.dart';
 import 'room_list_widgets.dart';
 
@@ -216,50 +217,57 @@ class _ProfileCard extends StatelessWidget {
           JeliyaSpacing.x12, 0, JeliyaSpacing.x12, JeliyaSpacing.x6),
       child: Tooltip(
         message: s.sidebarProfileTitle,
-        child: TextButton(
-          onPressed: onTap,
-          style: ButtonStyle(
-            padding: const WidgetStatePropertyAll(EdgeInsets.symmetric(
-                horizontal: JeliyaSpacing.x10, vertical: JeliyaSpacing.x8)),
-            backgroundColor: WidgetStatePropertyAll(tokens.bgCard),
-            overlayColor: const WidgetStatePropertyAll(Colors.transparent),
-            minimumSize: const WidgetStatePropertyAll(Size.zero),
-            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            shape: WidgetStateProperty.resolveWith(
-              (states) => RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(JeliyaRadii.card),
-                side: BorderSide(
-                    color: states.contains(WidgetState.hovered)
-                        ? tokens.borderStrong
-                        : tokens.border),
-              ),
-            ),
-          ),
-          child: Row(
-            children: [
-              _ProfileAvatar(identityId: identityId, selfName: selfName),
-              const SizedBox(width: JeliyaSpacing.x10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(selfName,
-                        style: JeliyaText.name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis),
-                    Text(handle,
-                        style:
-                            JeliyaText.mono(fontSize: 11.5, color: tokens.textMute),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis),
-                  ],
+        // The card sits inside 12px of rail padding, so the ring (2px, offset
+        // 2) has room to draw outside the card without clipping or shifting it.
+        child: JeliyaFocusRing(
+          borderRadius: BorderRadius.circular(JeliyaRadii.card),
+          child: TextButton(
+            onPressed: onTap,
+            style: ButtonStyle(
+              padding: const WidgetStatePropertyAll(EdgeInsets.symmetric(
+                  horizontal: JeliyaSpacing.x10, vertical: JeliyaSpacing.x8)),
+              backgroundColor: WidgetStatePropertyAll(tokens.bgCard),
+              // Hover keeps its border-only treatment (`shape` below); FOCUSED
+              // gets the tint the blanket `transparent` used to erase.
+              overlayColor: jeliyaOverlay(tokens),
+              minimumSize: const WidgetStatePropertyAll(Size.zero),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              shape: WidgetStateProperty.resolveWith(
+                (states) => RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(JeliyaRadii.card),
+                  side: BorderSide(
+                      color: states.contains(WidgetState.hovered)
+                          ? tokens.borderStrong
+                          : tokens.border),
                 ),
               ),
-              ExcludeSemantics(
-                child: Text(Tokens.sidebarProfileChevron,
-                    style: TextStyle(fontSize: 14, color: tokens.textMute)),
-              ),
-            ],
+            ),
+            child: Row(
+              children: [
+                _ProfileAvatar(identityId: identityId, selfName: selfName),
+                const SizedBox(width: JeliyaSpacing.x10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(selfName,
+                          style: JeliyaText.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis),
+                      Text(handle,
+                          style: JeliyaText.mono(
+                              fontSize: 11.5, color: tokens.textMute),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis),
+                    ],
+                  ),
+                ),
+                ExcludeSemantics(
+                  child: Text(Tokens.sidebarProfileChevron,
+                      style: TextStyle(fontSize: 14, color: tokens.textMute)),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -357,41 +365,49 @@ class _NavItem extends StatelessWidget {
     final Color labelColor = active ? tokens.text : tokens.textDim;
     return Semantics(
       selected: active, // aria-current="page"
-      child: TextButton(
-        onPressed: onTap,
-        style: ButtonStyle(
-          padding: const WidgetStatePropertyAll(EdgeInsets.symmetric(
-              horizontal: JeliyaSpacing.x10, vertical: JeliyaSpacing.x8)),
-          backgroundColor: WidgetStateProperty.resolveWith((states) {
-            if (active) return tokens.accentDim;
-            if (states.contains(WidgetState.hovered)) return tokens.bgCard;
-            return Colors.transparent;
-          }),
-          overlayColor: const WidgetStatePropertyAll(Colors.transparent),
-          minimumSize: const WidgetStatePropertyAll(Size.zero),
-          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-          shape: WidgetStatePropertyAll(RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(JeliyaRadii.nav),
-            side: BorderSide(
-                color: active ? tokens.accentLine : Colors.transparent),
-          )),
-        ),
-        child: Row(
-          children: [
-            ExcludeSemantics(
-              child: SizedBox(
-                width: 18,
-                child: Text(entry.glyph,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 15, color: glyphColor)),
+      // The nav list is inset 10px, so the ring clears the rail edge. It is
+      // ADDITIVE to the active item's accent border rather than replacing it:
+      // "focused" and "current page" are different facts and both must show.
+      child: JeliyaFocusRing(
+        borderRadius: BorderRadius.circular(JeliyaRadii.nav),
+        child: TextButton(
+          onPressed: onTap,
+          style: ButtonStyle(
+            padding: const WidgetStatePropertyAll(EdgeInsets.symmetric(
+                horizontal: JeliyaSpacing.x10, vertical: JeliyaSpacing.x8)),
+            backgroundColor: WidgetStateProperty.resolveWith((states) {
+              if (active) return tokens.accentDim;
+              if (states.contains(WidgetState.hovered)) return tokens.bgCard;
+              return Colors.transparent;
+            }),
+            // `backgroundColor` above already resolves hover and active; this
+            // only has to keep the ripple off and let FOCUSED read.
+            overlayColor: jeliyaOverlay(tokens),
+            minimumSize: const WidgetStatePropertyAll(Size.zero),
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            shape: WidgetStatePropertyAll(RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(JeliyaRadii.nav),
+              side: BorderSide(
+                  color: active ? tokens.accentLine : Colors.transparent),
+            )),
+          ),
+          child: Row(
+            children: [
+              ExcludeSemantics(
+                child: SizedBox(
+                  width: 18,
+                  child: Text(entry.glyph,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 15, color: glyphColor)),
+                ),
               ),
-            ),
-            const SizedBox(width: 11),
-            Expanded(
-              child: Text(entry.label,
-                  style: TextStyle(fontSize: 13.5, color: labelColor)),
-            ),
-          ],
+              const SizedBox(width: 11),
+              Expanded(
+                child: Text(entry.label,
+                    style: TextStyle(fontSize: 13.5, color: labelColor)),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -429,33 +445,42 @@ class _RoomsHead extends StatelessWidget {
             child: Semantics(
               label: s.sidebarCreateRoomIcon,
               button: true,
-              child: TextButton(
-                onPressed: onCreateRoom,
-                style: ButtonStyle(
-                  padding: const WidgetStatePropertyAll(EdgeInsets.zero),
-                  fixedSize: const WidgetStatePropertyAll(Size(26, 26)),
-                  minimumSize: const WidgetStatePropertyAll(Size(26, 26)),
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  backgroundColor:
-                      const WidgetStatePropertyAll(Colors.transparent),
-                  overlayColor: const WidgetStatePropertyAll(Colors.transparent),
-                  foregroundColor: WidgetStateProperty.resolveWith((states) =>
-                      states.contains(WidgetState.hovered)
-                          ? tokens.accent
-                          : tokens.textDim),
-                  shape: WidgetStateProperty.resolveWith(
-                    (states) => RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(JeliyaRadii.iconBtn),
-                      side: BorderSide(
-                          color: states.contains(WidgetState.hovered)
-                              ? tokens.accentLine
-                              : Colors.transparent),
+              // 26x26 with a transparent resting border: without a ring there
+              // is nothing at all to see when it takes focus. The header is
+              // inset 18px, so the ring has room. Radius matches `shape` below.
+              child: JeliyaFocusRing(
+                borderRadius: BorderRadius.circular(JeliyaRadii.iconBtn),
+                child: TextButton(
+                  onPressed: onCreateRoom,
+                  style: ButtonStyle(
+                    padding: const WidgetStatePropertyAll(EdgeInsets.zero),
+                    // 26dp is the deliberate DESKTOP icon size (DESIGN.md); the
+                    // rail is pointer-only, so the 44dp touch floor does not
+                    // apply here.
+                    fixedSize: const WidgetStatePropertyAll(Size(26, 26)),
+                    minimumSize: const WidgetStatePropertyAll(Size(26, 26)),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    backgroundColor:
+                        const WidgetStatePropertyAll(Colors.transparent),
+                    overlayColor: jeliyaOverlay(tokens),
+                    foregroundColor: WidgetStateProperty.resolveWith((states) =>
+                        states.contains(WidgetState.hovered)
+                            ? tokens.accent
+                            : tokens.textDim),
+                    shape: WidgetStateProperty.resolveWith(
+                      (states) => RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(JeliyaRadii.iconBtn),
+                        side: BorderSide(
+                            color: states.contains(WidgetState.hovered)
+                                ? tokens.accentLine
+                                : Colors.transparent),
+                      ),
                     ),
                   ),
-                ),
-                child: ExcludeSemantics(
-                  child: Text(Tokens.sidebarCreateRoomIconGlyph,
-                      style: const TextStyle(fontSize: 14)),
+                  child: ExcludeSemantics(
+                    child: Text(Tokens.sidebarCreateRoomIconGlyph,
+                        style: const TextStyle(fontSize: 14)),
+                  ),
                 ),
               ),
             ),
@@ -498,10 +523,14 @@ class _AffordanceRowState extends State<_AffordanceRow> {
         : widget.dashed
             ? tokens.textDim
             : tokens.textMute;
+    // The dashed 'Create Room' row has no fill and no chrome — the dashed
+    // border IS the control. That makes it a meaningful non-text boundary, so
+    // it owes 3:1: `borderStrong` measures 1.35:1-1.51:1, `borderInteractive`
+    // 3.20:1-3.58:1. Hover stays `accentLine`, which encodes state.
     final borderColor = _hover
         ? tokens.accentLine
         : widget.dashed
-            ? tokens.borderStrong
+            ? tokens.borderInteractive
             : tokens.border;
     final radius = BorderRadius.circular(JeliyaRadii.row);
 
@@ -518,28 +547,35 @@ class _AffordanceRowState extends State<_AffordanceRow> {
       ),
     );
 
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: widget.onTap,
-        onHover: (hover) => setState(() => _hover = hover),
-        borderRadius: radius,
-        hoverColor: Colors.transparent,
-        splashColor: Colors.transparent,
-        highlightColor: Colors.transparent,
-        child: widget.dashed
-            ? CustomPaint(
-                foregroundPainter: _DashedBorderPainter(
-                    color: borderColor, radius: JeliyaRadii.row),
-                child: content,
-              )
-            : DecoratedBox(
-                decoration: BoxDecoration(
-                  borderRadius: radius,
-                  border: Border.all(color: borderColor),
+    // These rows suppress ink the InkWell way (hover/splash/highlight), which
+    // spares the focus state — but the surviving `focusColor` is the app's
+    // 1.21:1 accent tint, i.e. invisible. Same gap as the six `overlayColor`
+    // sites, fixed at the widget that actually has it.
+    return JeliyaFocusRing(
+      borderRadius: radius,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: widget.onTap,
+          onHover: (hover) => setState(() => _hover = hover),
+          borderRadius: radius,
+          hoverColor: Colors.transparent,
+          splashColor: Colors.transparent,
+          highlightColor: Colors.transparent,
+          child: widget.dashed
+              ? CustomPaint(
+                  foregroundPainter: _DashedBorderPainter(
+                      color: borderColor, radius: JeliyaRadii.row),
+                  child: content,
+                )
+              : DecoratedBox(
+                  decoration: BoxDecoration(
+                    borderRadius: radius,
+                    border: Border.all(color: borderColor),
+                  ),
+                  child: content,
                 ),
-                child: content,
-              ),
+        ),
       ),
     );
   }

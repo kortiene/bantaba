@@ -464,6 +464,10 @@
   "timelinePendingSending": "Envoi…",
   "timelinePendingSyncing": "Envoyé localement, synchronisation…",
   "timelinePendingFailed": "Échec de l’envoi",
+  "timelineRetryMessage": "Réessayer d\u2019envoyer le message",
+  "@timelineRetryMessage": {
+    "description": "Accessible name for the Retry action under a message that failed to send. The visible label is the single word Retry (commonRetry); several failed sends can be stacked in one timeline, so screen readers get this fuller name instead of hearing \"Retry\" repeated with nothing to tell the copies apart."
+  },
   "timelineNewMessages": "{n, plural, one{{n} nouveau message} other{{n} nouveaux messages}}",
   "timelineNewActivity": "{n} nouvelle activité",
   "timelineRunEvidence": "{count} mises à jour · {span}",

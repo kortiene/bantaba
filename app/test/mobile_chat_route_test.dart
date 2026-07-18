@@ -213,8 +213,14 @@ void main() {
     // gesture.
     final before = _timelinePosition(tester).pixels;
     final rect = tester.getRect(find.byType(TimelineView));
+    // Start below the activity-filter strip rather than at a fixed offset from
+    // the top of the view. The strip grew from 35dp to 45dp when its chips took
+    // the 44dp touch floor (issue #73), and a hardcoded `top + 40` silently
+    // moved from "just inside the list" to "on top of a filter chip" — the drag
+    // would then have been swallowed by the chip instead of scrolling.
+    final strip = tester.getRect(find.byType(ActivityFilterStrip));
     await tester.dragFrom(
-        Offset(rect.right - 8, rect.top + 40), const Offset(0, 300));
+        Offset(rect.right - 8, strip.bottom + 8), const Offset(0, 300));
     await tester.pump();
     expect(_timelinePosition(tester).pixels, lessThan(before),
         reason: 'drag-to-scroll must keep working while a selection exists');

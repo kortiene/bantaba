@@ -25,9 +25,11 @@ import 'package:url_launcher/url_launcher.dart';
 import '../format.dart';
 import '../l10n/error_display.dart';
 import '../l10n/strings_context.dart';
+import '../layout.dart';
 import '../theme.dart';
 import 'buttons.dart';
 import 'copy_button.dart';
+import 'focus_ring.dart';
 import 'template_text.dart';
 
 /// The availability slice of a `FileEntry` the control needs.
@@ -252,16 +254,70 @@ class FetchDetail extends StatelessWidget {
           child: line,
         );
       }
-      // The path is a link to the daemon-served local copy.
+      // The path is a link to the daemon-served local copy. It used to be a
+      // bare `GestureDetector` (issue #73): the ROLE was already right, but a
+      // GestureDetector is not in the focus tree, so no keyboard could ever
+      // reach it and no focus ring could ever show.
+      //
+      // [JeliyaTextAction] is the primitive for this shape, but it takes a
+      // plain String label: it cannot carry the mono, underlined path span,
+      // and pushing the path through a `widgetSlot` instead would turn it into
+      // an unbreakable inline box that stops wrapping and overflows a 360dp
+      // window. So this assembles the primitive's own parts around the rich
+      // line — the same TextButton, focus ring, overlay and link-semantics
+      // shape it builds.
+      final label = state.phase == FetchPhases.verified
+          ? s.fetchDetailVerified(bytes, path)
+          : s.fetchDetailFetched(bytes, path);
+      final touch = isMobileWidth(context);
       return Padding(
         padding: const EdgeInsets.only(top: JeliyaSpacing.x6),
-        child: Tooltip(
-          message: s.fetchOpenLocalFileCopy,
-          child: MouseRegion(
-            cursor: SystemMouseCursors.click,
-            child: GestureDetector(
-              onTap: () => _open(url),
-              child: Semantics(link: true, child: line),
+        child: JeliyaFocusRing(
+          borderRadius: BorderRadius.circular(JeliyaRadii.btnSm),
+          // The excluded subtree loses its label AND its tap action, so the
+          // labelled node has to carry the action (the room_header lesson).
+          // The label is the same sentence the line renders, filled with the
+          // real path instead of the `{path}` marker, so excluding the visual
+          // subtree costs assistive tech nothing.
+          child: Semantics(
+            container: false,
+            onTap: () => _open(url),
+            child: Semantics(
+              container: false,
+              link: true,
+              label: label,
+              child: ExcludeSemantics(
+                child: Tooltip(
+                  message: s.fetchOpenLocalFileCopy,
+                  child: TextButton(
+                    onPressed: () => _open(url),
+                    style: TextButton.styleFrom(
+                      foregroundColor: tokens.accent,
+                      // Vertical-only padding on touch: the 44dp floor is
+                      // affordable here (one line per fetched file, and this
+                      // is a real open-the-file action), but a horizontal
+                      // inset would push the line out of alignment with the
+                      // tile text above it.
+                      padding: touch
+                          ? const EdgeInsets.symmetric(vertical: JeliyaSpacing.x8)
+                          : EdgeInsets.zero,
+                      minimumSize: touch ? const Size(0, 44) : Size.zero,
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      // The line wraps; keep it left-aligned rather than
+                      // centred in the button box.
+                      alignment: AlignmentDirectional.centerStart,
+                    ).copyWith(overlayColor: jeliyaOverlay(tokens)),
+                    // A `TextButton` installs a `DefaultTextStyle` of its own,
+                    // which would drop the ambient one this line inherited and
+                    // squash its line height. Re-assert the ambient style so
+                    // the line renders exactly as it did outside the button.
+                    child: DefaultTextStyle(
+                      style: DefaultTextStyle.of(context).style,
+                      child: line,
+                    ),
+                  ),
+                ),
+              ),
             ),
           ),
         ),

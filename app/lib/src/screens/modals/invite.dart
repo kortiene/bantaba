@@ -512,34 +512,33 @@ class _InviteModalState extends State<InviteModal> {
   // -- shared result pieces ------------------------------------------------------
 
   /// The result-view actions: an explicit Invite-Again on expiry (re-mints the
-  /// same identity/role/expiry), then the New-invite reset. Scale-down guarded
-  /// so wide locales / large text scales shrink rather than overflow.
+  /// same identity/role/expiry), then the New-invite reset.
+  ///
+  /// Both were `FittedBox(scaleDown, alignment: centerLeft)` so a wide locale
+  /// or a large text scale shrank the label rather than overflowing. That is
+  /// the wrong trade in an invite flow a low-vision reader has to follow, and
+  /// it is no longer needed: JeliyaButton wraps its label to two lines whenever
+  /// its width is bounded, which it is here (a Column hands its children the
+  /// column's own max width). The Column's `crossAxisAlignment.start` keeps the
+  /// left alignment the FittedBox was supplying (issue #73).
   Widget _lifecycleActions(BuildContext context, String? lifecycle) {
     final s = context.strings;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         if (lifecycle == InviteStates.expired) ...[
-          FittedBox(
-            fit: BoxFit.scaleDown,
-            alignment: Alignment.centerLeft,
-            child: JeliyaButton(
-              label: _busy ? s.inviteGenerating : s.inviteAgain,
-              variant: JeliyaButtonVariant.primary,
-              busy: _busy,
-              onPressed: _busy ? null : _generate,
-            ),
+          JeliyaButton(
+            label: _busy ? s.inviteGenerating : s.inviteAgain,
+            variant: JeliyaButtonVariant.primary,
+            busy: _busy,
+            onPressed: _busy ? null : _generate,
           ),
           const SizedBox(height: JeliyaSpacing.x10),
         ],
-        FittedBox(
-          fit: BoxFit.scaleDown,
-          alignment: Alignment.centerLeft,
-          child: JeliyaButton(
-            label: s.inviteNewInvite,
-            variant: JeliyaButtonVariant.ghost,
-            onPressed: _newInvite,
-          ),
+        JeliyaButton(
+          label: s.inviteNewInvite,
+          variant: JeliyaButtonVariant.ghost,
+          onPressed: _newInvite,
         ),
       ],
     );

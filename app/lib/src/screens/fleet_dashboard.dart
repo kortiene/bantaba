@@ -46,6 +46,7 @@ import '../widgets/buttons.dart';
 import '../widgets/copy_button.dart';
 import '../widgets/error_note.dart';
 import '../widgets/avatar.dart';
+import '../widgets/focus_ring.dart';
 import '../widgets/modal_scaffold.dart';
 import '../widgets/progress_bar.dart';
 import '../widgets/room_short_id.dart';
@@ -429,7 +430,12 @@ class _FilterPill extends StatelessWidget {
     final tokens = JeliyaTokens.of(context);
     final fg = active ? tokens.accent : tokens.textDim;
     // TextButton (not a bare GestureDetector) so the pill is keyboard
-    // focusable and Enter/Space activates it, like the web's <button>.
+    // focusable and Enter/Space activates it, like the web's <button>. It was
+    // focusable but INVISIBLY so until `jeliyaOverlay` below: the blanket
+    // transparent overlay had erased the focused state along with the ripple.
+    // The tint, not `JeliyaFocusRing`, is the indicator here — the filter row
+    // lives in a horizontal `SingleChildScrollView`, which clips, so a ring
+    // drawn outside the pill's box would be cut off at either end of the row.
     return Semantics(
       toggled: active, // aria-pressed
       child: TextButton(
@@ -439,13 +445,19 @@ class _FilterPill extends StatelessWidget {
               EdgeInsets.symmetric(horizontal: 13, vertical: 7)),
           backgroundColor:
               WidgetStatePropertyAll(active ? tokens.accentDim : tokens.bgCard),
-          overlayColor: const WidgetStatePropertyAll(Colors.transparent),
+          overlayColor: jeliyaOverlay(tokens),
           minimumSize: const WidgetStatePropertyAll(Size.zero),
           tapTargetSize: MaterialTapTargetSize.shrinkWrap,
           shape: WidgetStatePropertyAll(RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(JeliyaRadii.pill),
+            // The outline is the only thing that says "control": the pill's
+            // `bgCard` fill is near-identical to the surface behind it. That is
+            // a meaningful non-text boundary, so it owes 3:1 —
+            // `borderInteractive` (3.20:1-3.58:1) replaces `borderStrong`
+            // (1.35:1-1.51:1). The active branch keeps `accentLine`, which
+            // encodes selection rather than identifying the control.
             side: BorderSide(
-              color: active ? tokens.accentLine : tokens.borderStrong,
+              color: active ? tokens.accentLine : tokens.borderInteractive,
             ),
           )),
         ),
@@ -1434,48 +1446,59 @@ class _RoomChip extends StatelessWidget {
   Widget build(BuildContext context) {
     final tokens = JeliyaTokens.of(context);
     // TextButton (not a bare GestureDetector) so the chip is keyboard
-    // focusable and Enter/Space activates it, like the web's <button>.
+    // focusable and Enter/Space activates it, like the web's <button>. It was
+    // focusable but INVISIBLY so: the blanket transparent overlay below had
+    // erased the focused state along with the ripple, and nothing else in the
+    // app draws focus. The chips sit in a non-clipping `Wrap`, so this one can
+    // carry the ring as well as the tint.
     return Tooltip(
       message: tooltip,
-      child: TextButton(
-        onPressed: onTap,
-        style: ButtonStyle(
-          padding: const WidgetStatePropertyAll(
-              EdgeInsets.symmetric(horizontal: 10, vertical: 3)),
-          backgroundColor: WidgetStatePropertyAll(tokens.bgCard2),
-          overlayColor: const WidgetStatePropertyAll(Colors.transparent),
-          minimumSize: const WidgetStatePropertyAll(Size.zero),
-          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-          shape: WidgetStatePropertyAll(RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(JeliyaRadii.pill),
-            side: BorderSide(color: tokens.borderStrong),
-          )),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ExcludeSemantics(
-              child: Text(
-                Tokens.fleetRoomChipGlyph,
-                style: TextStyle(fontSize: 11.5, color: tokens.textDim),
+      child: JeliyaFocusRing(
+        borderRadius: BorderRadius.circular(JeliyaRadii.pill),
+        child: TextButton(
+          onPressed: onTap,
+          style: ButtonStyle(
+            padding: const WidgetStatePropertyAll(
+                EdgeInsets.symmetric(horizontal: 10, vertical: 3)),
+            backgroundColor: WidgetStatePropertyAll(tokens.bgCard2),
+            overlayColor: jeliyaOverlay(tokens),
+            minimumSize: const WidgetStatePropertyAll(Size.zero),
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            shape: WidgetStatePropertyAll(RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(JeliyaRadii.pill),
+              // Sole identifying boundary of a control — `bgCard2` against the
+              // card behind it is not a visible edge — and it encodes no state,
+              // so it owes the 3:1 non-text floor. `borderInteractive` is
+              // 3.20:1 where `borderStrong` was 1.35:1.
+              side: BorderSide(color: tokens.borderInteractive),
+            )),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ExcludeSemantics(
+                child: Text(
+                  Tokens.fleetRoomChipGlyph,
+                  style: TextStyle(fontSize: 11.5, color: tokens.textDim),
+                ),
               ),
-            ),
-            const SizedBox(width: 5),
-            Flexible(
-              child: Text(
-                name,
-                style: TextStyle(fontSize: 11.5, color: tokens.textDim),
-                overflow: TextOverflow.ellipsis,
-                maxLines: 1,
-              ),
-            ),
-            // The name yields first; the short id is the disambiguator and
-            // must stay readable at any width.
-            if (homonym) ...[
               const SizedBox(width: 5),
-              RoomShortId(roomId: roomId, fontSize: 11),
+              Flexible(
+                child: Text(
+                  name,
+                  style: TextStyle(fontSize: 11.5, color: tokens.textDim),
+                  overflow: TextOverflow.ellipsis,
+                  maxLines: 1,
+                ),
+              ),
+              // The name yields first; the short id is the disambiguator and
+              // must stay readable at any width.
+              if (homonym) ...[
+                const SizedBox(width: 5),
+                RoomShortId(roomId: roomId, fontSize: 11),
+              ],
             ],
-          ],
+          ),
         ),
       ),
     );

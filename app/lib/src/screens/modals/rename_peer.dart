@@ -102,28 +102,26 @@ class _RenamePeerModalState extends State<RenamePeerModal> {
             onSubmitted: (_) => _save(),
           ),
           const SizedBox(height: JeliyaSpacing.x12),
-          // Wrap + scale-down, not Row: at the 360dp dialog width the French
-          // 'Supprimer l'alias' no longer fits beside Save (leave_room.dart
-          // has the same treatment).
+          // Wrap, not Row: at the 360dp dialog width the French 'Supprimer
+          // l'alias' no longer fits beside Save, so it moves to a second run.
+          // A label too wide even for its own run now REFLOWS to two lines
+          // inside the button rather than being scaled down, which discarded
+          // the text size the user asked the OS for (#73; leave_room.dart has
+          // the same treatment). The Wrap sits in the modal's scrolling body,
+          // so the extra line costs vertical space only.
           Wrap(
             spacing: JeliyaSpacing.x8,
             runSpacing: JeliyaSpacing.x8,
             children: [
-              FittedBox(
-                fit: BoxFit.scaleDown,
-                child: JeliyaButton(
-                  label: s.renamePeerSave,
-                  variant: JeliyaButtonVariant.primary,
-                  onPressed: _save,
-                ),
+              JeliyaButton(
+                label: s.renamePeerSave,
+                variant: JeliyaButtonVariant.primary,
+                onPressed: _save,
               ),
-              FittedBox(
-                fit: BoxFit.scaleDown,
-                child: JeliyaButton(
-                  label: s.renamePeerClearAlias,
-                  variant: JeliyaButtonVariant.ghost,
-                  onPressed: _clear,
-                ),
+              JeliyaButton(
+                label: s.renamePeerClearAlias,
+                variant: JeliyaButtonVariant.ghost,
+                onPressed: _clear,
               ),
             ],
           ),

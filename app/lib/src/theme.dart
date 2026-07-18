@@ -21,6 +21,8 @@ const Color _bgInput = Color(0xFF0C1419); // --bg-input
 const Color _bubbleRemoteBg = Color(0xFF0C1519); // remote bubble (one-off)
 const Color _border = Color(0xFF16232A); // --border
 const Color _borderStrong = Color(0xFF21343C); // --border-strong
+// The 3:1 non-text-contrast boundary (issue #73). See `borderInteractive`.
+const Color _borderInteractive = Color(0xFF41707E);
 const Color _accent = Color(0xFF2FD6A4); // --accent (emerald)
 const Color _accent2 = Color(0xFF1FB4A8); // --accent-2 (teal, gradients only)
 const Color _text = Color(0xFFDCEBE6); // --text (primary ink)
@@ -73,10 +75,38 @@ class JeliyaTokens extends ThemeExtension<JeliyaTokens> {
   // -- borders -----------------------------------------------------------------
 
   /// Passive hairlines (pane dividers, card borders, tile borders).
+  ///
+  /// Decorative only. A divider carries no information a user must perceive to
+  /// operate the app, so WCAG 1.4.11 does not apply and this stays at the
+  /// designed 1.1-1.2:1 whisper.
   Color get border => _border;
 
   /// Interactive borders (buttons, inputs, chips, modal, dashed affordances).
   Color get borderStrong => _borderStrong;
+
+  /// The boundary that IDENTIFIES a control — the only visual edge a default
+  /// button, a text input or a chip has against its surface.
+  ///
+  /// [borderStrong] measures 1.35:1 to 1.51:1 against the five app surfaces,
+  /// so the affordance that says "this is a control" was invisible to anyone
+  /// who needs contrast. WCAG 1.4.11 puts the floor at 3:1 for exactly this
+  /// case. #41707E is the same teal family one step brighter, and measures
+  /// 3.20:1 on [bgCard2] (the lightest surface, so the worst case), 3.34:1 on
+  /// [bgCard] and 3.58:1 on [bg].
+  ///
+  /// Kept SEPARATE from [borderStrong] rather than replacing it, because
+  /// several controls encode selected/active state in their border colour;
+  /// widening the token would have made those states unreadable.
+  Color get borderInteractive => _borderInteractive;
+
+  /// The keyboard focus ring — DESIGN.md's "global 2px emerald ring, offset 2",
+  /// the same contract `ui/src/styles.css` implements for the web client.
+  ///
+  /// Solid accent measures 9.38:1 to 10.50:1 against every app surface, so it
+  /// clears the 3:1 non-text floor with room to spare. It is drawn ADDITIVELY
+  /// (outside the control's own box) so it composes with, rather than
+  /// overwrites, a border already carrying state.
+  Color get focusRing => _accent;
 
   // -- accent (emerald — earned, never a fallback) -------------------------------
 

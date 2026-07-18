@@ -17,9 +17,11 @@ import 'package:flutter/material.dart';
 import '../format.dart';
 import '../l10n/strings_context.dart';
 import '../l10n/tokens.dart';
+import '../layout.dart';
 import '../session/daemon_session.dart';
 import '../session/room_list.dart';
 import '../theme.dart';
+import '../widgets/focus_ring.dart';
 import '../widgets/room_short_id.dart';
 import '../widgets/template_text.dart';
 
@@ -146,32 +148,45 @@ class _FilterChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = JeliyaTokens.of(context);
+    // DESIGN.md's 44dp touch floor applies on TOUCH/COMPACT only. 5px of
+    // vertical padding around 11px text is roughly 26dp of target — fine for a
+    // pointer on the desktop rail, half the floor under a thumb. `minHeight`
+    // grows the TARGET without touching the chip's type scale, and the desktop
+    // rail keeps its dense sizing.
+    final touch = isMobileWidth(context);
     return Semantics(
       button: true,
       selected: active,
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(JeliyaRadii.btnSm),
-          child: Container(
-            alignment: Alignment.center,
-            padding: const EdgeInsets.symmetric(
-                horizontal: JeliyaSpacing.x6, vertical: 5),
-            decoration: BoxDecoration(
-              color: active ? tokens.accentDim : Colors.transparent,
-              borderRadius: BorderRadius.circular(JeliyaRadii.btnSm),
-              border: Border.all(
-                  color: active ? tokens.accentLine : tokens.border),
-            ),
-            child: Text(
-              label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: 11,
-                color: active ? tokens.accent : tokens.textMute,
-                fontWeight: active ? FontWeight.w600 : FontWeight.w400,
+      // The InkWell is focusable, but the app's `focusColor` measures 1.21:1 —
+      // there was nothing to see. The ring is layout-transparent, so the row of
+      // chips keeps its exact geometry.
+      child: JeliyaFocusRing(
+        borderRadius: BorderRadius.circular(JeliyaRadii.btnSm),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(JeliyaRadii.btnSm),
+            child: Container(
+              alignment: Alignment.center,
+              constraints: BoxConstraints(minHeight: touch ? 44 : 0),
+              padding: const EdgeInsets.symmetric(
+                  horizontal: JeliyaSpacing.x6, vertical: 5),
+              decoration: BoxDecoration(
+                color: active ? tokens.accentDim : Colors.transparent,
+                borderRadius: BorderRadius.circular(JeliyaRadii.btnSm),
+                border: Border.all(
+                    color: active ? tokens.accentLine : tokens.border),
+              ),
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 11,
+                  color: active ? tokens.accent : tokens.textMute,
+                  fontWeight: active ? FontWeight.w600 : FontWeight.w400,
+                ),
               ),
             ),
           ),
@@ -443,7 +458,13 @@ class _RoomRowState extends State<_RoomRow> {
         padding: const WidgetStatePropertyAll(EdgeInsets.symmetric(
             horizontal: JeliyaSpacing.x10, vertical: 9)),
         backgroundColor: const WidgetStatePropertyAll(Colors.transparent),
-        overlayColor: const WidgetStatePropertyAll(Colors.transparent),
+        // Hover and press stay transparent (the row's own DecoratedBox draws
+        // the hover surface); FOCUSED gets a visible tint. The blanket
+        // `transparent` this replaces covered the focused state too, so the row
+        // had no focus feedback at all. No outside ring: this button is only
+        // the LEFT part of a composite row that also carries the pin and
+        // archive actions, so a ring around it would trace the wrong bounds.
+        overlayColor: jeliyaOverlay(tokens),
         minimumSize: const WidgetStatePropertyAll(Size.zero),
         tapTargetSize: MaterialTapTargetSize.shrinkWrap,
         shape: WidgetStatePropertyAll(RoundedRectangleBorder(

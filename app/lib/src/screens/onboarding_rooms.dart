@@ -177,20 +177,16 @@ class _OnboardingRoomsScreenState extends State<OnboardingRoomsScreen> {
             onSubmitted: (_) => _create(),
           ),
           const SizedBox(height: JeliyaSpacing.x12),
-          // Scale-down guard: French submit labels brush the 360dp card
-          // width — shrink instead of overflowing (onboarding_identity.dart
-          // has the same treatment).
-          FittedBox(
-            fit: BoxFit.scaleDown,
-            alignment: Alignment.centerLeft,
-            child: JeliyaButton(
-              label: _creating
-                  ? s.modalCreatingRoom
-                  : s.modalCreateRoom,
-              variant: JeliyaButtonVariant.primary,
-              busy: _creating,
-              onPressed: canSubmit ? _create : null,
-            ),
+          // French submit labels brush the 360dp card width; the card bounds
+          // this button, so the label reflows to a second line rather than
+          // overflowing (onboarding_identity.dart has the same treatment).
+          JeliyaButton(
+            label: _creating
+                ? s.modalCreatingRoom
+                : s.modalCreateRoom,
+            variant: JeliyaButtonVariant.primary,
+            busy: _creating,
+            onPressed: canSubmit ? _create : null,
           ),
           ErrorNote(error: _createError),
         ],
@@ -245,18 +241,14 @@ class _OnboardingRoomsScreenState extends State<OnboardingRoomsScreen> {
             onSubmitted: (_) => _join(),
           ),
           const SizedBox(height: JeliyaSpacing.x12),
-          // Same scale-down guard as the create card's submit.
-          FittedBox(
-            fit: BoxFit.scaleDown,
-            alignment: Alignment.centerLeft,
-            child: JeliyaButton(
-              label: _joining
-                  ? s.modalJoiningRoom
-                  : s.modalJoinRoom,
-              variant: JeliyaButtonVariant.primary,
-              busy: _joining,
-              onPressed: canSubmit ? _join : null,
-            ),
+          // Reflows within the card exactly like the create card's submit.
+          JeliyaButton(
+            label: _joining
+                ? s.modalJoiningRoom
+                : s.modalJoinRoom,
+            variant: JeliyaButtonVariant.primary,
+            busy: _joining,
+            onPressed: canSubmit ? _join : null,
           ),
           if (progress != null) ...[
             const SizedBox(height: JeliyaSpacing.x10),

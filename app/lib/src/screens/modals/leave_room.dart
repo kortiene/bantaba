@@ -102,36 +102,36 @@ class _LeaveRoomModalState extends State<LeaveRoomModal> {
             child: RoomShortId(roomId: widget.roomId, fontSize: 12.5),
           ),
           const SizedBox(height: JeliyaSpacing.x12),
-          // Wrap + scale-down, not Row: inside a 360dp phone dialog the wider
-          // French labels push Cancel to a second run, and a label that still
-          // cannot fit its run (oversized text scales) shrinks instead of
-          // overflowing the card.
+          // Wrap, not Row: inside a 360dp phone dialog the wider French labels
+          // ('Quitter le salon') push Cancel to a second run. A label that
+          // still cannot fit its run now REFLOWS to two lines inside the
+          // button (JeliyaButton wraps once its width is bounded, which a Wrap
+          // always bounds) instead of being scaled down — shrinking silently
+          // discarded the text size the user asked the OS for (#73). The
+          // buttons sit in the modal's scrolling body, so the extra line costs
+          // vertical space only and both actions stay reachable at 200%/320%.
           Wrap(
             spacing: JeliyaSpacing.x8,
             runSpacing: JeliyaSpacing.x8,
             children: [
-              FittedBox(
-                fit: BoxFit.scaleDown,
-                child: JeliyaButton(
-                  label: _busy ? s.modalLeavingRoom : s.modalLeaveRoom,
-                  variant: JeliyaButtonVariant.danger,
-                  busy: _busy,
-                  onPressed: _busy ? null : _leave,
-                ),
+              JeliyaButton(
+                label: _busy ? s.modalLeavingRoom : s.modalLeaveRoom,
+                variant: JeliyaButtonVariant.danger,
+                busy: _busy,
+                onPressed: _busy ? null : _leave,
               ),
-              FittedBox(
-                fit: BoxFit.scaleDown,
-                child: JeliyaButton(
-                  label: s.modalCancel,
-                  variant: JeliyaButtonVariant.ghost,
-                  // Safe initial focus (#55): Cancel takes focus, never the
-                  // danger submit, so an immediate Enter abandons instead of
-                  // confirming. The web reference adopted the same contract
-                  // in #56.
-                  autofocus: true,
-                  onPressed:
-                      _busy ? null : () => Navigator.of(context).maybePop(),
-                ),
+              JeliyaButton(
+                label: s.modalCancel,
+                variant: JeliyaButtonVariant.ghost,
+                // Safe initial focus (#55): Cancel takes focus, never the
+                // danger submit, so an immediate Enter abandons instead of
+                // confirming. The web reference adopted the same contract
+                // in #56. autofocus flows straight through to the inner
+                // TextButton — removing the FittedBox does not change that,
+                // and dialog_containment_test pins the initial focus.
+                autofocus: true,
+                onPressed:
+                    _busy ? null : () => Navigator.of(context).maybePop(),
               ),
             ],
           ),

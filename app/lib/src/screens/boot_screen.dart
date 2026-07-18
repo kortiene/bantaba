@@ -84,7 +84,22 @@ class _BootScreenState extends State<BootScreen> {
       // Leaving (or never entering) the failed state re-arms the focus grab for
       // the next failure episode.
       _focusedThisFailure = false;
-      return Scaffold(body: Center(child: _loading(context, session, tokens, s)));
+      // Scrollable, not just centred: at 320% text this column is 162dp taller
+      // than a 360x640 phone and used to clip its own status line — the boot
+      // flow is named in the reflow criterion precisely because it is the one
+      // screen a user cannot navigate away from (issue #73). `Center` inside
+      // the scroll view keeps the existing centred look at every size that
+      // still fits.
+      return Scaffold(
+        body: LayoutBuilder(
+          builder: (context, constraints) => SingleChildScrollView(
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minHeight: constraints.maxHeight),
+              child: Center(child: _loading(context, session, tokens, s)),
+            ),
+          ),
+        ),
+      );
     }
 
     if (!_focusedThisFailure) {

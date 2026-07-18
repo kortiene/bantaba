@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 
 import '../layout.dart';
 import '../theme.dart';
+import 'focus_ring.dart';
 
 enum JeliyaButtonVariant { normal, primary, ghost, danger }
 
@@ -50,7 +51,7 @@ class JeliyaButton extends StatelessWidget {
       JeliyaButtonVariant.primary => (tokens.accent, tokens.accentDim, tokens.accentLine),
       JeliyaButtonVariant.ghost => (tokens.textDim, Colors.transparent, Colors.transparent),
       JeliyaButtonVariant.danger => (tokens.red, tokens.bgCard, tokens.redLine),
-      JeliyaButtonVariant.normal => (tokens.text, tokens.bgCard, tokens.borderStrong),
+      JeliyaButtonVariant.normal => (tokens.text, tokens.bgCard, tokens.borderInteractive),
     };
 
     final (EdgeInsets padding, double fontSize, double radius) = switch (size) {
@@ -71,14 +72,30 @@ class JeliyaButton extends StatelessWidget {
         ),
     };
 
-    // Truncation on every user-text surface (web: `.btn { white-space:
-    // nowrap }`): a width-squeezed button (phone-width Wraps, wide French
-    // labels) ellipsizes its label instead of overflowing; with room to
-    // spare it renders at intrinsic width exactly as before. Deliberately
-    // NOT a Flexible — buttons also sit in unbounded-width Rows, where a
-    // flex child is a layout error.
-    final text = Text(label,
-        maxLines: 1, overflow: TextOverflow.ellipsis, softWrap: false);
+    // A width-squeezed button (phone-width Wraps, wide French labels, 200% and
+    // 320% text) must REFLOW, not shrink and not clip.
+    //
+    // This label used to be `maxLines: 1, softWrap: false`, which is why eleven
+    // call sites wrapped it in `FittedBox(fit: BoxFit.scaleDown)` — the only
+    // thing standing between a wide French label and a RenderFlex overflow.
+    // Scaling down silently discards the text size the user asked the OS for,
+    // so every one of those FittedBoxes had to go, and this is the change that
+    // let them (issue #73).
+    //
+    // Wrapping is only legal once the width is bounded: buttons also sit in
+    // unbounded-width Rows, where a flex child is a layout error and an
+    // intrinsic-width label is correct. So ask, exactly as the busy row below
+    // already does, rather than assuming.
+    // No `maxLines` cap. A two-line cap plus ellipsis still TRUNCATES — at 320%
+    // text a French label needs more than two lines in the ~284dp a 360dp phone
+    // leaves, so capping would have traded "shrinks the text" for "hides the
+    // text", and the criterion is that content wraps or scrolls rather than
+    // clipping. A tall button inside a scrolling body is the honest outcome.
+    final wrappingText = Text(label, textAlign: TextAlign.center);
+    final intrinsicText = Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, softWrap: false);
+    final text = LayoutBuilder(
+      builder: (context, constraints) => constraints.hasBoundedWidth ? wrappingText : intrinsicText,
+    );
     final child = busy
         // The busy row needs the same promise, and a plain Text cannot keep
         // it here: a horizontal RenderFlex hands every non-flexible child
@@ -98,7 +115,7 @@ class JeliyaButton extends StatelessWidget {
                   child: CircularProgressIndicator(strokeWidth: 1.6, color: fg),
                 ),
                 const SizedBox(width: JeliyaSpacing.x6),
-                if (constraints.hasBoundedWidth) Flexible(child: text) else text,
+                if (constraints.hasBoundedWidth) Flexible(child: wrappingText) else intrinsicText,
               ],
             ),
           )
@@ -126,12 +143,20 @@ class JeliyaButton extends StatelessWidget {
           borderRadius: BorderRadius.circular(radius),
           side: BorderSide(color: borderColor),
         ),
-      ),
+      ).copyWith(overlayColor: jeliyaOverlay(tokens)),
       child: child,
     );
 
+    // Every button gets the keyboard focus indicator (issue #73). Drawn outside
+    // the button's own box so it composes with the variant's border rather than
+    // replacing it — a danger button keeps its red edge while focused.
+    final ringed = JeliyaFocusRing(
+      borderRadius: BorderRadius.circular(radius + 2),
+      child: button,
+    );
+
     final semanticLabel = this.semanticLabel;
-    if (semanticLabel == null) return button;
-    return Semantics(label: semanticLabel, child: button);
+    if (semanticLabel == null) return ringed;
+    return Semantics(label: semanticLabel, child: ringed);
   }
 }

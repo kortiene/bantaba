@@ -436,32 +436,31 @@ class _DiagnosticsCard extends StatelessWidget {
             style: TextStyle(fontSize: 13, color: tokens.textMute),
           ),
         const SizedBox(height: JeliyaSpacing.x12),
-        // Wrap, not Row: one line at desktop widths, and the pair reflows
-        // instead of clipping at phone widths under wider (fr) labels. Each
-        // button additionally scales down as a last resort when a label
-        // outgrows even a full wrap line (JeliyaButton's label cannot flex
-        // internally) — a no-op at every shipped locale and real font width.
+        // Wrap, not Row: one line at desktop widths, and the pair reflows onto
+        // separate runs at phone widths under wider (fr) labels. Each button
+        // used to also carry `FittedBox(scaleDown)` as a last resort, because
+        // JeliyaButton's label could not flex internally and a label that
+        // outgrew a full wrap line would overflow. That shrank text the reader
+        // had asked the OS to enlarge — exactly what the diagnostics card
+        // exists to stay legible through. JeliyaButton's label now wraps to two
+        // lines whenever its width is bounded, and Wrap gives each child the
+        // run's bounded max width, so the label reflows at the requested size
+        // instead (issue #73).
         Wrap(
           spacing: JeliyaSpacing.x8,
           runSpacing: JeliyaSpacing.x8,
           children: [
-            FittedBox(
-              fit: BoxFit.scaleDown,
-              child: JeliyaButton(
-                label: copied
-                    ? s.settingsCopiedDiagnostics
-                    : s.settingsCopyDiagnostics,
-                variant: JeliyaButtonVariant.primary,
-                onPressed: onCopy,
-              ),
+            JeliyaButton(
+              label: copied
+                  ? s.settingsCopiedDiagnostics
+                  : s.settingsCopyDiagnostics,
+              variant: JeliyaButtonVariant.primary,
+              onPressed: onCopy,
             ),
-            FittedBox(
-              fit: BoxFit.scaleDown,
-              child: JeliyaButton(
-                label: s.settingsReportIssue,
-                variant: JeliyaButtonVariant.ghost,
-                onPressed: onReportIssue,
-              ),
+            JeliyaButton(
+              label: s.settingsReportIssue,
+              variant: JeliyaButtonVariant.ghost,
+              onPressed: onReportIssue,
             ),
           ],
         ),

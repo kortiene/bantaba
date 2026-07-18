@@ -59,9 +59,11 @@ import '../theme.dart';
 import '../widgets/avatar.dart';
 import '../widgets/buttons.dart';
 import '../widgets/fetch_control.dart';
+import '../widgets/focus_ring.dart';
 import '../widgets/progress_bar.dart';
 import '../widgets/sender_name.dart';
 import '../widgets/template_text.dart';
+import '../widgets/text_action.dart';
 
 // Display formatting (context.formats: bytes / clock / dayLabel / percent,
 // plus top-level prettyLabel / extOf) lives in ../format.dart — the shared
@@ -618,16 +620,27 @@ class _TimelineViewState extends State<TimelineView> {
         // everything shows. Filtering never deletes history — clearing the chips
         // restores it — and pending messages are exempt entirely. Shown on BOTH
         // shells because each mounts this TimelineView.
-        _ActivityFilterStrip(
+        ActivityFilterStrip(
           categories: _activityCategories(s),
           active: activeFilters,
           onToggle: session.toggleActivityFilter,
           semanticsLabel: s.timelineFilterActivity,
         ),
         Expanded(
+          // NAMED, but deliberately NOT a live region (issue #73). This node
+          // used to carry `liveRegion: true` as a stand-in for the web's
+          // role="log" — but the two are not equivalent. role="log" announces
+          // only ADDED children; Flutter's `liveRegion` re-announces the node
+          // itself on semantics update, and this node is a container over a
+          // ListView that updates on every push, every scroll-anchor reconcile
+          // and every filter toggle. On iOS that posts an announcement per
+          // update, interrupting whatever the user was reading. The live region
+          // now lives on the new-activity pill alone (see [_newMessagesPill]):
+          // a small dedicated node whose label IS the delta, which is the part
+          // role="log" would have announced. The scroller keeps its name so the
+          // list still identifies itself on focus.
           child: Semantics(
             container: true,
-            liveRegion: true, // role="log"
             label: s.timelineRoomTimeline,
             child: Stack(
               children: [
@@ -645,7 +658,8 @@ class _TimelineViewState extends State<TimelineView> {
                     left: 0,
                     right: 0,
                     bottom: JeliyaSpacing.x14,
-                    child: Center(child: _newMessagesPill(tokens, counterLabel)),
+                    child: Center(
+                        child: _newMessagesPill(context, tokens, counterLabel)),
                   ),
               ],
             ),
@@ -1030,12 +1044,31 @@ class _TimelineViewState extends State<TimelineView> {
               _Spinner(color: tokens.textMute),
               const SizedBox(width: JeliyaSpacing.x6),
             ],
-            Text(label, style: JeliyaText.meta),
+            // Flexible: the status line and Retry share one row, and Retry now
+            // carries a 44dp target on touch — at 360px in French
+            // ("Échec de l'envoi" + "Réessayer") the status text has to be able
+            // to give way rather than overflow.
+            Flexible(
+              child: Text(label,
+                  style: JeliyaText.meta,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis),
+            ),
             if (failed) ...[
               const SizedBox(width: JeliyaSpacing.x6),
-              _TextButton(
+              JeliyaTextAction(
                 label: s.commonRetry,
-                onTap: () => store.retryPendingMessage(message.clientId),
+                // Several sends can fail in one timeline, so the visible
+                // single word is not enough for a screen reader listing
+                // actions — it would hear "Retry" repeated with nothing to
+                // tell the copies apart.
+                semanticLabel: s.timelineRetryMessage,
+                onPressed: () => store.retryPendingMessage(message.clientId),
+                style: TextStyle(
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w700,
+                  color: tokens.accent,
+                ),
               ),
             ],
           ],
@@ -1205,12 +1238,17 @@ class _TimelineViewState extends State<TimelineView> {
               ),
             ),
             const SizedBox(width: JeliyaSpacing.x10),
-            _RunToggle(
+            JeliyaTextAction(
               expanded: expanded,
               label: expanded
                   ? s.timelineRunHide
                   : s.timelineRunShow(summary.count),
-              onTap: () => setState(() {
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: tokens.accent,
+              ),
+              onPressed: () => setState(() {
                 if (!_expandedRuns.remove(key)) _expandedRuns.add(key);
               }),
             ),
@@ -1547,8 +1585,22 @@ class _TimelineViewState extends State<TimelineView> {
   Widget _time(BuildContext context, int ts) =>
       Text(context.formats.clock(ts), style: JeliyaText.meta);
 
-  Widget _newMessagesPill(JeliyaTokens tokens, String label) {
-    return DecoratedBox(
+  /// The new-activity pill — and the timeline's ONLY live region (issue #73).
+  ///
+  /// It floats in a `Positioned`/`Center` over the scroller, so unlike the
+  /// filter strip it has no constant-height budget to protect: the 44dp touch
+  /// floor costs the layout nothing. `minimumSize: Size.zero` +
+  /// `shrinkWrap` had it at roughly 32dp.
+  ///
+  /// The live region sits here rather than on the scroller because this node is
+  /// exactly the delta: it exists only while unseen items are below the reader,
+  /// and its label already states how many and of what kind. It is a small leaf
+  /// whose label changes only when the count does, so assistive tech hears the
+  /// delta once per change instead of on every list rebuild.
+  Widget _newMessagesPill(
+      BuildContext context, JeliyaTokens tokens, String label) {
+    final touch = isMobileWidth(context);
+    final pill = DecoratedBox(
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(JeliyaRadii.pill),
         boxShadow: const [
@@ -1565,12 +1617,28 @@ class _TimelineViewState extends State<TimelineView> {
           backgroundColor: tokens.bgCard2,
           foregroundColor: tokens.accent,
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-          minimumSize: Size.zero,
+          minimumSize: touch ? const Size(44, 44) : Size.zero,
           tapTargetSize: MaterialTapTargetSize.shrinkWrap,
           textStyle: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700),
           shape: StadiumBorder(side: BorderSide(color: tokens.accentLine)),
         ),
         child: Text(label),
+      ),
+    );
+    // The labelled node carries the tap itself (the room_header lesson): the
+    // TextButton's own semantics are excluded so the announcement is the count
+    // alone, once, on a node a screen reader can also activate.
+    return Semantics(
+      container: true,
+      liveRegion: true,
+      button: true,
+      label: label,
+      onTap: _scrollToBottom,
+      child: ExcludeSemantics(
+        child: JeliyaFocusRing(
+          borderRadius: BorderRadius.circular(JeliyaRadii.pill),
+          child: pill,
+        ),
       ),
     );
   }
@@ -1636,40 +1704,11 @@ class _LabelChip extends StatelessWidget {
   }
 }
 
-/// The run disclosure: a bare accent text button that announces its expanded
-/// state to assistive tech (Semantics button + expanded), mirroring ui's
-/// aria-expanded run toggle.
-class _RunToggle extends StatelessWidget {
-  const _RunToggle(
-      {required this.expanded, required this.label, required this.onTap});
-
-  final bool expanded;
-  final String label;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = JeliyaTokens.of(context);
-    return Semantics(
-      button: true,
-      expanded: expanded,
-      child: MouseRegion(
-        cursor: SystemMouseCursors.click,
-        child: GestureDetector(
-          onTap: onTap,
-          child: Text(
-            label,
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
-              color: tokens.accent,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
+// The run disclosure and the pending Retry were each a local `Semantics` over a
+// bare `GestureDetector` — announceable but not activatable by assistive tech,
+// unreachable by keyboard, and roughly 35x16. Both are now the one shared
+// [JeliyaTextAction] primitive (issue #73), which keeps the aria-expanded state
+// the disclosure needs.
 
 /// The expanded run's history: every original agent-status card behind a 2px
 /// blue rule, revealed with a compositor-only fade + slide that reduced motion
@@ -1719,8 +1758,9 @@ class _RunHistory extends StatelessWidget {
 /// erode the compact timeline budget under a keyboard inset (the reason ui makes
 /// its strip a constant-height row), and adds NO second Scrollable — the one
 /// vertical Scrollable in this subtree stays the timeline list.
-class _ActivityFilterStrip extends StatelessWidget {
-  const _ActivityFilterStrip({
+class ActivityFilterStrip extends StatelessWidget {
+  const ActivityFilterStrip({
+    super.key,
     required this.categories,
     required this.active,
     required this.onToggle,
@@ -1746,8 +1786,15 @@ class _ActivityFilterStrip extends StatelessWidget {
         // budget and stay under the timeline's touch gutter so a drag started just
         // inside the list still scrolls (mobile_chat_route_test), never landing on
         // a chip.
-        padding: const EdgeInsets.symmetric(
-            horizontal: JeliyaSpacing.x24 + 2, vertical: 4),
+        //
+        // On touch the chips have to clear the 44dp floor (issue #73), and the
+        // strip pays for as little of that as it can: its own vertical padding
+        // goes to zero and the chip's 44dp box supplies the breathing room, so
+        // the strip grows 35 -> 45dp rather than 35 -> 53dp. Desktop keeps the
+        // dense 26dp row — the floor is a touch/compact contract (DESIGN.md).
+        padding: EdgeInsets.symmetric(
+            horizontal: JeliyaSpacing.x24 + 2,
+            vertical: isMobileWidth(context) ? 0 : 4),
         child: Row(
           children: [
             for (var i = 0; i < categories.length; i++) ...[
@@ -1770,6 +1817,14 @@ class _ActivityFilterStrip extends StatelessWidget {
 /// One activity-filter chip: tinted accent when active (aria-pressed/selected),
 /// muted otherwise; its label truncates rather than overflowing the shared row.
 /// Mirrors ui .activity-chip.
+///
+/// Semantics and keyboard were never the problem here — this is a real `InkWell`
+/// under `Semantics(button: true, selected: active)`, so it focuses, takes Enter
+/// and Space, and announces its pressed state. Two things were missing (issue
+/// #73): a visible focus indicator, and SIZE — the pill measured 26dp against a
+/// 44dp floor. The 44dp box is the TARGET, not the pill: the visual chip keeps
+/// its 26dp height and centres inside it, so the strip reads exactly as before
+/// while the whole box is tappable. Desktop is untouched.
 class _ActivityChip extends StatelessWidget {
   const _ActivityChip(
       {required this.label, required this.active, required this.onTap});
@@ -1781,34 +1836,45 @@ class _ActivityChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = JeliyaTokens.of(context);
+    final touch = isMobileWidth(context);
+    final pill = Container(
+      alignment: Alignment.center,
+      padding: const EdgeInsets.symmetric(
+          horizontal: JeliyaSpacing.x8, vertical: 3),
+      decoration: BoxDecoration(
+        color: active ? tokens.accentDim : Colors.transparent,
+        borderRadius: BorderRadius.circular(JeliyaRadii.pill),
+        // The chip's border is the only edge that says "this is a control", so
+        // the inactive state takes the 3:1 interactive boundary. Active keeps
+        // the accent line, which already clears it.
+        border: Border.all(
+            color: active ? tokens.accentLine : tokens.borderInteractive),
+      ),
+      child: Text(
+        label,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(
+          fontSize: 12,
+          color: active ? tokens.accent : tokens.textMute,
+          fontWeight: active ? FontWeight.w600 : FontWeight.w400,
+        ),
+      ),
+    );
     return Semantics(
       button: true,
       selected: active,
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(JeliyaRadii.pill),
-          child: Container(
-            alignment: Alignment.center,
-            padding: const EdgeInsets.symmetric(
-                horizontal: JeliyaSpacing.x8, vertical: 3),
-            decoration: BoxDecoration(
-              color: active ? tokens.accentDim : Colors.transparent,
-              borderRadius: BorderRadius.circular(JeliyaRadii.pill),
-              border: Border.all(
-                  color: active ? tokens.accentLine : tokens.border),
-            ),
-            child: Text(
-              label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: 12,
-                color: active ? tokens.accent : tokens.textMute,
-                fontWeight: active ? FontWeight.w600 : FontWeight.w400,
-              ),
-            ),
+      child: JeliyaFocusRing(
+        borderRadius: BorderRadius.circular(JeliyaRadii.pill),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(JeliyaRadii.pill),
+            overlayColor: jeliyaOverlay(tokens),
+            child: touch
+                ? SizedBox(height: 44, child: Center(child: pill))
+                : pill,
           ),
         ),
       ),
@@ -1839,36 +1905,6 @@ class _ServingNote extends StatelessWidget {
         ),
         child: Text(s.commonServing,
             style: TextStyle(fontSize: 12, color: tokens.textDim)),
-      ),
-    );
-  }
-}
-
-/// Bare accent text button (.text-btn) — the pending Retry affordance.
-class _TextButton extends StatelessWidget {
-  const _TextButton({required this.label, required this.onTap});
-
-  final String label;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = JeliyaTokens.of(context);
-    return Semantics(
-      button: true,
-      child: MouseRegion(
-        cursor: SystemMouseCursors.click,
-        child: GestureDetector(
-          onTap: onTap,
-          child: Text(
-            label,
-            style: TextStyle(
-              fontSize: 11.5,
-              fontWeight: FontWeight.w700,
-              color: tokens.accent,
-            ),
-          ),
-        ),
       ),
     );
   }

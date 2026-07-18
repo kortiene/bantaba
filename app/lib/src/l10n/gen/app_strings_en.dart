@@ -1692,6 +1692,9 @@ class AppStringsEn extends AppStrings {
   String get timelinePendingFailed => 'Couldn\'t send';
 
   @override
+  String get timelineRetryMessage => 'Retry sending message';
+
+  @override
   String timelineNewMessages(num n) {
     String _temp0 = intl.Intl.pluralLogic(
       n,

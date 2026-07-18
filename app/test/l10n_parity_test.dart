@@ -417,6 +417,7 @@ void main() {
     expect(en.timelinePendingSending, "Sending…");
     expect(en.timelinePendingSyncing, "Sent locally, syncing…");
     expect(en.timelinePendingFailed, "Couldn't send");
+    expect(en.timelineRetryMessage, "Retry sending message");
     expect(en.timelineRunHide, "Hide");
     expect(en.timelineFilterActivity, "Filter activity");
     expect(en.timelineFilterConversation, "Conversation");

@@ -2893,6 +2893,12 @@ abstract class AppStrings {
   /// **'Couldn\'t send'**
   String get timelinePendingFailed;
 
+  /// Accessible name for the Retry action under a message that failed to send. The visible label is the single word Retry (commonRetry); several failed sends can be stacked in one timeline, so screen readers get this fuller name instead of hearing "Retry" repeated with nothing to tell the copies apart.
+  ///
+  /// In en, this message translates to:
+  /// **'Retry sending message'**
+  String get timelineRetryMessage;
+
   /// Unseen-messages pill at the bottom of the chat timeline.
   ///
   /// In en, this message translates to:
