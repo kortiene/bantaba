@@ -12,9 +12,11 @@
 /// something.
 ///
 /// Two ordering rules, both learned the hard way:
-///  * `useStrictSurface` sets textScale 1.0 itself and registers
-///    `clearAllTestValues`, so the scale under test is applied AFTER the surface
-///    (the same rule locale test values follow).
+///  * The scale is applied AFTER `pumpReadyMobileApp`, not before. That helper
+///    calls `useStrictSurface` internally, which sets textScale 1.0 — so a
+///    scale set beforehand is silently reset and every case runs at 100%. The
+///    overflow list must likewise come from the helper, since it installs its
+///    own error handler. Tests that got either wrong could not fail.
 ///  * Navigation happens in English, then the locale switches LIVE — every
 ///    consumer resolves copy per build, so this exercises French rendering
 ///    without making the test depend on French affordance labels.
@@ -40,17 +42,29 @@ void main() {
       for (final french in const [false, true]) {
         final locale = french ? 'fr' : 'en';
         testWidgets('holds at ${_pct(scale)} text in $locale on a 360x640 phone', (tester) async {
-          final overflows = useStrictSurface(tester, _phone);
-          tester.platformDispatcher.textScaleFactorTestValue = scale;
-
+          // Scale AFTER the helper, and read the helper's OWN overflow list.
+          // `pumpReadyMobileApp` calls `useStrictSurface` internally, which both
+          // resets the text scale to 1.0 and installs a second error handler —
+          // so setting the scale first ran every case at 100%, and a list
+          // captured from an outer call recorded nothing after boot. Both
+          // together made these assertions unable to fail.
           final ready = await pumpReadyMobileApp(tester, newMockClient(), size: _phone);
+          final overflows = ready.overflows;
+
+          // Navigate FIRST, then scale. The subject is whether the room shell
+          // reflows, not whether a rail row stays tappable at 320% — that is a
+          // separate concern, and letting it fail here would report a
+          // navigation problem as a layout one.
           await mobileOpenRoom(tester, 'Product Review');
           if (french) {
             ready.session.prefs.textLocale = 'fr';
             await pumpSteps(tester, steps: 3);
           }
-          // Boot is a separate surface with its own scroll contract, asserted
-          // below; clear its reports so this test speaks only about the shell.
+
+          tester.platformDispatcher.textScaleFactorTestValue = scale;
+          await pumpSteps(tester, steps: 3);
+          // Boot and navigation are separate surfaces; clear their reports so
+          // this test speaks only about the shell at the scale under test.
           overflows.clear();
           await pumpSteps(tester, steps: 2);
 
@@ -65,16 +79,21 @@ void main() {
     for (final french in const [false, true]) {
       final locale = french ? 'fr' : 'en';
       testWidgets('People holds at 200% text in $locale', (tester) async {
-        final overflows = useStrictSurface(tester, _phone);
-        tester.platformDispatcher.textScaleFactorTestValue = 2.0;
-
+        // See the shell loop above on why the scale is applied after the pump
+        // and the overflow list comes from the helper.
         final ready = await pumpReadyMobileApp(tester, newMockClient(), size: _phone);
+        final overflows = ready.overflows;
+
+        // Reach the roster at normal scale, then enlarge — see the shell loop.
         await mobileOpenRoom(tester, 'Product Review');
         await mobileGoToDest(tester, en.roomDestPeople);
         if (french) {
           ready.session.prefs.textLocale = 'fr';
           await pumpSteps(tester, steps: 3);
         }
+
+        tester.platformDispatcher.textScaleFactorTestValue = 2.0;
+        await pumpSteps(tester, steps: 3);
         overflows.clear();
         await pumpSteps(tester, steps: 2);
 

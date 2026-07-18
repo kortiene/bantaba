@@ -48,15 +48,19 @@ const DESTINATIONS: Destination[] = [
       await app.openRoom(MOCK_ROOMS.main);
     },
   },
-  {
-    name: 'room workbench (files)',
-    go: async (app) => {
+  // Every room destination, not a sample of two. docs/room-workbench.md lists
+  // five, and a sweep that skips People, Agents & Runs and Pipes would let a
+  // critical regression through on three of the five room-scoped pages while
+  // the checklist claimed full coverage.
+  ...(['People', 'Agents & Runs', 'Files', 'Pipes'] as const).map((tab) => ({
+    name: `room workbench (${tab})`,
+    go: async (app: AppDriver) => {
       await app.gotoPopulated();
       await app.openRoom(MOCK_ROOMS.main);
-      await app.roomTab('Files').click();
+      await app.roomTab(tab).click();
       await expect(app.rightPanel).toBeVisible();
     },
-  },
+  })),
   {
     name: 'fleet',
     go: async (app, page) => {

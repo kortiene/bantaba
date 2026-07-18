@@ -31,9 +31,12 @@ void main() {
   group('the shell holds across the width matrix', () {
     for (final width in _widths) {
       testWidgets('no overflow at ${width.toInt()}px', (tester) async {
-        final overflows = useStrictSurface(tester, Size(width, 800));
-        // pumpReadyMobileApp asserts the bootstrap reached the ready shell.
-        await pumpReadyMobileApp(tester, newMockClient(), size: Size(width, 800));
+        // Take the overflow list the HELPER returns. `pumpReadyMobileApp` calls
+        // `useStrictSurface` itself, which installs a SECOND error handler — so
+        // a list captured from an outer call stops recording the moment the app
+        // boots, and every assertion against it passes no matter what clips.
+        final ready = await pumpReadyMobileApp(tester, newMockClient(), size: Size(width, 800));
+        final overflows = ready.overflows;
         overflows.clear();
         await pumpSteps(tester, steps: 2);
         expect(overflows, isEmpty,
@@ -70,8 +73,8 @@ void main() {
     testWidgets('focus survives a shell change', (tester) async {
       // Panes hide rather than unmount (DESIGN.md), so a resize must not strand
       // focus on a node that is no longer on screen.
-      final overflows = useStrictSurface(tester, const Size(1280, 800));
-      await pumpReadyMobileApp(tester, newMockClient(), size: const Size(1280, 800));
+      final ready = await pumpReadyMobileApp(tester, newMockClient(), size: const Size(1280, 800));
+      final overflows = ready.overflows;
 
       await tester.sendKeyEvent(LogicalKeyboardKey.tab);
       await tester.pump();
@@ -90,13 +93,13 @@ void main() {
     testWidgets('a bottom inset never swallows the shell', (tester) async {
       // The home-indicator inset on a phone. Content must reserve it rather
       // than render underneath it.
-      final overflows = useStrictSurface(tester, const Size(360, 640));
       tester.view.viewPadding = const FakeViewPadding(bottom: 34, top: 47);
       tester.view.padding = const FakeViewPadding(bottom: 34, top: 47);
       addTearDown(tester.view.resetViewPadding);
       addTearDown(tester.view.resetPadding);
 
-      await pumpReadyMobileApp(tester, newMockClient(), size: const Size(360, 640));
+      final ready = await pumpReadyMobileApp(tester, newMockClient(), size: const Size(360, 640));
+      final overflows = ready.overflows;
       overflows.clear();
       await pumpSteps(tester, steps: 2);
 
