@@ -1446,6 +1446,94 @@
   "@inviteNoDialableAddressNote": {
     "description": "Note under the ticket when no address is available. 'daemon' stays untranslated."
   },
+  "inviteIdentityHint": "Paste the invitee's 64-hex identity ID, shown on their onboarding screen and sidebar footer.",
+  "@inviteIdentityHint": {
+    "description": "Helper text under the invitee identity ID field, describing where to find the value. Shown while the field is empty or valid; the error message replaces it on an invalid entry."
+  },
+  "inviteIdentityInvalid": "That is not a valid identity ID — it must be exactly 64 hexadecimal characters.",
+  "@inviteIdentityInvalid": {
+    "description": "Inline validation error under the invitee identity ID field when the entry is not a bare 64-hex string. '64 hexadecimal characters' describes the required format."
+  },
+  "inviteRoleMemberConsequence": "A person in the room: reads and posts, shares files. No command execution.",
+  "@inviteRoleMemberConsequence": {
+    "description": "One-line consequence shown under the Member role option: what a member can and cannot do."
+  },
+  "inviteRoleAgentConsequence": "An automated participant that can act on this room's allowlisted messages.",
+  "@inviteRoleAgentConsequence": {
+    "description": "One-line consequence shown under the Agent role option: an agent is an automated participant. 'allowlisted' means messages the room explicitly permits the agent to act on."
+  },
+  "inviteAgentWarning": "WARNING — an agent invite authorizes an automated participant. Minting the ticket does not start anything: a human must run the agent on its own machine, where it can execute this room's allowlisted commands — arbitrary code / file execution on that host. Only invite an agent for a room and senders you trust.",
+  "@inviteAgentWarning": {
+    "description": "Security warning revealed when the Agent role is selected in the invite form. Tone mirrors addAgentClaudeWarning: minting only authorizes; a human runs the agent, which then executes allowlisted commands (arbitrary code / file execution) on that host. Keep 'WARNING' emphatic."
+  },
+  "inviteTicketExpiryLabel": "Ticket expiry",
+  "@inviteTicketExpiryLabel": {
+    "description": "Label above the expiry preset chooser in the invite form."
+  },
+  "inviteExpiry1h": "1 hour",
+  "@inviteExpiry1h": {
+    "description": "Expiry preset label: the ticket expires one hour after it is minted."
+  },
+  "inviteExpiry24h": "24 hours",
+  "@inviteExpiry24h": {
+    "description": "Expiry preset label: the ticket expires twenty-four hours after it is minted (the default)."
+  },
+  "inviteExpiry7d": "7 days",
+  "@inviteExpiry7d": {
+    "description": "Expiry preset label: the ticket expires seven days after it is minted."
+  },
+  "inviteExpiryNever": "No expiry",
+  "@inviteExpiryNever": {
+    "description": "Expiry preset label: the ticket does not expire (single-use, not time-boxed)."
+  },
+  "inviteAdvancedExpiry": "Advanced / custom expiry",
+  "@inviteAdvancedExpiry": {
+    "description": "Disclosure summary that reveals the custom expiry-seconds field, an override for the presets above."
+  },
+  "inviteCustomExpiryLabel": "Custom expiry seconds",
+  "@inviteCustomExpiryLabel": {
+    "description": "Label of the custom expiry field (lifetime in seconds), composed with the override marker via the shared '{label} {optional}' template."
+  },
+  "inviteCustomExpiryOverride": "(overrides the preset above)",
+  "@inviteCustomExpiryOverride": {
+    "description": "Marker rendered next to the 'Custom expiry seconds' label via the shared '{label} {optional}' template, noting the field overrides the selected preset. Keep the parentheses."
+  },
+  "inviteLifecycleWaiting": "Waiting",
+  "@inviteLifecycleWaiting": {
+    "description": "Lifecycle chip label for a minted invite whose invitee has not joined yet and whose ticket has not expired."
+  },
+  "inviteLifecycleExpired": "Expired",
+  "@inviteLifecycleExpired": {
+    "description": "Lifecycle chip label for a minted invite whose ticket expired before the invitee joined."
+  },
+  "inviteLifecycleJoined": "Joined",
+  "@inviteLifecycleJoined": {
+    "description": "Lifecycle chip label shown ONLY when the room roster confirms the invitee as an active member."
+  },
+  "inviteLifecycleWaitingCopy": "Waiting for them to join. This updates on its own when the roster changes.",
+  "@inviteLifecycleWaitingCopy": {
+    "description": "Explanatory copy next to the Waiting lifecycle chip: the state updates live from the roster."
+  },
+  "inviteLifecycleExpiredCopy": "This ticket has expired before they joined. Send a fresh one below.",
+  "@inviteLifecycleExpiredCopy": {
+    "description": "Explanatory copy next to the Expired lifecycle chip, pointing at the Invite-again action below."
+  },
+  "inviteLifecycleJoinedCopy": "They have joined the room — the roster confirms an active membership.",
+  "@inviteLifecycleJoinedCopy": {
+    "description": "Explanatory copy next to the Joined lifecycle chip: the claim comes from a signed active roster row."
+  },
+  "inviteAgain": "Invite again",
+  "@inviteAgain": {
+    "description": "Button in the sharing view, shown when the tracked invite has expired, that re-mints a fresh ticket for the same invitee."
+  },
+  "inviteAlreadyInvited": "You have already invited this identity and they have not joined yet. Send a fresh invite below.",
+  "@inviteAlreadyInvited": {
+    "description": "Copy shown when the invite form is reopened over a still-pending invitation restored from the roster, instead of the usual intro."
+  },
+  "inviteSendFresh": "Send a fresh invite",
+  "@inviteSendFresh": {
+    "description": "Submit button label when the invite form was restored over a still-pending invitation (mints a new ticket for the same invitee)."
+  },
   "renamePeerTitle": "Name this peer",
   "@renamePeerTitle": {
     "description": "Title of the rename-peer modal, which assigns a local nickname (alias) to a peer."
