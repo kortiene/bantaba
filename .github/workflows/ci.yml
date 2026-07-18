@@ -71,14 +71,19 @@ jobs:
       - name: Verify design-system conformance
         run: node scripts/check-design-tokens.mjs
 
-      # The WHOLE vitest suite, not one file of it. Only the mock-conformance
-      # oracle used to run here, so eleven other test files — routing, the room
-      # list, attention, QR, landmarks, motion — had never once run in CI and
-      # could not have failed a pull request (issue #76). The live-daemon corpus
-      # still runs below after the binary is built.
-      - name: TypeScript unit and conformance suite
+      # The whole vitest suite EXCEPT the live-daemon oracle. Only the
+      # mock-conformance file used to run here, so twelve other test files —
+      # routing, the room list, attention, QR, landmarks, motion — had never
+      # once run in CI and could not have failed a pull request (issue #76).
+      #
+      # The daemon oracle is excluded deliberately, not skipped: it hard-fails
+      # when `target/debug/jeliyad` is absent, and that is the point — a
+      # silently-skipped conformance suite reads as green while covering
+      # nothing. This job never builds Rust, so the corpus runs in the job that
+      # does, via `npm run test:conformance`.
+      - name: TypeScript unit and mock conformance suite
         working-directory: ui
-        run: npm run test
+        run: npm run test:unit
 
       - name: TypeScript build
         working-directory: ui

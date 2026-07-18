@@ -8,6 +8,7 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "test": "vitest run",
+    "test:unit": "vitest run --exclude '**/node_modules/**' --exclude '**/conformance.daemon.test.ts'",
     "test:conformance": "vitest run src/lib/conformance",
     "test:e2e": "tsc --noEmit -p e2e && playwright test"
   },
