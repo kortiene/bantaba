@@ -27,6 +27,13 @@ const List<RoomDest> kInspectorDests = [
   RoomDest.pipes,
 ];
 
+/// The room tools that select an individual item (a file id / pipe id) — the
+/// only destinations where a 4th path segment is navigation state (#67). A
+/// selected item deep-links to the workspace AND the item it opens.
+const List<RoomDest> kItemDests = [RoomDest.files, RoomDest.pipes];
+
+bool _destTakesItem(RoomDest dest) => kItemDests.contains(dest);
+
 /// A destination. Either a global one, or a room and one of its destinations.
 sealed class JeliyaRoute {
   const JeliyaRoute();
@@ -34,6 +41,12 @@ sealed class JeliyaRoute {
   /// The room this route selects, or null.
   String? get roomId => switch (this) {
         RoomRoute(:final roomId) => roomId,
+        _ => null,
+      };
+
+  /// The selected file/pipe id this route deep-links to, or null (#67).
+  String? get item => switch (this) {
+        RoomRoute(:final item) => item,
         _ => null,
       };
 
@@ -78,23 +91,36 @@ class GlobalRoute extends JeliyaRoute {
 }
 
 class RoomRoute extends JeliyaRoute {
-  const RoomRoute(this.id, [this.dest = RoomDest.activity]);
+  const RoomRoute(this.id, [this.dest = RoomDest.activity, this.item]);
 
   final String id;
   final RoomDest dest;
+
+  /// The selected file/pipe id this route deep-links to, or null. Only
+  /// files/pipes carry one (#67).
+  @override
+  final String? item;
 
   @override
   String? get roomId => id;
 
   @override
-  String get path => '/rooms/${Uri.encodeComponent(id)}/${dest.name}';
+  String get path {
+    final base = '/rooms/${Uri.encodeComponent(id)}/${dest.name}';
+    return item != null && _destTakesItem(dest)
+        ? '$base/${Uri.encodeComponent(item!)}'
+        : base;
+  }
 
   @override
   bool operator ==(Object other) =>
-      other is RoomRoute && other.id == id && other.dest == dest;
+      other is RoomRoute &&
+      other.id == id &&
+      other.dest == dest &&
+      other.item == item;
 
   @override
-  int get hashCode => Object.hash(id, dest);
+  int get hashCode => Object.hash(id, dest, item);
 
   @override
   String toString() => path;
@@ -127,7 +153,14 @@ JeliyaRoute parseRoute(String path) {
       return const GlobalRoute(GlobalDest.settings);
     case 'rooms':
       if (segments.length < 2) return kRoomsRoute;
-      return RoomRoute(segments[1], _destNamed(segments.elementAtOrNull(2)));
+      final dest = _destNamed(segments.elementAtOrNull(2));
+      // A 4th segment is the selected item, but ONLY under a dest that has
+      // items (files/pipes); a stray segment elsewhere is ignored.
+      final rawItem = segments.elementAtOrNull(3);
+      final item = _destTakesItem(dest) && rawItem != null && rawItem.isNotEmpty
+          ? rawItem
+          : null;
+      return RoomRoute(segments[1], dest, item);
     default:
       return kRoomsRoute;
   }

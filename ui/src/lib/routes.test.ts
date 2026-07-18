@@ -3,6 +3,7 @@ import {
   inspectorDest,
   legacyTabDest,
   parseRoute,
+  routeItem,
   routePath,
   routeRoomId,
   searchWithoutLegacyTab,
@@ -73,6 +74,32 @@ describe('parseRoute', () => {
     const path = routePath({ kind: 'room', roomId: awkward, dest: 'files' });
     expect(path).not.toContain('a/b');
     expect(parseRoute(path)).toEqual({ kind: 'room', roomId: awkward, dest: 'files' });
+  });
+
+  it('round-trips a selected file/pipe item on files and pipes (#67)', () => {
+    for (const dest of ['files', 'pipes'] as const) {
+      const route: Route = { kind: 'room', roomId: ROOM, dest, item: 'item-id-42' };
+      expect(routePath(route).endsWith(`/${dest}/item-id-42`)).toBe(true);
+      expect(parseRoute(routePath(route))).toEqual(route);
+    }
+  });
+
+  it('round-trips an item id that needs escaping', () => {
+    const awkward = 'a/b c';
+    const path = routePath({ kind: 'room', roomId: ROOM, dest: 'files', item: awkward });
+    expect(path).not.toContain('a/b');
+    expect(routeItem(parseRoute(path))).toBe(awkward);
+  });
+
+  it('ignores a 4th segment on a dest that has no items', () => {
+    // /rooms/:id/people/:x — people cannot select an item; the stray segment
+    // is dropped, not turned into a selection people can't have.
+    expect(parseRoute(`/rooms/${ROOM}/people/whatever`)).toEqual({
+      kind: 'room',
+      roomId: ROOM,
+      dest: 'people',
+    });
+    expect(routeItem({ kind: 'room', roomId: ROOM, dest: 'files' })).toBeNull();
   });
 });
 
