@@ -1164,6 +1164,7 @@ export default function App({ client }: { client: Client }) {
           <InviteModal
             client={client}
             roomId={roomId}
+            members={members}
             endpointAddr={endpointAddr}
             connected={conn === 'connected'}
             onClose={() => setInviteOpen(false)}
