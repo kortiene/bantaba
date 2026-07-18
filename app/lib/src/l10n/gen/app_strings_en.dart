@@ -1392,6 +1392,64 @@ class AppStringsEn extends AppStrings {
   String get sidebarRemovedRoomTitle => 'You were removed from this room';
 
   @override
+  String get sidebarSearchRooms => 'Search rooms…';
+
+  @override
+  String get sidebarSearchLabel => 'Search rooms by name or short id';
+
+  @override
+  String get sidebarFilterLabel => 'Filter rooms by lifecycle';
+
+  @override
+  String get sidebarFilterAll => 'All';
+
+  @override
+  String get sidebarFilterActive => 'Active';
+
+  @override
+  String get sidebarLifecycleDeparted => 'Left & removed';
+
+  @override
+  String get sidebarSectionPinned => 'Pinned';
+
+  @override
+  String get sidebarSectionArchived => 'Archived';
+
+  @override
+  String sidebarPinRoom(String roomName) {
+    return 'Pin $roomName';
+  }
+
+  @override
+  String sidebarUnpinRoom(String roomName) {
+    return 'Unpin $roomName';
+  }
+
+  @override
+  String sidebarArchiveRoom(String roomName) {
+    return 'Archive $roomName';
+  }
+
+  @override
+  String sidebarRestoreRoom(String roomName) {
+    return 'Restore $roomName';
+  }
+
+  @override
+  String get sidebarUnread => 'Unread';
+
+  @override
+  String sidebarNoRoomsMatch(String query) {
+    return 'No rooms match “$query”.';
+  }
+
+  @override
+  String get sidebarNoRoomsInFilter => 'No rooms in this filter.';
+
+  @override
+  String get sidebarClearSearch => 'Clear';
+
+  @override
   String get sidebarP2pIdentity => 'P2P Identity';
 
   @override

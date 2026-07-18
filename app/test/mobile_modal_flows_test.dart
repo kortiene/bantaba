@@ -200,8 +200,12 @@ void main() {
     final after = _callsAfter(client.calls, mark, 'room.leave');
     expect(after, contains('room.list'));
     expect(after, contains('daemon.status'));
-    // Back on the rooms list, with the departed room receded.
+    // Back on the rooms list. The departed room is now filed under the
+    // "Left & removed" lifecycle (issue #64), not mixed into the active rows:
+    // switching the filter to it reveals the room with its receded "Left" state.
     expect(find.byType(RoomHeader).hitTestable(), findsNothing);
+    await tester.tap(find.text(en.sidebarLifecycleDeparted).hitTestable());
+    await pumpSteps(tester, steps: 3);
     expect(find.text(en.sidebarStateLeft).hitTestable(), findsOneWidget);
   });
 

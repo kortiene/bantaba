@@ -1027,6 +1027,59 @@ button.sender-name:not(:disabled):hover {
   color: var(--text-mute);
 }
 
+/* Search + lifecycle filter (issue #64). A sibling of the Rooms navigation, so
+   the "Active" filter chip never lands inside a room row's accessible name. */
+.rooms-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 18px 10px;
+}
+
+.room-search {
+  width: 100%;
+  padding: 7px 10px;
+  border-radius: 9px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text);
+  font-size: 12.5px;
+}
+
+.room-search:focus-visible {
+  outline: none;
+  border-color: var(--accent-line);
+}
+
+.lifecycle-filter {
+  display: flex;
+  gap: 4px;
+}
+
+.filter-chip {
+  flex: 1;
+  padding: 5px 6px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-mute);
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.filter-chip:hover {
+  color: var(--text-dim);
+}
+
+.filter-chip.active {
+  background: var(--accent-dim);
+  border-color: var(--accent-line);
+  color: var(--accent);
+  font-weight: 600;
+}
+
 .rooms-list {
   flex: 1;
   overflow-y: auto;
@@ -1037,33 +1090,155 @@ button.sender-name:not(:disabled):hover {
   min-height: 0;
 }
 
+.room-section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.room-section-head {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-mute);
+  padding: 8px 10px 2px;
+}
+
+/* Disclosure for the two collapsible put-away sections (Left & removed,
+   Archived) — a full-width toggle carrying the section's count. */
+.room-section-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px 4px;
+  background: transparent;
+  border: none;
+  color: var(--text-mute);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.room-section-toggle:hover {
+  color: var(--text-dim);
+}
+
+.room-section-toggle .disclosure {
+  font-size: 9px;
+}
+
+.room-section-count {
+  font-weight: 500;
+  letter-spacing: 0;
+}
+
+/* A room row: a select button that grows + a hover/focus-revealed pin/archive
+   pair. The row is a container (not itself a button) so the actions can be real
+   buttons without nesting interactive controls. */
 .room-item {
   display: flex;
   align-items: center;
-  gap: 10px;
   width: 100%;
-  text-align: left;
-  padding: 9px 10px;
   border-radius: 11px;
   border: 1px solid transparent;
-  background: transparent;
 }
 
 .room-item:hover {
   background: var(--bg-card);
 }
 
+.room-item.selected {
+  background: var(--accent-dim);
+  border-color: var(--accent-line);
+}
+
+.room-select {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  padding: 9px 10px;
+  border-radius: 11px;
+  border: none;
+  background: transparent;
+}
+
 .room-item.departed {
   opacity: 0.62;
 }
 
-.room-item.departed:disabled {
+.room-select:disabled {
   cursor: not-allowed;
 }
 
-.room-item.selected {
-  background: var(--accent-dim);
-  border-color: var(--accent-line);
+.room-row-actions {
+  display: flex;
+  gap: 2px;
+  padding-right: 6px;
+  opacity: 0;
+}
+
+/* Revealed on hover or when a control inside the row takes focus, so the rail
+   stays quiet but the actions are always keyboard-reachable. */
+.room-item:hover .room-row-actions,
+.room-item:focus-within .room-row-actions {
+  opacity: 1;
+}
+
+.room-row-action {
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 7px;
+  border: none;
+  background: transparent;
+  color: var(--text-mute);
+  font-size: 14px;
+}
+
+.room-row-action:hover {
+  background: var(--border);
+  color: var(--text-dim);
+}
+
+/* A set pin/archive stays lit even unhovered — the section already places the
+   room, but the lit toggle confirms the state on the row itself. */
+.room-row-action.on {
+  color: var(--accent);
+}
+
+.room-name-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* Device-local unread (docs/room-attention.md, decision 3): a dot, never a
+   count. Paired with a bold name below and an sr-only "Unread" label, so it is
+   never colour alone. */
+.unread-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex: none;
+}
+
+.room-item.unread .room-name {
+  font-weight: 700;
+}
+
+.room-last {
+  white-space: nowrap;
 }
 
 .room-hex {
@@ -1110,6 +1285,30 @@ button.sender-name:not(:disabled):hover {
 .rooms-empty {
   padding: 14px;
   font-size: 13px;
+}
+
+/* Text button used inline in the empty-search state to clear search + filter. */
+.link-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--accent);
+  font: inherit;
+  text-decoration: underline;
+}
+
+/* Accessible-only text: present in the accessible name / for screen readers,
+   removed from the visual layout (the standard clip pattern). */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .create-room {

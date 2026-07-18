@@ -180,10 +180,15 @@ Future<void> mobileShowRoomsList(WidgetTester tester) async {
 }
 
 /// Open a room by its (unique) name from the rooms list, landing on its
-/// Activity. Reaches the list first, so it works from anywhere.
+/// Activity. Reaches the list first, so it works from anywhere. The rooms list
+/// scrolls (issue #64 put the search + lifecycle filter above it), so a room
+/// can start below the fold — bring it on screen before tapping.
 Future<void> mobileOpenRoom(WidgetTester tester, String roomName) async {
   await mobileShowRoomsList(tester);
-  await tester.tap(find.text(roomName).hitTestable().first);
+  final target = find.text(roomName);
+  await tester.ensureVisible(target.first);
+  await tester.pump();
+  await tester.tap(target.hitTestable().first);
   await pumpSteps(tester, steps: 6);
 }
 

@@ -1,6 +1,9 @@
+import { useState } from 'react';
 import type { ConnectionState, DaemonStatus, RoomSummary } from '../lib/protocol';
-import { colorForId, shortId } from '../lib/format';
-import { homonymousRoomIds, roomDisplayName } from '../lib/rooms';
+import { colorForId, relTime, shortId } from '../lib/format';
+import { projectRoomList, type LifecycleFilter, type RoomListRow, type RoomSectionKey } from '../lib/roomList';
+import type { RoomFlags } from '../lib/roomFlags';
+import { isRoomUnread, type LastSeen } from '../lib/lastSeen';
 import { CopyButton, TreeMark, Wordmark } from './ui';
 import { useNames } from './names';
 
@@ -25,6 +28,26 @@ const NAV: { key: NavKey; label: string; glyph: string }[] = [
   { key: 'settings', label: 'Settings', glyph: '⚙' },
 ];
 
+/** The lifecycle filter — separates Active from Left/Removed without dropping a
+ *  room from existence (issue #64, docs/room-attention.md, decision 4). */
+const FILTERS: { key: LifecycleFilter; label: string }[] = [
+  { key: 'all', label: 'All' },
+  { key: 'active', label: 'Active' },
+  { key: 'departed', label: 'Left & removed' },
+];
+
+/** The two collapsible put-away sections. Pinned and (unheadered) active rooms
+ *  are always expanded; these two are disclosures so a long tail of departed or
+ *  archived rooms never buries the rooms you actually work in. */
+const COLLAPSIBLE: Record<string, boolean> = { departed: true, archived: true };
+
+const SECTION_LABEL: Record<RoomSectionKey, string> = {
+  pinned: 'Pinned',
+  active: 'Active',
+  departed: 'Left & removed',
+  archived: 'Archived',
+};
+
 export function Sidebar({
   rooms,
   currentRoomId,
@@ -35,6 +58,14 @@ export function Sidebar({
   onSelectRoom,
   onCreateRoom,
   onJoinRoom,
+  query,
+  onQueryChange,
+  filter,
+  onFilterChange,
+  flags,
+  onTogglePin,
+  onToggleArchive,
+  lastSeen,
 }: {
   rooms: RoomSummary[];
   currentRoomId: string | null;
@@ -45,16 +76,131 @@ export function Sidebar({
   onSelectRoom(roomId: string): void;
   onCreateRoom(): void;
   onJoinRoom(): void;
+  query: string;
+  onQueryChange(q: string): void;
+  filter: LifecycleFilter;
+  onFilterChange(f: LifecycleFilter): void;
+  flags: RoomFlags;
+  onTogglePin(roomId: string): void;
+  onToggleArchive(roomId: string): void;
+  lastSeen: LastSeen;
 }) {
   const names = useNames();
-  // Room_ids that share a display name with at least one other listed room
-  // (docs/room-workbench.md, decision 6). Computed once per render off the same
-  // list the rows are drawn from.
-  const homonyms = homonymousRoomIds(rooms);
+  // Collapsed/expanded state for the two disclosure sections. Local and
+  // cosmetic — a room's search/filter/pin state lives in App and survives nav;
+  // whether the archive drawer is open does not need to.
+  const [open, setOpen] = useState<Record<string, boolean>>({ departed: false, archived: false });
+
   const identityId = status?.identity?.identity_id ?? null;
   const endpointId = status?.endpoint?.endpoint_id ?? null;
   const selfName = identityId ? names.display(identityId) : 'You';
   const handle = identityId ? `@${shortId(identityId).replace(/…/g, '')}` : '@—';
+
+  // The searched, filtered, ordered, sectioned view — and the disambiguator set
+  // recomputed over exactly the rooms this render shows (roomList.ts).
+  const view = projectRoomList({ rooms, query, filter, pinned: flags.pinned, archived: flags.archived });
+
+  const clearSearch = () => {
+    onQueryChange('');
+    onFilterChange('all');
+  };
+
+  const renderRow = (row: RoomListRow) => {
+    const room = row.room;
+    const tint = colorForId(room.room_id);
+    const active = room.room_id === currentRoomId;
+    const departed = room.status === 'left' || room.status === 'removed';
+    // One label, one fact (docs/room-workbench.md, decision 4). `status` is
+    // signed membership; `open` is whether this daemon holds a live session.
+    const stateLabel = departed
+      ? room.status === 'left'
+        ? 'Left'
+        : 'Removed'
+      : room.open
+        ? 'Open'
+        : 'Closed';
+    const unread = isRoomUnread(room, lastSeen);
+    const pinned = flags.pinned.has(room.room_id);
+    const archived = flags.archived.has(room.room_id);
+    const last = room.last_event_ts ?? null;
+    return (
+      <div
+        key={room.room_id}
+        className={`room-item${active ? ' selected' : ''}${departed ? ' departed' : ''}${unread ? ' unread' : ''}`}
+      >
+        <button
+          type="button"
+          className="room-select"
+          onClick={() => onSelectRoom(room.room_id)}
+          disabled={departed}
+          aria-current={active ? 'true' : undefined}
+          title={departed ? `You ${room.status === 'left' ? 'left' : 'were removed from'} this room` : undefined}
+        >
+          <span className="room-hex" style={{ color: tint, background: `${tint}1f` }} aria-hidden="true">
+            ⬡
+          </span>
+          <span className="room-info">
+            <span className="room-name-line">
+              <span className="room-name">{row.displayName}</span>
+              {unread ? (
+                // Device-local unread (docs/room-attention.md, decision 3): a
+                // dot, never a count, and never an implication that anyone
+                // received or read anything. Carries a real label + a non-colour
+                // weight cue on the row, so it is not colour alone.
+                <span className="unread-dot" title="Unread">
+                  <span className="visually-hidden">Unread</span>
+                </span>
+              ) : null}
+            </span>
+            <span className="room-meta">
+              {room.member_count} member{room.member_count === 1 ? '' : 's'} · {stateLabel}
+              {row.isHomonym ? (
+                // Real text, not aria-hidden, so it lands in the row's accessible
+                // name and a screen-reader user can tell the homonyms apart too.
+                <>
+                  {' · '}
+                  <code className="room-disambig mono">{shortId(room.room_id)}</code>
+                </>
+              ) : null}
+              {last != null ? (
+                // Last activity is the newest signed event's ts — a daemon
+                // projection (decision 2), rendered relative, never the wall
+                // clock. Absent (older daemon / not synced) renders nothing, not
+                // a fabricated recency.
+                <>
+                  {' · '}
+                  <span className="room-last">{relTime(last)}</span>
+                </>
+              ) : null}
+            </span>
+          </span>
+          {room.open ? <span className="dot dot-green" title="Session open" /> : null}
+        </button>
+        <div className="room-row-actions">
+          <button
+            type="button"
+            className={`room-row-action${pinned ? ' on' : ''}`}
+            aria-pressed={pinned}
+            aria-label={`${pinned ? 'Unpin' : 'Pin'} ${row.displayName}`}
+            title={pinned ? 'Unpin' : 'Pin'}
+            onClick={() => onTogglePin(room.room_id)}
+          >
+            {pinned ? '★' : '☆'}
+          </button>
+          <button
+            type="button"
+            className={`room-row-action${archived ? ' on' : ''}`}
+            aria-pressed={archived}
+            aria-label={`${archived ? 'Restore' : 'Archive'} ${row.displayName}`}
+            title={archived ? 'Restore from archive' : 'Archive'}
+            onClick={() => onToggleArchive(room.room_id)}
+          >
+            {archived ? '⇧' : '⇩'}
+          </button>
+        </div>
+      </div>
+    );
+  };
 
   return (
     <aside className="sidebar">
@@ -110,63 +256,91 @@ export function Sidebar({
         </button>
       </div>
 
-      {/* TODO(#49): a room search (accepting the name AND the short id) belongs
-          here when it lands — a separate surface, deliberately deferred. Until
-          then the short-id disambiguator below is how a user tells homonyms
-          apart (docs/room-workbench.md, decision 6). */}
-      <nav className="rooms-list" aria-label="Rooms">
-        {rooms.map((room) => {
-          const tint = colorForId(room.room_id);
-          const active = room.room_id === currentRoomId;
-          const departed = room.status === 'left' || room.status === 'removed';
-          const name = roomDisplayName(room);
-          // Only rooms sharing a display name with another get the short id:
-          // it is noise when the name already identifies the room, and the
-          // signal that prevents acting on the wrong room when it doesn't.
-          const isHomonym = homonyms.has(room.room_id);
-          // One label, one fact (docs/room-workbench.md, decision 4). `status`
-          // is signed membership; `open` is whether this daemon holds a live
-          // session. "Active" used to mean the latter here while meaning the
-          // former on the wire — so it is gone.
-          const stateLabel = departed
-            ? room.status === 'left'
-              ? 'Left'
-              : 'Removed'
-            : room.open
-              ? 'Open'
-              : 'Closed';
-          return (
+      {/* Search + lifecycle filter (issue #64). Both live OUTSIDE the Rooms
+          navigation below, so the filter's "Active" chip never lands in a room
+          row's accessible name and the retired "Active" state label stays
+          retired. */}
+      <div className="rooms-controls">
+        <label className="visually-hidden" htmlFor="room-search">
+          Search rooms by name or short id
+        </label>
+        <input
+          id="room-search"
+          type="search"
+          className="room-search"
+          placeholder="Search rooms…"
+          value={query}
+          onChange={(e) => onQueryChange(e.target.value)}
+        />
+        <div className="lifecycle-filter" role="group" aria-label="Filter rooms by lifecycle">
+          {FILTERS.map((f) => (
             <button
-              key={room.room_id}
+              key={f.key}
               type="button"
-              className={`room-item${active ? ' selected' : ''}${departed ? ' departed' : ''}`}
-              onClick={() => onSelectRoom(room.room_id)}
-              disabled={departed}
-              title={departed ? `You ${room.status === 'left' ? 'left' : 'were removed from'} this room` : undefined}
+              className={`filter-chip${filter === f.key ? ' active' : ''}`}
+              aria-pressed={filter === f.key}
+              onClick={() => onFilterChange(f.key)}
             >
-              <span className="room-hex" style={{ color: tint, background: `${tint}1f` }} aria-hidden="true">
-                ⬡
-              </span>
-              <span className="room-info">
-                <span className="room-name">{name}</span>
-                <span className="room-meta">
-                  {room.member_count} member{room.member_count === 1 ? '' : 's'} · {stateLabel}
-                  {isHomonym ? (
-                    // Real text, not aria-hidden, so it lands in the row's
-                    // accessible name and a screen-reader user can tell the
-                    // homonyms apart too.
-                    <>
-                      {' · '}
-                      <code className="room-disambig mono">{shortId(room.room_id)}</code>
-                    </>
-                  ) : null}
-                </span>
-              </span>
-              {room.open ? <span className="dot dot-green" title="Session open" /> : null}
+              {f.label}
             </button>
+          ))}
+        </div>
+      </div>
+
+      <nav className="rooms-list" aria-label="Rooms">
+        {view.sections.map((section) => {
+          // A section is a collapsed disclosure only when it is a genuine
+          // put-away: never when the user explicitly filtered TO it (departed
+          // under the Left & removed filter), and never while a search is
+          // active — a query must reveal its matches, not bury them in a
+          // collapsed bucket.
+          const filterFocus = section.key === 'departed' && filter === 'departed';
+          const collapsible = (COLLAPSIBLE[section.key] ?? false) && !filterFocus && !view.hasQuery;
+          const expanded = collapsible ? (open[section.key] ?? false) : true;
+          // A "Pinned" header groups the floated rooms; active rooms need no
+          // header (they are simply the list). The collapsible sections own a
+          // disclosure button with their count.
+          const showHeader = section.key === 'pinned';
+          return (
+            <div key={section.key} className={`room-section room-section-${section.key}`}>
+              {collapsible ? (
+                <button
+                  type="button"
+                  className="room-section-toggle"
+                  aria-expanded={expanded}
+                  onClick={() => setOpen((o) => ({ ...o, [section.key]: !expanded }))}
+                >
+                  <span className="disclosure" aria-hidden="true">
+                    {expanded ? '▾' : '▸'}
+                  </span>
+                  {SECTION_LABEL[section.key]} <span className="room-section-count">({section.rows.length})</span>
+                </button>
+              ) : showHeader ? (
+                <div className="room-section-head">{SECTION_LABEL[section.key]}</div>
+              ) : null}
+              {expanded ? section.rows.map(renderRow) : null}
+            </div>
           );
         })}
-        {rooms.length === 0 ? <div className="rooms-empty muted">No rooms yet</div> : null}
+
+        {view.visibleCount === 0 ? (
+          view.totalCount === 0 ? (
+            <div className="rooms-empty muted">No rooms yet</div>
+          ) : (
+            <div className="rooms-empty muted">
+              {view.hasQuery ? (
+                <>
+                  No rooms match “<span className="mono">{query.trim()}</span>”.
+                </>
+              ) : (
+                <>No rooms in this filter.</>
+              )}{' '}
+              <button type="button" className="link-btn" onClick={clearSearch}>
+                Clear
+              </button>
+            </div>
+          )
+        ) : null}
       </nav>
 
       <button type="button" className="create-room" onClick={onCreateRoom}>

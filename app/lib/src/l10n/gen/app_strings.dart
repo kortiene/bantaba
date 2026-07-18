@@ -2396,6 +2396,102 @@ abstract class AppStrings {
   /// **'You were removed from this room'**
   String get sidebarRemovedRoomTitle;
 
+  /// Placeholder inside the rooms search field in the sidebar; hints that typing filters the room list. Trailing ellipsis (…) is one character (U+2026).
+  ///
+  /// In en, this message translates to:
+  /// **'Search rooms…'**
+  String get sidebarSearchRooms;
+
+  /// Screen-reader label (not visible on screen) for the rooms search field in the sidebar; states what the field matches against.
+  ///
+  /// In en, this message translates to:
+  /// **'Search rooms by name or short id'**
+  String get sidebarSearchLabel;
+
+  /// Screen-reader label for the group of lifecycle filter chips (All / Active / Left & removed) above the rooms list.
+  ///
+  /// In en, this message translates to:
+  /// **'Filter rooms by lifecycle'**
+  String get sidebarFilterLabel;
+
+  /// Lifecycle filter chip: show every room regardless of membership state. Keep short — the three chips share one row.
+  ///
+  /// In en, this message translates to:
+  /// **'All'**
+  String get sidebarFilterAll;
+
+  /// Lifecycle filter chip: show only rooms the user is still a member of (not left or removed). This is a FILTER control, not a room-state label — it never appears inside a room row. Keep short.
+  ///
+  /// In en, this message translates to:
+  /// **'Active'**
+  String get sidebarFilterActive;
+
+  /// The departed lifecycle, used BOTH as the third filter chip AND as the header of the collapsible section of rooms the user has left or was removed from. '&' joins the two departure kinds (Left, Removed); use the locale's convention.
+  ///
+  /// In en, this message translates to:
+  /// **'Left & removed'**
+  String get sidebarLifecycleDeparted;
+
+  /// Header of the Pinned section of the rooms list — rooms the user floated to the top (device-local). Past participle of the verb 'to pin'.
+  ///
+  /// In en, this message translates to:
+  /// **'Pinned'**
+  String get sidebarSectionPinned;
+
+  /// Header of the collapsible Archived section of the rooms list — rooms the user put away (device-local). Past participle of the verb 'to archive'.
+  ///
+  /// In en, this message translates to:
+  /// **'Archived'**
+  String get sidebarSectionArchived;
+
+  /// Accessible label and tooltip for the per-row button that pins a room to the top of the list. Imperative verb 'pin'; {roomName} is the room's display name.
+  ///
+  /// In en, this message translates to:
+  /// **'Pin {roomName}'**
+  String sidebarPinRoom(String roomName);
+
+  /// Accessible label and tooltip for the per-row button that removes a room's pin. Imperative verb 'unpin'; {roomName} is the room's display name.
+  ///
+  /// In en, this message translates to:
+  /// **'Unpin {roomName}'**
+  String sidebarUnpinRoom(String roomName);
+
+  /// Accessible label and tooltip for the per-row button that archives (puts away) a room. Imperative verb 'archive'; {roomName} is the room's display name.
+  ///
+  /// In en, this message translates to:
+  /// **'Archive {roomName}'**
+  String sidebarArchiveRoom(String roomName);
+
+  /// Accessible label and tooltip for the per-row button that restores a room from the archive. Imperative verb 'restore'; {roomName} is the room's display name.
+  ///
+  /// In en, this message translates to:
+  /// **'Restore {roomName}'**
+  String sidebarRestoreRoom(String roomName);
+
+  /// Screen-reader label on a room row's unread indicator (a dot, never a count). States only that this device has not yet viewed the newest activity — it NEVER implies delivery or that anyone else read anything.
+  ///
+  /// In en, this message translates to:
+  /// **'Unread'**
+  String get sidebarUnread;
+
+  /// Empty-state message when a search query matches no room. {query} is the user's search text, shown in typographic quotes. Ends with a period; a 'Clear' button (sidebarClearSearch) follows.
+  ///
+  /// In en, this message translates to:
+  /// **'No rooms match “{query}”.'**
+  String sidebarNoRoomsMatch(String query);
+
+  /// Empty-state message when the active lifecycle filter matches no room (but rooms exist under another filter). A 'Clear' button (sidebarClearSearch) follows.
+  ///
+  /// In en, this message translates to:
+  /// **'No rooms in this filter.'**
+  String get sidebarNoRoomsInFilter;
+
+  /// Button that resets the rooms search query and lifecycle filter back to showing all rooms. Imperative verb.
+  ///
+  /// In en, this message translates to:
+  /// **'Clear'**
+  String get sidebarClearSearch;
+
   /// Heading of the identity footer at the bottom of the sidebar, above the user's identity id. 'P2P' abbreviates peer-to-peer — keep the abbreviation or use the locale's standard equivalent.
   ///
   /// In en, this message translates to:

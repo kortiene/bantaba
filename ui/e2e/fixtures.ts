@@ -112,15 +112,42 @@ export class AppDriver {
     ).toHaveAttribute('data-jeliya-transport', /mock fixtures \(VITE_MOCK=1\)/);
   }
 
-  /** A room row in the rail. Homonymous rooms share a name (decision 6), so
-   *  `disambig` — the short id the row shows next to that name — narrows to a
-   *  single one. Unique-named rooms need only the name, so existing callers
-   *  pass it alone and still get their one row. */
+  /** A room row's select button in the rail. Homonymous rooms share a name
+   *  (decision 6), so `disambig` — the short id the row shows next to that name —
+   *  narrows to a single one. Unique-named rooms need only the name, so existing
+   *  callers pass it alone and still get their one row.
+   *
+   *  Scoped to `.room-select` (issue #64): each row now also carries pin/archive
+   *  buttons whose accessible names contain the room name, so a bare name match
+   *  would resolve to three buttons per row. */
   roomItem(name: string, disambig?: string) {
     const byName = this.page
       .getByRole('navigation', { name: 'Rooms' })
-      .getByRole('button', { name, exact: false });
+      .getByRole('button', { name, exact: false })
+      .and(this.page.locator('.room-select'));
     return disambig ? byName.filter({ hasText: disambig }) : byName;
+  }
+
+  /** A lifecycle filter chip ("All" / "Active" / "Left & removed"). Scoped to
+   *  the filter group so it never collides with the same-named departed
+   *  disclosure inside the room list. */
+  filterChip(label: 'All' | 'Active' | 'Left & removed') {
+    return this.page
+      .getByRole('group', { name: 'Filter rooms by lifecycle' })
+      .getByRole('button', { name: label, exact: true });
+  }
+
+  /** Expand the collapsed "Left & removed" disclosure so a departed room's row
+   *  is in the DOM (issue #64 sections). No-op if already open or absent. The
+   *  disclosure lives inside the Rooms navigation — scoped so it is not confused
+   *  with the identically-labelled filter chip. */
+  async showDeparted(): Promise<void> {
+    const toggle = this.page
+      .getByRole('navigation', { name: 'Rooms' })
+      .getByRole('button', { name: /Left & removed/ });
+    if ((await toggle.count()) > 0 && (await toggle.getAttribute('aria-expanded')) === 'false') {
+      await toggle.click();
+    }
   }
 
   /** The single-pane containers (visibility differs per breakpoint). */

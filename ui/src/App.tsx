@@ -18,6 +18,11 @@ import type { DiagnosticEvent } from './lib/diagnostics';
 import { loadAliases, saveAliases, suggestedNames } from './lib/names';
 import { shortId } from './lib/format';
 import { roomDisplayName } from './lib/rooms';
+import { loadRoomFlags, saveRoomFlags, togglePinned, toggleArchived } from './lib/roomFlags';
+import type { RoomFlags } from './lib/roomFlags';
+import { loadLastSeen, markRoomSeen, saveLastSeen, seedRoomSeen } from './lib/lastSeen';
+import type { LastSeen } from './lib/lastSeen';
+import type { LifecycleFilter } from './lib/roomList';
 import { splitInvite } from './lib/invite';
 import { joinRoomWithRetry } from './lib/join';
 import type { JoinProgress } from './lib/join';
@@ -149,6 +154,53 @@ export default function App({ client }: { client: Client }) {
   const [renameTarget, setRenameTarget] = useState<string | null>(null);
   const [aliases, setAliases] = useState<Record<string, string>>(loadAliases);
 
+  // Room-list view state (issue #64). Query and filter are session-local — they
+  // survive entering a room and returning, but need not outlive a reload. Pin/
+  // archive and the unread last-seen marks are device-local storage
+  // (roomFlags.ts, lastSeen.ts) and persist.
+  const [roomQuery, setRoomQuery] = useState('');
+  const [roomFilter, setRoomFilter] = useState<LifecycleFilter>('all');
+  const [roomFlags, setRoomFlags] = useState<RoomFlags>(loadRoomFlags);
+  const [lastSeen, setLastSeen] = useState<LastSeen>(loadLastSeen);
+
+  const toggleRoomPin = useCallback((roomId: string) => {
+    setRoomFlags((f) => {
+      const next = togglePinned(f, roomId);
+      saveRoomFlags(next);
+      return next;
+    });
+  }, []);
+  const toggleRoomArchive = useCallback((roomId: string) => {
+    setRoomFlags((f) => {
+      const next = toggleArchived(f, roomId);
+      saveRoomFlags(next);
+      return next;
+    });
+  }, []);
+
+  // Persist the unread marks whenever they change. Kept out of the state
+  // updaters (which stay pure): a save side-effect inside a functional update
+  // can be dropped when a rapid navigation races the commit, leaving the dot
+  // stuck. One effect mirrors the committed state to storage.
+  useEffect(() => {
+    saveLastSeen(lastSeen);
+  }, [lastSeen]);
+
+  // Seed the device-local unread baseline the first time each listed room
+  // appears on this device (docs/room-attention.md, decision 3): a backlog
+  // synced before you ever saw the room must not read as unread. seedRoomSeen
+  // writes only when no mark exists, so a returning user's advanced marks — the
+  // whole basis of an honest unread dot — are untouched.
+  useEffect(() => {
+    setLastSeen((prev) => {
+      let next = prev;
+      for (const room of rooms) {
+        if (room.last_event_ts != null) next = seedRoomSeen(next, room.room_id, room.last_event_ts);
+      }
+      return next;
+    });
+  }, [rooms]);
+
   const rememberError = useCallback<DiagnosticErrorRecorder>((context, e) => {
     const err = errorShape(e);
     setLastDiagnosticError({
@@ -261,6 +313,13 @@ export default function App({ client }: { client: Client }) {
         if (roomIdRef.current !== rid) return;
         setMembers(opened.members);
         setTimeline(opened.timeline);
+        // Viewing a room clears its unread: advance the last-seen mark to the
+        // newest event now loaded (docs/room-attention.md, decision 3).
+        // markRoomSeen never moves the mark backward.
+        const newestTs = opened.timeline.reduce((max, e) => (e.ts > max ? e.ts : max), 0);
+        if (newestTs > 0) {
+          setLastSeen((prev) => markRoomSeen(prev, rid, newestTs));
+        }
         setPendingMessages((byRoom) => {
           const list = byRoom[rid];
           if (!list?.some((message) => message.eventId)) return byRoom;
@@ -316,6 +375,10 @@ export default function App({ client }: { client: Client }) {
         next.splice(i, 0, event);
         return next;
       });
+      // You are viewing this room (guarded above), so a new event here is seen,
+      // not unread — advance the mark as it arrives (docs/room-attention.md,
+      // decision 3).
+      setLastSeen((prev) => markRoomSeen(prev, room_id, event.ts));
       if (event.kind === 'message') {
         setPendingMessages((byRoom) => {
           const list = byRoom[room_id];
@@ -881,6 +944,14 @@ export default function App({ client }: { client: Client }) {
           onSelectRoom={selectRoom}
           onCreateRoom={() => setCreateOpen(true)}
           onJoinRoom={() => setJoinOpen(true)}
+          query={roomQuery}
+          onQueryChange={setRoomQuery}
+          filter={roomFilter}
+          onFilterChange={setRoomFilter}
+          flags={roomFlags}
+          onTogglePin={toggleRoomPin}
+          onToggleArchive={toggleRoomArchive}
+          lastSeen={lastSeen}
         />
 
         <main className="center">

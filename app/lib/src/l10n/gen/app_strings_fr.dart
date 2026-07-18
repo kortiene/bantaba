@@ -1417,6 +1417,65 @@ class AppStringsFr extends AppStrings {
   String get sidebarRemovedRoomTitle => 'Vous avez été retiré de ce salon';
 
   @override
+  String get sidebarSearchRooms => 'Rechercher des salons…';
+
+  @override
+  String get sidebarSearchLabel =>
+      'Rechercher des salons par nom ou identifiant court';
+
+  @override
+  String get sidebarFilterLabel => 'Filtrer les salons par cycle de vie';
+
+  @override
+  String get sidebarFilterAll => 'Tous';
+
+  @override
+  String get sidebarFilterActive => 'Actifs';
+
+  @override
+  String get sidebarLifecycleDeparted => 'Quittés et retirés';
+
+  @override
+  String get sidebarSectionPinned => 'Épinglés';
+
+  @override
+  String get sidebarSectionArchived => 'Archivés';
+
+  @override
+  String sidebarPinRoom(String roomName) {
+    return 'Épingler $roomName';
+  }
+
+  @override
+  String sidebarUnpinRoom(String roomName) {
+    return 'Désépingler $roomName';
+  }
+
+  @override
+  String sidebarArchiveRoom(String roomName) {
+    return 'Archiver $roomName';
+  }
+
+  @override
+  String sidebarRestoreRoom(String roomName) {
+    return 'Restaurer $roomName';
+  }
+
+  @override
+  String get sidebarUnread => 'Non lu';
+
+  @override
+  String sidebarNoRoomsMatch(String query) {
+    return 'Aucun salon ne correspond à «$query».';
+  }
+
+  @override
+  String get sidebarNoRoomsInFilter => 'Aucun salon dans ce filtre.';
+
+  @override
+  String get sidebarClearSearch => 'Effacer';
+
+  @override
   String get sidebarP2pIdentity => 'Identité P2P';
 
   @override

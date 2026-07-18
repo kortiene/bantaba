@@ -29,6 +29,7 @@ import 'package:jeliya_protocol/jeliya_protocol.dart';
 
 import '../l10n/gen/app_strings.dart' show AppStrings;
 import 'prefs_store.dart';
+import 'room_list.dart' show LifecycleFilter;
 import 'room_store.dart';
 
 /// The app version reported in diagnostics (kept in sync with pubspec.yaml).
@@ -350,6 +351,13 @@ class DaemonSession extends ChangeNotifier {
   ConnectionState _conn = ConnectionState.disconnected;
   DaemonStatus? _status;
   List<RoomSummary> _rooms = const [];
+  // Room-list view state (issue #64), the counterpart of App.tsx's lifted
+  // roomQuery / roomFilter: session-local so search and filter survive
+  // entering a room and returning (both shells switch panes without dropping
+  // it), but need not outlive the process. Pin/archive and the unread
+  // last-seen marks are device-local storage owned by [prefs].
+  String _roomQuery = '';
+  LifecycleFilter _roomFilter = LifecycleFilter.all;
   RoomStore? _room;
   final Map<String, PendingMessages> _pendingByRoom = {};
   DiagnosticEvent? _lastDiagnosticError;
@@ -388,6 +396,47 @@ class DaemonSession extends ChangeNotifier {
   ConnectionState get conn => _conn;
   DaemonStatus? get status => _status;
   List<RoomSummary> get rooms => _rooms;
+
+  /// The room-list search query (name / short-id substring) — session-local
+  /// view state the sidebar and mobile rooms list both read.
+  String get roomQuery => _roomQuery;
+
+  set roomQuery(String value) {
+    if (_roomQuery == value) return;
+    _roomQuery = value;
+    notifyListeners();
+  }
+
+  /// The room-list lifecycle filter (all / active / departed) — session-local
+  /// view state shared by both shells.
+  LifecycleFilter get roomFilter => _roomFilter;
+
+  set roomFilter(LifecycleFilter value) {
+    if (_roomFilter == value) return;
+    _roomFilter = value;
+    notifyListeners();
+  }
+
+  /// Whether [room] has a signed event newer than this device's last-seen
+  /// mark (docs/room-attention.md, decision 3). Device-local; never a
+  /// delivery/read receipt. PrefsStore owns the marks; this only projects.
+  bool isRoomUnread(RoomSummary room) =>
+      roomUnread(room, prefs.lastSeenFor(room.roomId));
+
+  /// Toggle a room's device-local pin / archive (issue #64). [prefs] stays the
+  /// single persistence owner; this wrapper adds the SESSION notification both
+  /// shells rebuild on (the sidebar/rooms list reads the room-list projection
+  /// off the session, not off prefs directly), mirroring how [setAlias] routes
+  /// a prefs write through the session so the tree re-renders in place.
+  void togglePinned(String roomId) {
+    prefs.togglePinned(roomId);
+    notifyListeners();
+  }
+
+  void toggleArchived(String roomId) {
+    prefs.toggleArchived(roomId);
+    notifyListeners();
+  }
 
   /// The current open room's store, or null (no room selected).
   RoomStore? get room => _room;
@@ -602,6 +651,7 @@ class DaemonSession extends ChangeNotifier {
       final rooms = await client.roomList();
       if (_disposed || epoch != _bootstrapEpoch) return;
       _rooms = rooms;
+      _seedUnread();
       if (rooms.isEmpty) {
         _phase = BootstrapPhase.noRooms;
         notifyListeners();
@@ -772,6 +822,20 @@ class DaemonSession extends ChangeNotifier {
     prefs.lastRoomId = roomId;
     notifyListeners();
     await store.open();
+    // Viewing a room clears its unread: advance the last-seen mark to the
+    // newest event now loaded (docs/room-attention.md, decision 3;
+    // markRoomSeen never moves the mark backward). Guarded on the store still
+    // being current — if the user switched away before it loaded, they did not
+    // view it, so it correctly stays unread (mirrors the reference roomIdRef
+    // guard and the store's own dispose seam).
+    if (_disposed || _room != store) return;
+    final newestTs = store.timeline.fold<int>(0, (m, e) => e.ts > m ? e.ts : m);
+    if (newestTs > 0) {
+      prefs.markRoomSeen(roomId, newestTs);
+      // Re-notify so the room list clears the just-opened room's unread dot in
+      // place (the mark advanced after the pre-open notifyListeners above).
+      notifyListeners();
+    }
   }
 
   /// Sidebar/fleet room clicks: departed rooms (left/removed) are never
@@ -814,8 +878,22 @@ class DaemonSession extends ChangeNotifier {
       final rooms = await client.roomList();
       if (_disposed) return;
       _rooms = rooms;
+      _seedUnread();
       notifyListeners();
     } catch (_) {/* transient */}
+  }
+
+  /// Establish the device-local unread baseline the first time each listed
+  /// room appears (docs/room-attention.md, decision 3): a backlog synced
+  /// before this device ever saw the room must not read as unread.
+  /// [PrefsStore.seedRoomSeen] writes only when no mark exists, so a returning
+  /// user's advanced marks — the whole basis of an honest unread dot — are
+  /// untouched. Called after every `_rooms = …` assignment.
+  void _seedUnread() {
+    for (final room in _rooms) {
+      final ts = room.lastEventTs;
+      if (ts != null) prefs.seedRoomSeen(room.roomId, ts);
+    }
   }
 
   /// `daemon.status` — errors swallowed.
@@ -838,6 +916,10 @@ class DaemonSession extends ChangeNotifier {
     // from room.open when next selected.
     if (store != null && store.roomId == push.roomId) {
       store.handleRoomEvent(push.event);
+      // You are viewing this room, so an event arriving here is seen, not
+      // unread — advance the mark as it arrives (docs/room-attention.md,
+      // decision 3). markRoomSeen never moves the mark backward.
+      prefs.markRoomSeen(push.roomId, push.event.ts);
     }
   }
 
