@@ -8,6 +8,14 @@
 /// pending status lines (Sending... / Sent locally, syncing... / Couldn't
 /// send + Retry).
 ///
+/// Reconnect anchoring (#68): a reconnect re-opens the room into a fresh store,
+/// so the timeline collapses to empty and refills with the resynced backlog. A
+/// reader at the bottom stays pinned to the newest event; a reader in history
+/// keeps their exact position (numeric offset for the wholesale reload; a
+/// captured getOffsetToReveal anchor for a live splice above the viewport, as
+/// Flutter has no native scroll anchoring), and the pill counts only genuinely
+/// new events past a reload baseline — never the whole reloaded backlog.
+///
 /// Data comes from `SessionScope.of(context).room`; the shell keys this
 /// widget by roomId and wraps it in a ListenableBuilder on the RoomStore, so
 /// scroll/live-region state resets on room switch and rebuilds ride the
@@ -17,6 +25,7 @@ library;
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show RenderAbstractViewport;
 import 'package:jeliya_protocol/jeliya_protocol.dart'
     show
         FetchState,
@@ -151,11 +160,57 @@ class TimelineView extends StatefulWidget {
 
 class _TimelineViewState extends State<TimelineView> {
   final ScrollController _controller = ScrollController();
+
+  /// True while the reader is within [_stickThresholdPx] of the bottom — new
+  /// content then jumps into view; scrolled up, it feeds the pill instead.
   bool _stick = true;
-  int _lastCount = 0;
-  String? _lastTailId;
+
+  /// Item count and tail identity from the last processed build, so the next
+  /// change is classified as an append (new tail) vs a splice above the
+  /// viewport (out-of-order / backlog insert).
+  int _prevCount = 0;
+  String? _prevTailId;
+  bool _pendingAppended = false;
+  int _pendingGrew = 0;
+
+  /// The reader's last deliberate scroll offset (from [_onScroll]); the anchor
+  /// restored after a wholesale reload collapses and refills the list.
+  double _lastOffset = 0;
+
   int _newItemCount = 0;
   double _viewportDim = 0;
+
+  // -- reload / anchor bookkeeping ----------------------------------------------
+  //
+  // A reconnect re-opens the room into a fresh RoomStore, so the timeline
+  // collapses to empty (skeleton) and then refills with the resynced backlog.
+  // Across that churn the reader's position and an honest "new" count must
+  // survive — the fix for the position shifting under a reader (#68).
+
+  /// Set when a reader-in-history reload is in flight: restore [_restoreOffset]
+  /// once the backlog lands (not before — the empty frames would restore to 0).
+  bool _restorePending = false;
+  double _restoreOffset = 0;
+
+  /// Seen-item baseline captured when the timeline empties, so the refilled
+  /// backlog announces only genuinely-new events, never the whole reload.
+  int? _reloadBaseline;
+
+  /// Stable per-row [GlobalKey]s so the reader's anchor row can be located and
+  /// measured (getOffsetToReveal) before and after a splice inserts events
+  /// above it — Flutter has no native scroll anchoring, so we recreate it.
+  final Map<String, GlobalKey> _rowKeys = {};
+
+  /// The reader's anchor across a splice: the stable id of the row nearest the
+  /// viewport top and its signed offset from that top, captured pre-layout.
+  String? _anchorId;
+  double _anchorDelta = 0;
+
+  /// The current store, captured each build so the post-frame reconcile can
+  /// read [RoomStore.loading] without another context lookup.
+  RoomStore? _store;
+
+  bool _reconcileScheduled = false;
 
   @override
   void initState() {
@@ -171,21 +226,102 @@ class _TimelineViewState extends State<TimelineView> {
 
   void _onScroll() {
     if (!_controller.hasClients) return;
+    // Ignore the churn while a reload empties then refills the list: the
+    // transient 0-extent frames must not flip stick or corrupt the anchor.
+    if (_restorePending) return;
     final pos = _controller.position;
+    _lastOffset = pos.pixels;
     _stick = pos.maxScrollExtent - pos.pixels < _stickThresholdPx;
     // Scrolling back within the threshold clears the pill.
     if (_stick && _newItemCount != 0) setState(() => _newItemCount = 0);
   }
 
-  /// On item-count change: stick → jump to bottom and reset the counter;
-  /// scrolled up → accumulate the delta into the pill.
-  void _afterItemsChanged(int delta) {
-    if (!mounted) return;
+  /// Post-frame scroll reconciliation after the item set changed. Ported from
+  /// Timeline.tsx's `syncScroll` + items effect: restore the reader's anchor
+  /// across a reconnect reload, stick to the bottom, grow the pill on appends,
+  /// or absorb a splice above the viewport so the first visible event holds its
+  /// pixel offset. Reads the intent captured in build ([_restorePending],
+  /// [_reloadBaseline], [_pendingAppended]/[_pendingGrew]) and the pre-layout
+  /// anchor ([_captureAnchor]).
+  void _applyScroll() {
+    if (!mounted || !_controller.hasClients) return;
+    final loading = _store?.loading ?? false;
+
+    if (_restorePending) {
+      // Wait for the resynced backlog: restoring against the empty/skeleton
+      // frames would land at the top and drop the reader's anchor.
+      if (loading || _prevCount == 0) return;
+      final max = math.max(0.0, _controller.position.maxScrollExtent);
+      _controller.jumpTo(math.min(_restoreOffset, max));
+      _lastOffset = _controller.position.pixels;
+      // Everything past what the reader had actually seen is "new" — announcing
+      // the whole reloaded backlog would be a lie.
+      final seen = _reloadBaseline ?? 0;
+      final next = math.max(0, _prevCount - seen);
+      _restorePending = false;
+      _reloadBaseline = null;
+      if (next != _newItemCount) setState(() => _newItemCount = next);
+      return;
+    }
+
     if (_stick) {
+      _reloadBaseline = null;
       _jumpToBottom(3);
       if (_newItemCount != 0) setState(() => _newItemCount = 0);
-    } else if (delta > 0) {
-      setState(() => _newItemCount += delta);
+      return;
+    }
+
+    // Reading history, a live change with no reload in flight.
+    _reloadBaseline = null;
+    if (_pendingAppended) {
+      // New tail content the reader has not seen — count it, do not move.
+      if (_pendingGrew > 0) setState(() => _newItemCount += _pendingGrew);
+    } else {
+      // A splice above the viewport (out-of-order / backlog insert): re-pin the
+      // anchor captured pre-layout so the first visible event holds its pixel
+      // offset. Nothing counts as new-at-bottom.
+      _restoreAnchor();
+    }
+  }
+
+  /// Record the reader's anchor: the built row nearest the viewport top and its
+  /// signed offset from that top. Reads the CURRENT (pre-layout) geometry, so a
+  /// splice landing this frame can be undone in [_restoreAnchor] post-layout.
+  void _captureAnchor() {
+    _anchorId = null;
+    if (!_controller.hasClients) return;
+    final pixels = _controller.position.pixels;
+    var best = double.infinity;
+    for (final entry in _rowKeys.entries) {
+      final renderObject = entry.value.currentContext?.findRenderObject();
+      if (renderObject == null || !renderObject.attached) continue;
+      final reveal =
+          RenderAbstractViewport.of(renderObject).getOffsetToReveal(renderObject, 0).offset;
+      final delta = reveal - pixels;
+      if (delta.abs() < best) {
+        best = delta.abs();
+        _anchorId = entry.key;
+        _anchorDelta = delta;
+      }
+    }
+  }
+
+  /// Restore the [_captureAnchor] anchor: jump so that row sits [_anchorDelta]
+  /// below the viewport top again, absorbing whatever height a splice inserted
+  /// above it.
+  void _restoreAnchor() {
+    final id = _anchorId;
+    if (id == null || !_controller.hasClients) return;
+    final renderObject = _rowKeys[id]?.currentContext?.findRenderObject();
+    if (renderObject == null || !renderObject.attached) return;
+    final reveal =
+        RenderAbstractViewport.of(renderObject).getOffsetToReveal(renderObject, 0).offset;
+    final target = (reveal - _anchorDelta)
+        .clamp(0.0, _controller.position.maxScrollExtent)
+        .toDouble();
+    if ((target - _controller.position.pixels).abs() > 0.5) {
+      _controller.jumpTo(target);
+      _lastOffset = _controller.position.pixels;
     }
   }
 
@@ -255,26 +391,53 @@ class _TimelineViewState extends State<TimelineView> {
       });
     final items = [for (final i in indexed) merged[i]];
 
-    if (items.length != _lastCount) {
-      final delta = items.length - _lastCount;
-      // A late-backlog SPLICE (reconnected peer's older events insert above)
-      // leaves the tail item unchanged — it must not inflate the 'new
-      // messages' pill, which promises new content at the BOTTOM. Known
-      // deviation from the web: the browser's native scroll anchoring also
-      // preserves the reading position across such splices; Flutter has no
-      // equivalent without a custom RenderSliver, so a splice above the
-      // viewport still shifts the scroll position here.
-      final tailId = items.isEmpty
-          ? null
-          : (items.last.event?.eventId ?? items.last.pendingMsg!.clientId);
-      final appended = tailId != _lastTailId;
-      _lastCount = items.length;
-      _lastTailId = tailId;
-      WidgetsBinding.instance
-          .addPostFrameCallback((_) => _afterItemsChanged(appended ? delta : 0));
+    _store = store;
+
+    // While reading history, snapshot the reader's anchor from the CURRENT
+    // (pre-layout) frame, so a splice this build can restore it post-layout.
+    if (!_restorePending && !_stick) _captureAnchor();
+
+    final count = items.length;
+    final tailId = items.isEmpty
+        ? null
+        : (items.last.event?.eventId ?? items.last.pendingMsg!.clientId);
+
+    if (count != _prevCount) {
+      final previous = _prevCount;
+      // A splice above the viewport (out-of-order / backlog insert) leaves the
+      // tail unchanged; only a new tail is an append that feeds the pill.
+      _pendingAppended = tailId != _prevTailId;
+      _pendingGrew = count - previous;
+      _prevCount = count;
+      _prevTailId = tailId;
+
+      // A wholesale reload (reconnect re-open into a fresh store) empties the
+      // timeline before it refills. The instant it empties, remember how much
+      // the reader had truly seen and — if they were reading history — the spot
+      // to restore, so neither the pill nor the position lies on refill.
+      if (count == 0 && previous > 0) {
+        _reloadBaseline = previous - _newItemCount;
+        if (!_stick) {
+          _restorePending = true;
+          _restoreOffset = _lastOffset;
+        }
+      }
+
+      if (!_reconcileScheduled) {
+        _reconcileScheduled = true;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _reconcileScheduled = false;
+          _applyScroll();
+        });
+      }
     }
 
     final rows = _buildRows(fmt, items, selfId);
+    // Each row carries a stable GlobalKey (below) so [_captureAnchor] can locate
+    // and measure the reader's anchor row; prune keys for rows that left so the
+    // map tracks only what is currently on screen.
+    final rowIds = {for (final row in rows) _rowKey(row)};
+    _rowKeys.removeWhere((id, _) => !rowIds.contains(id));
 
     Widget scroller;
     if (!loading && items.isEmpty) {
@@ -306,7 +469,9 @@ class _TimelineViewState extends State<TimelineView> {
               itemBuilder: (context, index) {
                 if (loading && index == 0) return const _SkeletonRows();
                 final row = rows[index - extra];
+                final id = _rowKey(row);
                 return Padding(
+                  key: _rowKeys.putIfAbsent(id, GlobalKey.new),
                   padding: EdgeInsets.only(top: row.topSpacing),
                   child: _buildRow(context, row, store, selfId, rowCap),
                 );
@@ -342,6 +507,15 @@ class _TimelineViewState extends State<TimelineView> {
         ],
       ),
     );
+  }
+
+  /// A stable identity for a render row: a divider keys on its (unique-per-day)
+  /// label, an item on its signed `event_id` or optimistic `clientId`. Feeds the
+  /// ListView row keys + [ListView.builder]'s `findChildIndexCallback`.
+  String _rowKey(_Row row) {
+    final item = row.item;
+    if (item == null) return 'div:${row.dividerLabel}';
+    return 'it:${item.event?.eventId ?? item.pendingMsg!.clientId}';
   }
 
   List<_Row> _buildRows(JeliyaFormats fmt, List<_Item> items, String? selfId) {

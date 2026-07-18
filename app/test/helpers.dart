@@ -324,6 +324,97 @@ class FlakySendClient extends DelegatingClient {
   }
 }
 
+/// Drives disconnect→reconnect by hand and lets a test grow the `room.open`
+/// backlog (the reconnect re-sync) or push a single event (a live splice), so
+/// the timeline scroll-anchor behaviour (#68) can be exercised deterministically.
+///
+/// Everything in [backlog] is appended to every `room.open` for
+/// [MockClient.mainRoomId], so setting it BEFORE boot seeds a tall history and
+/// growing it before [reconnect] models newly-synced events. A [reconnect] drops
+/// then restores the connection, which re-runs the session bootstrap (the real
+/// reconnect re-sync path — pushes are lossy) and re-opens the current room into
+/// a fresh store, collapsing then refilling its timeline.
+class ReplayClient extends DelegatingClient {
+  ReplayClient(super.inner) {
+    inner.states.listen(_emitState);
+    inner.pushes.listen(_pushes.add);
+  }
+
+  final StreamController<ConnectionState> _states =
+      StreamController<ConnectionState>.broadcast();
+  final StreamController<Push> _pushes = StreamController<Push>.broadcast();
+  ConnectionState _state = ConnectionState.disconnected;
+
+  /// Events appended to every mainRoom `room.open` timeline (the resynced
+  /// backlog); mutate before [reconnect] to model events arriving in the gap.
+  final List<TimelineEvent> backlog = [];
+
+  @override
+  ConnectionState get state => _state;
+
+  @override
+  Stream<ConnectionState> get states => _states.stream;
+
+  @override
+  Stream<Push> get pushes => _pushes.stream;
+
+  void _emitState(ConnectionState next) {
+    _state = next;
+    _states.add(next);
+  }
+
+  /// One reconnect cycle: drop then restore the connection. The session re-runs
+  /// bootstrap on the transition back to connected and re-opens the room.
+  void reconnect() {
+    _emitState(ConnectionState.disconnected);
+    _emitState(ConnectionState.connected);
+  }
+
+  /// Deliver a live `room.event` push (an out-of-order or tail splice).
+  void pushEvent(TimelineEvent event) => _pushes.add(
+      Push('room.event', {'room_id': event.roomId, 'event': event.toJson()}));
+
+  @override
+  Future<dynamic> call(String method, [Map<String, dynamic>? params]) async {
+    final result = await inner.call(method, params);
+    if (method == 'room.open' &&
+        backlog.isNotEmpty &&
+        params?['room_id'] == MockClient.mainRoomId &&
+        result is Map) {
+      final map = Map<String, dynamic>.from(result);
+      final timeline = List<dynamic>.from(map['timeline'] as List);
+      timeline.addAll(backlog.map((e) => e.toJson()));
+      map['timeline'] = timeline;
+      return map;
+    }
+    return result;
+  }
+}
+
+/// A minimal `message` event for injecting history/backlog/splices. [eventId]
+/// defaults to a stable id derived from [ts]+[body], so replaying the same
+/// event id exercises the fold's dedup (no duplicate row).
+TimelineEvent syntheticMessage({
+  required int ts,
+  required String body,
+  String? roomId,
+  MockPerson? from,
+  String? eventId,
+}) {
+  final person = from ?? MockPeople.maya;
+  return TimelineEvent(
+    eventId: eventId ?? 'test-$ts-$body',
+    roomId: roomId ?? MockClient.mainRoomId,
+    ts: ts,
+    sender: Sender(
+        identityId: person.identityId,
+        deviceId: person.deviceId,
+        role: person.role),
+    kind: TimelineKinds.message,
+    body: body,
+  );
+}
+
 /// Masks the identity off the FIRST `daemon.status` so the identity
 /// onboarding step renders against a daemon that already has one — the race
 /// where `identity.create` fails with `identity_exists` and the client must
