@@ -281,6 +281,79 @@ impl RoomSupervisor {
         .map_err(|e| internal("could not open the event store", e))
     }
 
+    /// Confine `file.fetch`'s destination to the downloads tree and resolve it.
+    ///
+    /// `assert_shareable_path` confines the read direction; this confines the
+    /// write direction, which was previously unconfined. `file.fetch` writes
+    /// attacker-influenced bytes — any blob a room peer shared — under a
+    /// mostly attacker-influenced name, so an arbitrary destination is an
+    /// arbitrary-file-write primitive: `~/.config/autostart/x.desktop` or
+    /// `~/Library/LaunchAgents/` turn it into local code execution as the user,
+    /// in the one process that holds the identity keys. Confining to the
+    /// downloads tree also keeps a caller from writing beside the identity and
+    /// secret files at the data-dir root.
+    ///
+    /// The destination need not exist yet, so the deepest existing ancestor is
+    /// canonicalized: a symlink planted inside the tree must not redirect the
+    /// write outside it.
+    fn resolve_fetch_dir(&self, save_dir: Option<&str>) -> CoreResult<PathBuf> {
+        let root = std::fs::canonicalize(&self.data_dir)
+            .map_err(|e| internal("could not resolve the data dir", e))?
+            .join(DOWNLOADS_DIR);
+
+        let refuse = |candidate: &Path| {
+            Err(CoreError::invalid(format!(
+                "file.fetch is confined to the downloads dir; refusing to write {}",
+                candidate.display()
+            ))
+            .with_hint("omit save_dir, or pass a path inside <data-dir>/downloads"))
+        };
+
+        // The default destination is validated too: `<data-dir>/downloads` can
+        // itself be a symlink out of the data dir, and skipping the checks
+        // below for the omitted case would leave the path the UI actually uses
+        // outside the confinement.
+        let candidate = match save_dir.map(str::trim).filter(|s| !s.is_empty()) {
+            None => root.clone(),
+            Some(raw) => {
+                let requested = PathBuf::from(raw);
+                if requested.is_absolute() {
+                    requested
+                } else {
+                    root.join(requested)
+                }
+            }
+        };
+        // Reject traversal before touching the filesystem: `..` can escape the
+        // prefix check below even when every component resolves.
+        if candidate
+            .components()
+            .any(|c| matches!(c, std::path::Component::ParentDir))
+        {
+            return refuse(&candidate);
+        }
+
+        // Canonicalize the deepest existing ancestor, then re-attach the part
+        // that does not exist yet.
+        let mut existing = candidate.as_path();
+        while !existing.exists() {
+            match existing.parent() {
+                Some(parent) => existing = parent,
+                None => return refuse(&candidate),
+            }
+        }
+        let resolved = std::fs::canonicalize(existing)
+            .map_err(|e| internal("could not resolve the save directory", e))?;
+        let remainder = candidate
+            .strip_prefix(existing)
+            .unwrap_or_else(|_| Path::new(""));
+        let target = resolved.join(remainder);
+        if target != root && !target.starts_with(&root) {
+            return refuse(&candidate);
+        }
+        Ok(target)
+    }
+
     /// Confine `file.share` to files inside the daemon's data dir, excluding the
     /// daemon's own blob store and secret/state files.
     ///
@@ -1900,6 +1973,11 @@ impl RoomSupervisor {
             }
         }
 
+        // Resolve the destination before any network work. A bad `save_dir`
+        // must not cost peer connections and a full transfer first, and must
+        // not surface as `file_unavailable` when every provider is offline.
+        let dir = self.resolve_fetch_dir(save_dir)?;
+
         let provider_devices: Vec<DeviceKey> = match &shared.providers {
             Some(list) if !list.is_empty() => list.clone(),
             _ => vec![author_device],
@@ -1976,9 +2054,8 @@ impl RoomSupervisor {
             ));
         };
 
-        // Save atomically under save_dir (default <data-dir>/downloads),
-        // never overwriting an existing file.
-        let dir = save_dir.map_or_else(|| self.data_dir.join(DOWNLOADS_DIR), PathBuf::from);
+        // Save atomically under the destination resolved before the fetch
+        // (default <data-dir>/downloads), never overwriting an existing file.
         std::fs::create_dir_all(&dir)
             .map_err(|e| internal("could not create the save directory", e))?;
         let mut target = dir.join(sanitize_name(&shared.name, file_id));
@@ -4575,6 +4652,145 @@ mod tests {
         // The room must still be open (since #84 no share cycles the node, and a
         // refused share returns before importing anything either way).
         assert!(sup.open_rooms().contains(&room_id));
+        sup.close_room(&room_id).await.unwrap();
+    }
+
+    #[test]
+    fn fetch_dir_confined_to_the_downloads_tree() {
+        // Issue #122: file.fetch's destination was an arbitrary-file-write
+        // primitive. Confinement is asserted here rather than through
+        // fetch_file, which needs a live provider before it reaches the sink.
+        let dir = tempdir().unwrap();
+        crate::identity::create(dir.path()).unwrap();
+        let sup = RoomSupervisor::new(dir.path().to_path_buf(), true).unwrap();
+        let root = std::fs::canonicalize(dir.path())
+            .unwrap()
+            .join(super::DOWNLOADS_DIR);
+
+        // Omitted and empty both fall back to the documented default.
+        assert_eq!(sup.resolve_fetch_dir(None).unwrap(), root);
+        assert_eq!(sup.resolve_fetch_dir(Some("  ")).unwrap(), root);
+
+        // A relative path resolves under the downloads tree, not the cwd.
+        assert_eq!(
+            sup.resolve_fetch_dir(Some("nested")).unwrap(),
+            root.join("nested")
+        );
+
+        // The destination need not exist yet.
+        let deep = root.join("a").join("b");
+        assert_eq!(
+            sup.resolve_fetch_dir(Some(deep.to_str().unwrap())).unwrap(),
+            deep
+        );
+
+        // The code-execution primitive: an absolute path outside the tree.
+        let outside = tempdir().unwrap();
+        let autostart = outside.path().join(".config/autostart");
+        let err = sup
+            .resolve_fetch_dir(Some(autostart.to_str().unwrap()))
+            .unwrap_err();
+        assert_eq!(err.kind, ErrorKind::InvalidParams);
+
+        // Traversal out of the tree is refused before the filesystem is touched.
+        for escape in ["../..", "nested/../../..", "/tmp/../etc"] {
+            let err = sup.resolve_fetch_dir(Some(escape)).unwrap_err();
+            assert_eq!(err.kind, ErrorKind::InvalidParams, "escape: {escape}");
+        }
+
+        // The data-dir root itself is refused, so a caller cannot land a file
+        // beside the identity and secret files.
+        let err = sup
+            .resolve_fetch_dir(Some(dir.path().to_str().unwrap()))
+            .unwrap_err();
+        assert_eq!(err.kind, ErrorKind::InvalidParams);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn fetch_dir_refuses_a_symlink_out_of_the_downloads_tree() {
+        // A symlink planted inside the tree must not redirect the write out of
+        // it: the deepest existing ancestor is canonicalized before the check.
+        let dir = tempdir().unwrap();
+        crate::identity::create(dir.path()).unwrap();
+        let sup = RoomSupervisor::new(dir.path().to_path_buf(), true).unwrap();
+        let root = std::fs::canonicalize(dir.path())
+            .unwrap()
+            .join(super::DOWNLOADS_DIR);
+        std::fs::create_dir_all(&root).unwrap();
+
+        let outside = tempdir().unwrap();
+        let escape = root.join("escape");
+        std::os::unix::fs::symlink(outside.path(), &escape).unwrap();
+
+        let err = sup
+            .resolve_fetch_dir(Some(escape.to_str().unwrap()))
+            .unwrap_err();
+        assert_eq!(err.kind, ErrorKind::InvalidParams);
+
+        // And through the symlink into a subdirectory that does not exist yet.
+        let err = sup
+            .resolve_fetch_dir(Some(escape.join("deep").to_str().unwrap()))
+            .unwrap_err();
+        assert_eq!(err.kind, ErrorKind::InvalidParams);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn fetch_dir_refuses_a_symlinked_default_downloads_dir() {
+        // Review finding on #125: the omitted-save_dir fallback originally
+        // returned the default without validating it, so a `downloads`
+        // symlink pointing out of the data dir escaped the confinement on the
+        // exact path the UI uses. The default must go through the same checks.
+        let dir = tempdir().unwrap();
+        crate::identity::create(dir.path()).unwrap();
+        let sup = RoomSupervisor::new(dir.path().to_path_buf(), true).unwrap();
+
+        let outside = tempdir().unwrap();
+        let downloads = std::fs::canonicalize(dir.path())
+            .unwrap()
+            .join(super::DOWNLOADS_DIR);
+        std::os::unix::fs::symlink(outside.path(), &downloads).unwrap();
+
+        for arg in [None, Some("  ")] {
+            let err = sup.resolve_fetch_dir(arg).unwrap_err();
+            assert_eq!(err.kind, ErrorKind::InvalidParams, "arg: {arg:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn fetch_rejects_a_bad_save_dir_before_contacting_providers() {
+        // Review finding on #125: an invalid save_dir was only caught after the
+        // provider loop had run, so a bad request cost peer connections and a
+        // full transfer, and surfaced as file_unavailable when every provider
+        // was offline. The parameter error must win, and must come first.
+        let dir = tempdir().unwrap();
+        crate::identity::create(dir.path()).unwrap();
+        let sup = RoomSupervisor::new(dir.path().to_path_buf(), true).unwrap();
+        let room_id = sup.create_room("Files").unwrap();
+        sup.open_room(&room_id, &[]).await.unwrap();
+
+        let payload = dir.path().join("payload.txt");
+        std::fs::write(&payload, b"payload").unwrap();
+        let shared = sup
+            .share_file(&room_id, payload.to_str().unwrap(), None, None)
+            .await
+            .unwrap();
+        let file_id = shared["file_id"].as_str().unwrap().to_string();
+
+        // No other peer is online, so an unvalidated destination would return
+        // FileUnavailable from the provider loop instead of the real error.
+        let outside = tempdir().unwrap();
+        let err = sup
+            .fetch_file(
+                &room_id.to_string(),
+                &file_id,
+                Some(outside.path().to_str().unwrap()),
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(err.kind, ErrorKind::InvalidParams);
+
         sup.close_room(&room_id).await.unwrap();
     }
 }
