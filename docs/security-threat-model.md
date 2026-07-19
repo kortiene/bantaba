@@ -3,7 +3,7 @@ type: "Architecture"
 title: "Security and threat model"
 description: "Trust boundaries, assets, threats, controls, and residual risks for the v0.6.0 Jeliya candidate."
 tags: ["authorization", "privacy", "security", "threat-model"]
-timestamp: "2026-07-16T21:00:00Z"
+timestamp: "2026-07-19T15:15:00Z"
 status: "canonical"
 implementation_status: "partial"
 verification_status: "partial"
@@ -16,12 +16,12 @@ audience: ["contributors", "maintainers", "operators", "security-reviewers"]
 Jeliya is a local daemon or in-process mobile engine that stores identity keys,
 room state, files, and agent events while communicating with untrusted network
 peers. The `v0.6.0` target is a trustworthy technical preview, not a claim of
-complete security. The hardening implementation and functional verification
-are complete and certified: the public dependency pin now carries the
-room-scoped synchronization remediation and relay-only verification seam, and
-additionally gates the join bootstrap on an invite capability proof; the
-network-tested source is published, and the retained direct and forced-relay
-network evidence is signed and certifiable at this pin.
+complete security. The current dependency pin carries the room-scoped
+synchronization remediation, provisional-peer gate, store retry/degradation
+controls, and relay-only verification seam. Exact-revision local qualification
+passes. Signed direct and forced-relay evidence still binds the prior dependency
+pin and must be repeated before the current source candidate is network-
+qualified.
 
 ## Candidate boundary
 
@@ -29,20 +29,20 @@ Security conclusions must name the source being evaluated:
 
 | Surface | Revision | Security meaning |
 |---|---|---|
-| Public Jeliya dependency | Iroh Rooms `71fbb5007bef4ce83631c94762ec68c2beef3d79` (iroh-room tag `v0.1.0-rc.3`) | keeps the room-scoped event-lookup isolation remediation and relay-only seam certified for `v0.5.0`; adds the join-after-conversation fix, the join-bootstrap capability gate (`room.join` presents a `BootstrapProof`), bounded membership sync, and gap healing; qualified for `v0.6.0` |
-| Network-qualified Jeliya commit | Jeliya `55024a46b3e112796ba2acf1dc408dab26dbba2e` | implements local RPC, durable provenance, secret, CI, evidence, and release controls; certifying schema 2 direct checks pass against public pin `71fbb500…` |
-| Forced-relay verification | Jeliya `55024a4…` plus public Iroh Rooms `71fbb500…` | certifying PASS; the relay-only build self-attests and forced-relay paths hold on roles A/B/C |
+| Current public Jeliya dependency | Iroh Rooms `a5d98b70d717f35d3ce60953a88e12e646f2e871` (untagged upstream `main`) | first merge carrying the fixes for `kortiene/iroh-room#121` and `kortiene/iroh-room#119` plus the `kortiene/iroh-room#126` connection-generation follow-ups; local fanout, isolation, and store-degradation qualification passes |
+| Current source candidate | Jeliya `42614709c03277acdb001b1a855952c6d5427625` | exact dependency pin in `Cargo.toml` and `Cargo.lock`; workspace and 67-assertion loopback suites pass; network qualification pending |
+| Last network-qualified snapshot | Jeliya `55024a46b3e112796ba2acf1dc408dab26dbba2e` plus Iroh Rooms `71fbb5007bef4ce83631c94762ec68c2beef3d79` | signed direct and forced-relay schema 2 evidence remains valid for this exact prior pair only |
 | Superseded `v0.5.0` dependency | Iroh Rooms `d0ceb0b320f1ff3a576b63d8b24aa1bf76a2d3bb` | carried the isolation remediation and relay-only seam; certified for the published `v0.5.0` at Jeliya `c5f740e67d043a1153cf285691e3bc5b2b9a7203`. Still fetchable by commit SHA, but no longer named by tag `v0.1.0-rc.2`, which was re-created upstream and now resolves elsewhere; the `v0.5.0` evidence binds the SHA, not the tag |
 | Historical local-remediation verification | Jeliya `fe870c7c5b63f2bf52b031dd1bc8e27e83183be5` plus local Iroh Rooms `3702e8cbcd5ac1808791124dd6bc44068be5f822` | schema 1 direct and forced-relay checks passed, but this older unpublished pair does not qualify a release |
 
-The certifying direct and forced-relay runs bind the published network-qualified
-commit `55024a4…` and the published, remediated public pin `71fbb500…`: they
+The retained certifying direct and forced-relay runs bind published Jeliya
+commit `55024a4…` and published Iroh Rooms pin `71fbb500…`: they
 establish direct and relay network operation and public-RPC non-disclosure. They
 do not establish room-scoped synchronization isolation — both manifests set
 `synchronization_isolation_claimed: false`; that control rests on the upstream
-suite at the pinned revision. Publication, immutable safe repinning, the direct
-and relay reruns, and the fresh signed evidence — all now complete at this pin —
-were security requirements, not release administration.
+suite at that revision. They do not transfer to `4261470…` + `a5d98b70…`.
+Fresh source-built direct and relay runs and signatures are security
+requirements, not release administration.
 
 ## Assets
 
@@ -76,19 +76,19 @@ implemented control.
 
 | Threat | Impact | Control | Evidence and remaining risk |
 |---|---|---|---|
-| Foreign-room data returned through a public RPC | cross-room confidentiality breach | one accepted-room preflight guard before any room-derived read or fold; `agents.fleet` and other aggregates enumerate/filter accepted rooms | local regressions pass; the certifying schema 2 direct and forced-relay runs deny all room-scoped RPCs, local-file access, and aggregate foreign-room/agent projections at `55024a4…` |
-| Foreign-room events served or admitted during synchronization | remote extraction or local-store contamination | room-scope `get`, `contains`, `WantEvents`, missing-parent traversal, and administrative tips; reject foreign envelopes and parents | the room-scoped remediation is published and pinned at `71fbb500...` (iroh-room tag v0.1.0-rc.3), carried forward from `d0ceb0b...`, and its rejection of foreign envelopes and parents passes the upstream suite at that revision. This control is **not** network-certified: both certifying manifests set `synchronization_isolation_claimed: false`, so the residual is that isolation is proven locally at the pin rather than over the public network |
-| Uninvited dialer pulls room history during an open join window | pre-join history disclosure | the rc.3 pin serves the join-bootstrap membership closure only after a verified invite capability proof (upstream issue #112); Jeliya's `room.join` presents the proof from the ticket | capability-gated join covered by the upstream join e2e suite and Jeliya's loopback join tests at the pin; residual: a still-connected unproven provisional dialer keeps receiving live event fan-out until it disconnects (upstream issue #121) — accept joins only while expecting them |
-| Store hole from a swallowed insert error | local store/fold divergence and unhealed history | the pinned upstream re-serves unplaced regions from peers; bounded backfill retries drive from recorded missing sets | upstream issue #119 remains open: a hole in a region no peer re-serves does not heal, and fold/store can disagree until restart; no Jeliya-side control beyond restart today |
+| Foreign-room data returned through a public RPC | cross-room confidentiality breach | one accepted-room preflight guard before any room-derived read or fold; `agents.fleet` and other aggregates enumerate/filter accepted rooms | local current-tree regressions pass; signed network denial evidence binds the prior `55024a4…` + `71fbb500…` snapshot and must be repeated at the current pin |
+| Foreign-room events served or admitted during synchronization | remote extraction or local-store contamination | room-scope `get`, `contains`, `WantEvents`, missing-parent traversal, and administrative tips; reject foreign envelopes and parents | exact-revision malicious `WantEvents`, foreign-parent, and administrative-tip oracles pass at `a5d98b70…`. This control is local upstream qualification, not a network-manifest claim |
+| Uninvited dialer pulls room history or live fanout during an open join window | pre-join history disclosure | serve the membership closure only after a verified invite capability proof; defer handshake/fanout until proof or membership promotion; generation-guard connection teardown | `uninvited_provisional_dialer_receives_no_live_fanout` and Jeliya's loopback join suite pass at the current pin; fresh direct/relay integration evidence pending |
+| Store hole from a swallowed insert error | local store/fold divergence and unhealed history | retain the accepted event, retry bounded inserts on ticks, defer feed/fanout until persistence, and record durable critical `store_degraded` on exhaustion or overflow | five deterministic recovery/degradation tests pass at `a5d98b70…`; real disk failure remains possible and requires an operator response |
 | Invite possession treated as accepted membership | pre-join data exposure | accepted-room index is authoritative; invite-only/never-joined rooms fail closed; joined-then-left archive behavior is explicit | negative never-joined cases and positive archive behavior pass locally |
 | Android identity copied through backup or device transfer | long-lived identity disclosure outside the device | `allowBackup=false`, explicit backup/data-extraction exclusions, `noBackupFilesDir`, fail-closed migration | repository validation passes; no Keystore protection and no claim against a rooted or compromised device |
 | Agent identity or state committed from a checkout | public secret disclosure and identity reuse | platform data directory outside the checkout, per-directory deny-all `.gitignore`, repository ignore rules, tracked-secret gate | six secret-storage tests plus repository validation pass locally |
 | Reachable vulnerable dependency | code execution, compromise, or denial of service | automated cargo/npm audits; high/critical findings block; explicit owned/expiring exception only when unavoidable | zero cargo/npm vulnerabilities; three maintenance warnings and one yanked version expire 2026-09-30 |
 | Compromised action or downloaded build tool | release supply-chain compromise | third-party Actions pinned to immutable revisions; Zig and Gradle distributions verified before execution; certifying network builds use the official complete Zig archive and exact tool bindings; least-privilege jobs | workflow and local contract tests pass; only the complete Zig archive is independently verified by schema 2, while other recorded tool digests are execution identities; the hosted double run executed for the published `v0.5.0` and executes again for `v0.6.0` on dispatch |
 | Partial, mismatched, or post-validation-modified release | incomplete, stale, mislabeled, or candidate-mutated binaries | validate and seal all five private archives in a no-execution job; smoke the immutable artifact separately; verify the receipt without execution before tag/release creation; expose the write token only to the final step | workflow and receipt negative tests pass locally, and the path executed end to end for the published `v0.5.0` five-archive set; it has not yet run for `v0.6.0` |
-| Installer extracts modified bytes | local code execution | fetch the matching published checksum, validate filename/format, verify SHA-256, then extract | Unix behavior passes; Windows behavioral and simulated-reparse gates are configured but have not executed on a hosted Windows runner |
-| Forged or edited verification record | false release confidence | retained exact manifest, canonical public key, detached Ed25519 signature, source/publication/ancestry checks | the certifying direct and forced-relay manifests are retained and signed with detached Ed25519 signatures that verify against the committed public SPKI; the release gate is READY |
-| Secrets copied into logs or evidence | credential or identity disclosure | transient logs confined to run-owned data directories, no address retention, and digest-only retained summaries | successful direct cleanup removed transient logs; the failed relay build made no remote mutation. Retained manifests keep only line/byte counts and stream SHA-256 digests and contain no tickets, tokens, seeds, private keys, excerpts, or IP addresses |
+| Installer extracts modified bytes | local code execution | fetch the matching published checksum, validate filename/format, verify SHA-256, then extract | Unix behavior passes; Windows checksum, tamper, and simulated-reparse behavior passed on public `main` run `29688515781` at `a24f223…`; current-candidate rerun pending |
+| Forged or edited verification record | false release confidence | retained exact manifest, canonical public key, detached Ed25519 signature, source/publication/ancestry checks | retained signatures verify for the prior snapshot; the current release gate is BLOCKED until replacement manifests bind the new revision pair |
+| Secrets copied into logs or evidence | credential or identity disclosure | transient logs confined to run-owned data directories, no address retention, and digest-only retained summaries | retained runs report completed cleanup. Manifests keep only line/byte counts and stream SHA-256 digests and contain no tickets, tokens, seeds, private keys, excerpts, or IP addresses |
 
 ## Authorization invariant
 
@@ -118,10 +118,10 @@ lookup must remain scoped to its room. Known event IDs, causal parents,
 administrative tips, and missing-event requests must never become cross-room
 read primitives.
 
-The local upstream remediation enforces that invariant and passes malicious
-`WantEvents`, foreign-parent, and administrative-tip tests. Because the public
-Jeliya lockfile does not yet resolve that code, upstream publication and Jeliya
-repinning are mandatory before release qualification.
+The pinned upstream revision enforces that invariant and passes malicious
+`WantEvents`, foreign-parent, and administrative-tip tests. The public Jeliya
+lockfile resolves that exact code. Fresh signed network evidence remains
+mandatory for current-candidate integration qualification.
 
 ## Secret-storage boundaries
 
@@ -151,11 +151,12 @@ task explicitly requires them.
 
 ## Network evidence boundary
 
-The current schema 2 three-peer direct run demonstrates direct connectivity
+The retained schema 2 three-peer direct run demonstrates direct connectivity
 across the observed operator/demo topology at Jeliya `55024a4…`. It also
 exercised messages, files, pipes, reconnect, and the public-RPC isolation
 boundary against the published, remediated public pin `71fbb500…`, which carries
-the room-scoped event-lookup isolation.
+the room-scoped event-lookup isolation. This is the last network-qualified
+snapshot, not the current `a5d98b70...` dependency candidate.
 
 Both certifying manifests set
 `functional_evidence.foreign_room_non_disclosure.synchronization_isolation_claimed`
@@ -166,10 +167,10 @@ filtering — and do **not** certify room-scoped synchronization isolation.
 the upstream test suite at the pinned revision, which is local qualification,
 not network evidence.
 
-The certifying forced-relay run passed. The relay-only source build compiles
+The retained certifying forced-relay run passed. Its relay-only source build compiles
 against the published seam, self-attests, and forces every role onto relay; its
-path assertions hold, so it exercises the relay workflow end to end for the
-current candidate.
+path assertions hold for the prior revision pair. A fresh current-pin run is
+required.
 
 Older schema 1 direct and relay runs passed with the unpublished local
 remediation and seam. They are historical functional evidence only and cannot

@@ -3,7 +3,7 @@ type: "Status Report"
 title: "Known gaps and roadmap"
 description: "Release blockers, deferred risks, owners, and next actions for the v0.5.0 evidence-backed technical preview."
 tags: ["gaps", "release", "risks", "roadmap"]
-timestamp: "2026-07-16T15:30:00Z"
+timestamp: "2026-07-19T15:15:00Z"
 status: "canonical"
 implementation_status: "partial"
 verification_status: "partial"
@@ -16,9 +16,9 @@ audience: ["contributors", "maintainers", "product", "release-engineers"]
 `v0.5.0` shipped on 2026-07-14: the release conditions the `NOW` phase tracked
 were met (published safe pin, signed certifying direct and relay evidence,
 hosted gates, complete verified artifact set). The table below records that
-closure and the gaps that carry forward to the post-release candidate on
-`main`, which repins `iroh-rooms` to `v0.1.0-rc.3` and must earn its own
-evidence.
+closure and the gaps that carry forward to the current post-release source
+candidate, which repins `iroh-rooms` to the untagged upstream revision
+`a5d98b70...` and must earn fresh signed network evidence at that exact pin.
 
 ## NOW — closure status
 
@@ -26,20 +26,20 @@ evidence.
 |---|---|---|---|---|
 | Public room-scoped authorization | centralized guard; 17 negative RPCs, local-file denial, and aggregate filtering passed locally and in both certifying network runs | preserve gates on the next candidate | core maintainer | closed for `v0.5.0` |
 | Accepted-room provenance | failure-injected create/join ordering, serialized concurrent updates, cached reads, owner-only Unix state, and durable replacement semantics pass; hosted Windows job passes on `main` | preserve on the next candidate | core maintainer | closed |
-| Upstream synchronization isolation | certified for `v0.5.0` at published pin `d0ceb0b…`; the rc.3 candidate keeps the fix, adds the join-bootstrap capability gate, and passes upstream store/engine isolation regressions plus the full Jeliya suites locally at `71fbb50…` | rerun signed network qualification at the rc.3 pin before the next release | upstream and core maintainer | certified for `v0.5.0`; rc.3 locally requalified |
+| Upstream synchronization, provisional-peer, and store integrity | certified baseline for `v0.5.0` at `d0ceb0b…`; current `a5d98b70…` pin passes targeted fanout, isolation, and store-degradation regressions plus 806 core/net tests and the full Jeliya suites locally | rerun signed direct and relay qualification at `a5d98b70…` before the next release | upstream and core maintainer | current pin locally requalified; network qualification pending |
 | Android and agent secrets | Android cloud/device-transfer exclusions, app-private no-backup identity storage, external agent data default, ignore and tracked-secret gates pass | keep controls; Keystore wrapping is defense-in-depth, not a current claim | mobile and agent maintainers | closed |
 | Dependency security | Cargo and npm report zero vulnerabilities; four unmaintained/yanked warnings have owner, mitigation, and expiry records | rerun against the next candidate's lockfiles | dependency owner | closed |
-| CI completeness | all required matrix jobs pass on hosted `main` runs; manual dispatch does not publish; Gradle is checksum-verified | hosted execution of the new `linux-flutter` job; keep two clean runs on the next final commit | CI maintainer | closed for the six pre-existing jobs |
+| CI completeness | all required matrix jobs, including `linux-flutter`, pass on public `main` run `29688515781` at `a24f223…`; manual dispatch does not publish; Gradle is checksum-verified | rerun all jobs twice on the next final commit | CI maintainer | prior-main pass; current candidate pending |
 | Agent/fleet reliability | agent E2E passes; fleet stability passed 5/5; Linux orphan/zombie cleanup verified on `demo1` under UID `65534` | repeat in the next candidate's hosted gates | agent maintainer | closed |
-| Linux Flutter source app | Ubuntu 24.04 ARM64 release package, X11/Xvfb lifecycle, bundled daemon smoke, dependency, archive, and checksum gates pass locally; a hosted x86_64 `linux-flutter` CI job is now defined | obtain hosted x86_64 and Wayland results; define a compatibility baseline and distribution format; bundle a complete Rust dependency license inventory; establish signing before publication | desktop maintainer | source-supported; unpublished |
-| Direct network behavior | signed certifying schema 2 run `3b86ac67` at `c5f740e…` + `d0ceb0b…` | rerun at the rc.3 candidate pin before the next release | verification owner | certified for `v0.5.0` |
-| Forced relay behavior | signed certifying schema 2 relay run `a3c76859` with a self-attested relay-only build at the same revision pair; the rc.3 candidate verifier builds and attests locally | rerun at the rc.3 candidate pin before the next release | verification owner | certified for `v0.5.0` |
+| Linux Flutter source app | Ubuntu 24.04 ARM64 local qualification and the hosted x86_64 `linux-flutter` job pass; the hosted result binds public `main` at `a24f223…` | rerun at the current candidate; obtain a Wayland result; define a compatibility baseline and distribution format; bundle a complete Rust dependency license inventory; establish signing before publication | desktop maintainer | source-supported; unpublished |
+| Direct network behavior | signed runs certify released `v0.5.0` and the prior `55024a4…` + `71fbb500…` snapshot | rerun at `4261470…` + `a5d98b70…` | verification owner | current candidate pending |
+| Forced relay behavior | signed runs certify released `v0.5.0` and the prior `55024a4…` + `71fbb500…` snapshot; the relay-only verifier still builds locally | rerun the source-built relay qualification at the current revision pair | verification owner | current candidate pending |
 | Evidence authenticity | detached Ed25519 signatures over both certifying manifests verify against the committed public SPKI; private-key custody is out of band | keep custody; sign the next candidate's runs | release authority | closed |
 | Unix installer integrity | behavioral checksum-before-extraction tests pass; `v0.5.0` installs via the version-pinned installer path | rerun against the next artifacts | release maintainer | closed |
 | Windows installer integrity | hosted `windows-latest` behavioral job passes on `main`; a `v0.5.0` Windows zip and sidecar are published | rerun against the next artifacts | release maintainer | closed |
 | Complete asset-set visibility | the publication workflow executed for `v0.5.0`: validation, sealing, isolated smoke, receipt verification, and draft-until-complete publication | re-execute for the next release under explicit authority | release authority | executed for `v0.5.0` |
 | Complete artifact set | `v0.5.0` published all five daemon-plus-embedded-UI archives with sidecars | build and verify the next candidate's set together | release maintainer | closed for `v0.5.0` |
-| Documentation alignment | status pages reconciled to the released `v0.5.0`, its certified evidence, and the rc.3 candidate boundary | re-reconcile at the next release cut | documentation owner | current for this snapshot |
+| Documentation alignment | status pages distinguish released `v0.5.0`, the prior signed `v0.6.0` snapshot, and the current untagged dependency candidate | bind fresh signed evidence after the network reruns | documentation owner | current for this snapshot |
 
 No reachable high or critical advisory is currently unresolved. The four
 maintenance/yank warnings are tracked with mitigation and an expiry of
@@ -64,12 +64,13 @@ maintenance/yank warnings are tracked with mitigation and an expiry of
   certified conformance;
 - member removal cannot recall data already copied by an authorized peer;
   revocation semantics require a separate protocol and product decision;
-- the pinned upstream `v0.1.0-rc.3` carries documented residuals: while a room
-  is accepting joins, an unproven provisionally-admitted dialer no longer
-  receives history but still receives live event fan-out until it disconnects
-  (upstream issue #121); a store hole left by a swallowed insert error heals
-  only from peers that re-serve the region (upstream issue #119); and mixed
-  pre/post-repin fleets cannot complete joins, so joiners and admins must
+- the current upstream pin is an immutable but untagged commit. It fixes the
+  provisional-peer fanout and store-hole residuals from `v0.1.0-rc.3`, but a
+  long-term tagged-release and maintenance path is still required;
+- exhausted store retries or queue overflow produce a durable critical
+  `store_degraded` decision. Operators still need a documented response to real
+  disk failure; and
+- mixed pre/post-repin fleets cannot complete joins, so joiners and admins must
   upgrade together.
 
 ## Exit criteria for the next release
@@ -78,8 +79,8 @@ maintenance/yank warnings are tracked with mitigation and an expiry of
 reaches a release-authority decision only when the same bar is met at the
 new candidate:
 
-1. the candidate's published pin (`v0.1.0-rc.3` at `71fbb50…`, or its
-   reviewed successor) is carried by the final public commit;
+1. the candidate's reviewed public pin (`a5d98b70…`, or a reviewed tagged
+   successor carrying the same fixes) is carried by the final public commit;
 2. signed direct and relay manifests bound to that commit and pin pass the
    release gate with `certifiable: true` (the `v0.5.0` evidence binds
    `c5f740e` + `d0ceb0b` and does not transfer);

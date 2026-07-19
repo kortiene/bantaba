@@ -3,7 +3,7 @@ type: "Reference"
 title: "Agent orchestration contract (v1)"
 description: "Normative contract for agent liveness, task claims, fleet reads, and UI projections."
 tags: ["agents", "fleet", "orchestration", "protocol"]
-timestamp: "2026-07-16T15:30:00Z"
+timestamp: "2026-07-19T15:15:00Z"
 status: "canonical"
 implementation_status: "implemented"
 verification_status: "partial"
@@ -17,8 +17,8 @@ The pinned contract across four implementation surfaces:
 
 - **Rust daemon** (`crates/jeliyad` + `crates/jeliya-core`) — implements the
   fleet read RPCs and the liveness derivation. `jeliya-core` remains the sole
-  consumer of `iroh_rooms` (SDK pinned at published tag `v0.1.0-rc.3`,
-  rev `71fbb50`).
+  consumer of `iroh_rooms` (SDK pinned at public, deliberately untagged
+  revision `a5d98b70...`).
 - **JS runner** (`scripts/jeliya-agent.mjs`, `scripts/jeliya-fleet.mjs`)
   — implements the status-vocabulary additions and the task-claim protocol.
   Node 22 (global `WebSocket`), zero npm deps.

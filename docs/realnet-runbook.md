@@ -3,7 +3,7 @@ type: "Runbook"
 title: "Real-network NAT runbook"
 description: "Operator procedure for collecting revision-bound direct and forced-relay evidence across three distinct public egress paths."
 tags: ["nat", "networking", "operations", "p2p"]
-timestamp: "2026-07-16T15:30:00Z"
+timestamp: "2026-07-19T15:15:00Z"
 status: "canonical"
 implementation_status: "implemented"
 verification_status: "partial"
@@ -20,10 +20,10 @@ a diagnostic and historical reference; it cannot qualify a release.
 
 ## Current evidence status
 
-The certifying `v0.6.0` runs bind the published network-qualified Jeliya
-commit `55024a46b3e112796ba2acf1dc408dab26dbba2e` and published Iroh Rooms
-pin `71fbb500…` (tag `v0.1.0-rc.3`); both are signed and set
-`certifiable: true`:
+The retained certifying `v0.6.0` runs bind published Jeliya commit
+`55024a46b3e112796ba2acf1dc408dab26dbba2e` and Iroh Rooms pin `71fbb500…`
+(tag `v0.1.0-rc.3`); both are signed and set `certifiable: true` for that exact
+prior snapshot:
 
 | Path | Run | Evidence status |
 |---|---|---|
@@ -32,12 +32,19 @@ pin `71fbb500…` (tag `v0.1.0-rc.3`); both are signed and set
 
 Neither run certifies room-scoped synchronization isolation: both manifests set
 `synchronization_isolation_claimed: false`, so `WantEvents`, foreign-parent, and
-administrative-tip traversal rest on the upstream suite at the pinned revision.
+administrative-tip traversal rest on the upstream suite at the recorded
+revision.
+
+The current source candidate is Jeliya `4261470...` with the deliberately
+untagged Iroh Rooms pin `a5d98b70...`. Its local exact-revision qualification
+passes, but the retained manifests do not transfer. Run both procedures below
+from the clean public candidate and replace/sign the manifests together before
+marking the current release evidence gate ready.
 
 The superseded `v0.5.0` runs (direct `3b86ac67`,
 [manifest](evidence/v0.5.0/direct.json); forced relay `a3c76859`,
 [manifest](evidence/v0.5.0/relay.json)) bind `c5f740e…` + `d0ceb0b…` and
-authorized that prerelease; they do not transfer to the rc.3 pin. The earlier
+authorized that prerelease; they do not transfer to another pin. The earlier
 unsigned preview run
 (`20260712T231015Z-3c938c66`,
 [manifest](evidence/v0.5.0/preview-direct-schema2.json)) at `0f6769a…` with
@@ -305,12 +312,12 @@ both manifests to name the same network-qualified Jeliya commit and public
 upstream revision. That commit must be an ancestor of the release checkout,
 and only documentation paths may change after network qualification.
 
-The currently retained manifests intentionally have no `.sig` files, and
-`release/evidence-ed25519-public.pem` is absent. The current direct record
-remains non-certifying because its Jeliya commit is unpublished and its public
-dependency pin is unsafe. The historical records remain non-certifying because
-they use older schema 1 and unpublished local source. Signing any of these
-existing records would not make them releaseable.
+The retained `v0.6.0` manifests have valid adjacent signatures verified against
+`release/evidence-ed25519-public.pem`; they remain certifying for
+`55024a4...` + `71fbb500...`. Do not relabel or edit them to match the current
+candidate. Replace each manifest only with fresh source-bound output, then sign
+the final exact bytes. Historical schema 1 and preview records remain
+non-certifying and cannot be promoted by adding signatures.
 
 ## Evidence and log hygiene
 
@@ -339,9 +346,10 @@ The run is incomplete until its manifest reports all of the following:
 The harness validates exact run ownership before signaling a process or
 removing a directory. If it cannot prove ownership, preserve the object and
 report the blocker; do not broaden a command or remove unrelated data. After
-the current direct run and the historical runs, independent read-only checks
-found no run directories or processes remaining on `demo1` or `demo2`. The
-current relay build failed before remote mutation.
+the retained 2026-07-16 direct and relay runs and the historical runs,
+independent read-only checks found no run directories or processes remaining on
+`demo1` or `demo2`. The earlier pre-certification preview relay build failed
+before remote mutation.
 
 ## Legacy Gate A diagnostic
 

@@ -80,8 +80,9 @@ achieved on that network pair); this run achieved neither caveat.
 This historical run matches neither the released `v0.5.0` nor the current
 candidate. `v0.5.0` satisfied Gate A's intent through its own certifying
 signed direct and forced-relay schema 2 runs at `c5f740e…` + `d0ceb0b…` (see
-[`verification-evidence.md`](verification-evidence.md)). The post-release
-candidate on `main` repins `iroh-rooms` to published `v0.1.0-rc.3`
-(`71fbb5007bef4ce83631c94762ec68c2beef3d79`) and needs its own direct and
-deliberately constrained relay runs at that exact commit and dependency
-revision before the next release.
+[`verification-evidence.md`](verification-evidence.md)). The prior
+post-release snapshot at Jeliya `55024a4…` + published Iroh Rooms `71fbb500…`
+has its own signed direct and forced-relay runs. The current source candidate
+repins to untagged `a5d98b70…`; those manifests do not transfer, so the current
+pair needs fresh direct and deliberately constrained relay runs before the next
+release.

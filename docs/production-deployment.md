@@ -3,7 +3,7 @@ type: "Architecture"
 title: "Production deployment architecture"
 description: "Repository-grounded assessment, target architecture, security boundaries, infrastructure plan, and phased gates for deploying Jeliya at app.jeliya.ai."
 tags: ["architecture", "deployment", "production", "security", "pwa", "iroh"]
-timestamp: "2026-07-18T20:29:18Z"
+timestamp: "2026-07-19T15:15:00Z"
 status: "proposal"
 implementation_status: "planned"
 verification_status: "partial"
@@ -55,21 +55,18 @@ Jeliya HEAD `4d4621c929e6f9678b31b7e4a3ee1c8d751b545b` on branch
 
 The exact qualification boundary is different:
 
-- [Capability status](capability-status.md) names Jeliya commit
+- Signed direct and forced-relay evidence binds the earlier Jeliya commit
   `55024a46b3e112796ba2acf1dc408dab26dbba2e` and Iroh Rooms commit
-  `71fbb5007bef4ce83631c94762ec68c2beef3d79` as the network-qualified
-  `v0.6.0` pair.
-- The assessed HEAD is 14 commits and 142 changed files after that Jeliya
-  commit. Evidence bound to the earlier commit does not qualify the later tree.
-- The Iroh Rooms dependency remains pinned to `71fbb500...` in
-  [`Cargo.toml`](../Cargo.toml), but dependency equality alone does not transfer
-  application-level qualification.
-- Some status pages contain stale contradictions: the top of capability status
-  records fresh candidate direct and relay runs while lower rows still say that
-  no candidate run exists or that another is required. The
-  [security threat model](security-threat-model.md) also retains a stale
-  statement that the public lockfile has not been repinned. Documentation
-  reconciliation is a release gate, not editorial cleanup.
+  `71fbb5007bef4ce83631c94762ec68c2beef3d79` (tag `v0.1.0-rc.3`).
+- The current dependency candidate is Jeliya
+  `42614709c03277acdb001b1a855952c6d5427625` with the deliberately untagged
+  Iroh Rooms revision `a5d98b70d717f35d3ce60953a88e12e646f2e871`, the first upstream `main`
+  merge carrying the fixes for `kortiene/iroh-room#121` and
+  `kortiene/iroh-room#119` plus the intervening connection-generation fixes.
+- Exact-revision upstream regressions, the Jeliya workspace tests, and the
+  two-daemon loopback suite pass at the new pair. The older signed manifests do
+  not transfer: fresh signed direct and forced-relay runs must bind the new
+  public Jeliya commit and dependency revision before release qualification.
 
 Local verification performed during the assessment:
 
@@ -77,10 +74,12 @@ Local verification performed during the assessment:
 - Rust core and daemon: 71 unit tests passed; one opt-in performance test was
   ignored.
 - Documentation, secret-storage, and release-contract checks passed.
-- A full `cargo test --locked --workspace` could not build `jeliya-ffi` because
-  the local environment lacked Dart SDK headers. The core and daemon were then
-  tested separately and passed. This is an unverified local FFI prerequisite,
-  not evidence of a product failure or success.
+- During the initial assessment, a full `cargo test --locked --workspace` could
+  not build `jeliya-ffi` because the local environment lacked Dart SDK headers;
+  core and daemon tests passed separately.
+- Follow-up qualification on 2026-07-19 supplied the installed Dart SDK headers:
+  the full locked workspace passed 77 tests with one intentional performance
+  ignore at `4261470...` + `a5d98b70...`.
 - On 2026-07-17, `jeliya.ai` and `app.jeliya.ai` had no resolvable A, AAAA, or
   CNAME record from the assessment environment.
 
@@ -160,10 +159,14 @@ at `app.jeliya.ai`.
   surface. It must remain unavailable to the hosted browser product.
 - No component loader, signed package format, permission broker, quota model,
   upgrade rollback, or revocation path exists.
-- Upstream issue #121 leaves live fanout visible to an unproven provisional
-  dialer during an open join window. Upstream issue #119 leaves some store holes
-  incompletely healable. The former must be fixed or prevented before
-  production; the latter needs repair or a fail-loud integrity response.
+- Upstream `kortiene/iroh-room#121` and `kortiene/iroh-room#119` are fixed on
+  upstream `main` after tag `v0.1.0-rc.3`. Jeliya deliberately pins the first
+  merge carrying both fixes (`a5d98b70...`) and locally requalifies the
+  provisional-peer gate, connection-generation teardown, synchronization
+  isolation, and store retry/degradation behavior. Store retry exhaustion or
+  queue overflow fails loudly through a durable critical `store_degraded`
+  decision; it does not make disk failure impossible. Fresh signed network
+  evidence remains a Phase 0 gate.
 
 ## Why the loopback daemon must not be public
 
@@ -387,8 +390,9 @@ request or Referer header. Required controls are:
   than 24 hours for asynchronous invites.
 - Add `invite.cancel` and close the provisional join window immediately after
   redemption or cancellation.
-- Fix upstream issue #121 or suspend normal room fanout while an unproven
-  provisional connection exists.
+- Keep the upstream pin at or after `58aca4ba...` and require the
+  `uninvited_provisional_dialer_receives_no_live_fanout` regression to pass at
+  the exact resolved revision.
 
 Current tickets are bound to a known invitee identity. Preserve that property.
 New-user onboarding is therefore a two-step flow:
@@ -871,6 +875,11 @@ from the previous phase.
 Deliver:
 
 - reconcile status, threat, evidence, and platform documentation;
+- pin the exact public Iroh Rooms revision `a5d98b70...`, recording why the
+  first merge with both required fixes is used despite having no release tag;
+- requalify provisional-peer fanout, connection-generation teardown,
+  synchronization isolation, and store retry/degradation at that exact
+  revision;
 - select one exact clean candidate commit;
 - accept or reject the hybrid architecture through an ADR;
 - update the threat model for browser origin, companion, and relays;
@@ -881,11 +890,14 @@ Deliver:
 Go/no-go gate:
 
 - no contradictory release claim remains;
+- `Cargo.toml` and `Cargo.lock` both resolve Iroh Rooms `a5d98b70...`;
+- the named upstream fanout, connection-generation, isolation, and
+  store-degradation regressions pass at that revision, together with Jeliya's
+  join/loopback suite;
 - complete CI passes twice on one immutable SHA;
-- direct and forced-relay evidence is signed and bound to that SHA;
+- direct and forced-relay evidence is signed and bound to that SHA and
+  `a5d98b70...`;
 - a browser reaches a native test endpoint through an authenticated relay;
-- production work does not continue with upstream issue #121 exploitable and
-  unmitigated.
 
 ### Phase 1: production identity and protocol primitives, 3 to 5 weeks
 
@@ -897,7 +909,8 @@ Deliver:
 - invite default expiry and cancellation;
 - companion pairing/control protocol;
 - protocol version and capability negotiation;
-- store-hole detection, repair, or fail-loud response.
+- surface upstream's durable critical `store_degraded` decision and define the
+  operator response to exhausted store retries or queue overflow.
 
 Go/no-go gate:
 
@@ -1064,7 +1077,8 @@ capabilities they do not provide.
 4. Browser-origin/CDN compromise and the maximum authority granted to a web
    controller.
 5. Recovery usability and user custody for an accountless identity.
-6. Resolution of upstream issues #121 and #119.
+6. A tagged-release and maintenance path for the deliberately untagged
+   `a5d98b70...` Iroh Rooms revision.
 7. Native signing, notarization, SmartScreen, and Linux distribution timing.
 8. Relay bandwidth economics for browser file transfer.
 9. PWA storage behavior across real Safari/iOS and low-storage devices.
@@ -1075,6 +1089,8 @@ capabilities they do not provide.
 - [Iroh: WebAssembly and browsers](https://docs.iroh.computer/languages/wasm-browser) - Browser build instructions, relay-only connections, end-to-end encryption, feature flags, and wrapper guidance.
 - [Iroh: Use your own relay](https://docs.iroh.computer/add-a-relay) - Production relay guidance, authentication, stateless failover, and two-region recommendation.
 - [Iroh hosting](https://www.iroh.computer/services/hosting) - Public-service limitations and current managed-relay starting price.
+- [kortiene/iroh-room#121](https://github.com/kortiene/iroh-room/issues/121) and [iroh-room PR #125](https://github.com/kortiene/iroh-room/pull/125) - Provisional-peer fanout and handshake gating.
+- [kortiene/iroh-room#119](https://github.com/kortiene/iroh-room/issues/119) and [iroh-room PR #132](https://github.com/kortiene/iroh-room/pull/132) - Store-insert retry, local hole healing, and fail-loud degradation.
 - [MDN: Storage quotas and eviction criteria](https://developer.mozilla.org/en-US/docs/Web/API/Storage_API/Storage_quotas_and_eviction_criteria) - Best-effort and persistent browser storage and eviction boundaries.
 - [MDN: Origin private file system](https://developer.mozilla.org/en-US/docs/Web/API/File_System_API/Origin_private_file_system) - OPFS availability, worker support, and origin-private storage behavior.
 - [MDN: Offline and background operation](https://developer.mozilla.org/en-US/docs/Web/Progressive_web_apps/Guides/Offline_and_background_operation) - PWA offline and service-worker execution boundaries.
